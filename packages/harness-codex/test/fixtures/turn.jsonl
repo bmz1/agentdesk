@@ -1,0 +1,17 @@
+{"id":1,"result":{"userAgent":"agentdesk/0.169.0"}}
+{"method":"thread/started","params":{"thread":{"id":"thr_1","model":"gpt-x","cwd":"/repo"}}}
+{"method":"turn/started","params":{"threadId":"thr_1","turn":{"id":"turn_1","status":"inProgress"}}}
+{"method":"item/started","params":{"threadId":"thr_1","turnId":"turn_1","item":{"type":"userMessage","id":"u1"}}}
+{"method":"item/agentMessage/delta","params":{"threadId":"thr_1","turnId":"turn_1","itemId":"msg_1","delta":"Running "}}
+{"method":"item/agentMessage/delta","params":{"threadId":"thr_1","turnId":"turn_1","itemId":"msg_1","delta":"tests."}}
+{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"msg_1","text":"Running tests."}}}
+{"method":"item/started","params":{"item":{"type":"commandExecution","id":"cmd_1","command":"pnpm test","cwd":"/repo","status":"inProgress"}}}
+{"id":0,"method":"item/commandExecution/requestApproval","params":{"threadId":"thr_1","turnId":"turn_1","itemId":"cmd_1","command":"pnpm test","reason":"needs network"}}
+{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"cmd_1","command":"pnpm test","status":"completed","aggregatedOutput":"1 failed","exitCode":1}}}
+{"method":"item/started","params":{"item":{"type":"fileChange","id":"fc_1","changes":[{"path":"src/a.ts","kind":{"type":"update"},"diff":"@@ -1 +1 @@"}],"status":"inProgress"}}}
+{"id":5,"method":"item/fileChange/requestApproval","params":{"threadId":"thr_1","turnId":"turn_1","itemId":"fc_1"}}
+{"method":"item/completed","params":{"item":{"type":"fileChange","id":"fc_1","changes":[{"path":"src/a.ts","diff":"@@ -1 +1 @@"}],"status":"completed"}}}
+{"method":"item/completed","params":{"item":{"type":"reasoning","id":"r1","summary":["Fix the assertion"],"content":[]}}}
+{"method":"configWarning","params":{"summary":"ignored"}}
+{"method":"error","params":{"error":{"message":"stream hiccup"},"willRetry":true,"threadId":"thr_1","turnId":"turn_1"}}
+{"method":"turn/completed","params":{"threadId":"thr_1","turn":{"id":"turn_1","status":"completed","error":null,"durationMs":4200}}}

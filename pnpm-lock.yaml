@@ -38,9 +38,15 @@ importers:
       '@agentdesk/harness-claude':
         specifier: workspace:*
         version: link:../../packages/harness-claude
+      '@agentdesk/harness-codex':
+        specifier: workspace:*
+        version: link:../../packages/harness-codex
       '@agentdesk/harness-core':
         specifier: workspace:*
         version: link:../../packages/harness-core
+      '@agentdesk/harness-opencode':
+        specifier: workspace:*
+        version: link:../../packages/harness-opencode
       '@agentdesk/jira':
         specifier: workspace:*
         version: link:../../packages/jira
@@ -195,11 +201,35 @@ importers:
         specifier: 4.1.4
         version: 4.1.4
 
+  packages/harness-codex:
+    dependencies:
+      '@agentdesk/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@agentdesk/harness-core':
+        specifier: workspace:*
+        version: link:../harness-core
+      effect:
+        specifier: 4.1.4
+        version: 4.1.4
+
   packages/harness-core:
     dependencies:
       '@agentdesk/contracts':
         specifier: workspace:*
         version: link:../contracts
+      effect:
+        specifier: 4.1.4
+        version: 4.1.4
+
+  packages/harness-opencode:
+    dependencies:
+      '@agentdesk/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@agentdesk/harness-core':
+        specifier: workspace:*
+        version: link:../harness-core
       effect:
         specifier: 4.1.4
         version: 4.1.4

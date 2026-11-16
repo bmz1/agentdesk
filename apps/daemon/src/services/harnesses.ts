@@ -1,5 +1,7 @@
 import type { HarnessDetection } from "@agentdesk/contracts"
 import { makeClaudeAdapter } from "@agentdesk/harness-claude"
+import { makeCodexAdapter } from "@agentdesk/harness-codex"
+import { makeOpenCodeAdapter } from "@agentdesk/harness-opencode"
 import { type HarnessAdapter, type HarnessRegistryShape, makeMockAdapter, makeRegistry } from "@agentdesk/harness-core"
 import { Context, Duration, Effect, Layer } from "effect"
 
@@ -10,7 +12,12 @@ export interface HarnessesShape extends HarnessRegistryShape {
 
 export class Harnesses extends Context.Service<Harnesses, HarnessesShape>()("agentdesk/Harnesses") {}
 
-export const defaultAdapters = (): ReadonlyArray<HarnessAdapter> => [makeClaudeAdapter(), makeMockAdapter()]
+export const defaultAdapters = (): ReadonlyArray<HarnessAdapter> => [
+  makeClaudeAdapter(),
+  makeCodexAdapter(),
+  makeOpenCodeAdapter(),
+  makeMockAdapter()
+]
 
 export const HarnessesLive = (adapters: ReadonlyArray<HarnessAdapter> = defaultAdapters()) =>
   Layer.effect(
