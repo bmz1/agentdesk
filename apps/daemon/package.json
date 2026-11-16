@@ -19,6 +19,7 @@
     "@agentdesk/git": "workspace:*",
     "@agentdesk/harness-claude": "workspace:*",
     "@agentdesk/harness-core": "workspace:*",
+    "@agentdesk/jira": "workspace:*",
     "@hono/node-server": "2.1.8",
     "better-sqlite3": "^12.11.1",
     "drizzle-orm": "0.45.4",

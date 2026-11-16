@@ -1,5 +1,7 @@
 import {
   ApprovalDecisionBody,
+  CreateJiraConnectionBody,
+  UpdateJiraConnectionBody,
   CreateProjectBody,
   CreateTicketBody,
   PromptBody,
@@ -18,6 +20,7 @@ import { Activity } from "../services/activity"
 import { Approvals } from "../services/approvals"
 import { EventLog } from "../services/event-log"
 import { Harnesses } from "../services/harnesses"
+import { JiraSync } from "../services/jira-sync"
 import { Notices } from "../services/notices"
 import { Projects } from "../services/projects"
 import { Sessions } from "../services/sessions"
@@ -204,6 +207,22 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape, extraRou
   app.get("/approvals", (c) =>
     respond(c, withSvc(Approvals, (a) => a.list({ pending: c.req.query("pending") === "1" })))
   )
+
+  // ---- jira (read-only sync) ---------------------------------------------------------
+  app.get("/jira/connections", (c) => respond(c, withSvc(JiraSync, (j) => j.list)))
+  app.post("/jira/connections", async (c) => {
+    const input = await body(c, CreateJiraConnectionBody)
+    return respond(c, Effect.flatMap(input, (b) => withSvc(JiraSync, (j) => j.create(b))), 201)
+  })
+  app.patch("/jira/connections/:id", async (c) => {
+    const input = await body(c, UpdateJiraConnectionBody)
+    return respond(c, Effect.flatMap(input, (b) => withSvc(JiraSync, (j) => j.update(c.req.param("id"), b))))
+  })
+  app.delete("/jira/connections/:id", (c) => respond(c, withSvc(JiraSync, (j) => j.remove(c.req.param("id")))))
+  app.post("/jira/connections/:id/sync", (c) =>
+    respond(c, withSvc(JiraSync, (j) => j.sync(c.req.param("id"), { full: c.req.query("full") === "1" })))
+  )
+  app.post("/jira/connections/:id/test", (c) => respond(c, withSvc(JiraSync, (j) => j.test(c.req.param("id")))))
 
   // ---- misc ------------------------------------------------------------------------
   app.get("/harnesses/detect", (c) =>

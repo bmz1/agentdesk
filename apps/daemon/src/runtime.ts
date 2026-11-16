@@ -4,8 +4,10 @@ import { DaemonConfigLive, type DaemonConfigShape } from "./config"
 import { ActivityLive } from "./services/activity"
 import { ApprovalsLive } from "./services/approvals"
 import { DatabaseLive } from "./services/database"
+import { CredentialStoreLive } from "./services/credentials"
 import { EventLogLive } from "./services/event-log"
 import { HarnessesLive } from "./services/harnesses"
+import { JiraSyncLive, type JiraSyncOptions } from "./services/jira-sync"
 import { NoticesLive } from "./services/notices"
 import { ProjectsLive } from "./services/projects"
 import { SessionsLive } from "./services/sessions"
@@ -15,19 +17,25 @@ import { WorkspacesLive } from "./services/workspaces"
 export interface AppLayerOptions {
   readonly config?: Partial<DaemonConfigShape>
   readonly adapters?: ReadonlyArray<HarnessAdapter>
+  readonly jira?: JiraSyncOptions
+  /** "memory" keeps secrets in-process only (tests). */
+  readonly credentialStore?: "auto" | "memory"
 }
 
 /** The daemon's explicit dependency graph. */
 export const makeAppLayer = (options: AppLayerOptions = {}) => {
   const config = DaemonConfigLive(options.config)
   const base = Layer.mergeAll(DatabaseLive, NoticesLive).pipe(Layer.provideMerge(config))
-  const infra = Layer.mergeAll(EventLogLive, ActivityLive).pipe(Layer.provideMerge(base))
+  const infra = Layer.mergeAll(EventLogLive, ActivityLive, CredentialStoreLive(options.credentialStore)).pipe(
+    Layer.provideMerge(base)
+  )
   const domain = Layer.mergeAll(
     ProjectsLive,
     TicketsLive,
     ApprovalsLive,
     WorkspacesLive,
-    HarnessesLive(options.adapters)
+    HarnessesLive(options.adapters),
+    JiraSyncLive(options.jira)
   ).pipe(Layer.provideMerge(infra))
   return SessionsLive.pipe(Layer.provideMerge(domain))
 }

@@ -41,6 +41,9 @@ importers:
       '@agentdesk/harness-core':
         specifier: workspace:*
         version: link:../../packages/harness-core
+      '@agentdesk/jira':
+        specifier: workspace:*
+        version: link:../../packages/jira
       '@hono/node-server':
         specifier: 2.1.8
         version: 2.1.8(hono@4.13.19)
@@ -197,6 +200,12 @@ importers:
       '@agentdesk/contracts':
         specifier: workspace:*
         version: link:../contracts
+      effect:
+        specifier: 4.1.4
+        version: 4.1.4
+
+  packages/jira:
+    dependencies:
       effect:
         specifier: 4.1.4
         version: 4.1.4
