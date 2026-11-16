@@ -163,4 +163,3 @@ out/
 *.db
 *.db-wal
 *.db-shm
-apps/desktop/src/renderer/routeTree.gen.ts

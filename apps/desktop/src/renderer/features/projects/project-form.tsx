@@ -1,0 +1,141 @@
+import type { HarnessId, PermissionMode, Project } from "@agentdesk/contracts"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { FolderOpen } from "lucide-react"
+import { useState } from "react"
+import { HARNESS_LABELS } from "@/components/status"
+import { Button } from "@/components/ui/button"
+import { Field, Input, Select } from "@/components/ui/input"
+import { Spinner } from "@/components/ui/misc"
+import { api } from "@/lib/api"
+import { bridge } from "@/lib/connection"
+import { q } from "@/lib/queries"
+
+export const PERMISSION_MODES: ReadonlyArray<{ id: PermissionMode; label: string; hint: string }> = [
+  { id: "ask", label: "Ask for risky tools", hint: "Agent tool calls that need permission show approval cards (recommended)." },
+  { id: "accept_edits", label: "Auto-accept file edits", hint: "File edits in the worktree are allowed; shell commands still ask." },
+  { id: "plan", label: "Plan only", hint: "The agent may read and plan but not modify files." },
+  {
+    id: "unrestricted",
+    label: "Unrestricted (sandbox only)",
+    hint: "No approvals. A worktree is NOT a sandbox — only use inside an isolated sandbox."
+  }
+]
+
+export const ProjectForm = ({ project, onDone }: { project?: Project; onDone?: (p: Project) => void }) => {
+  const qc = useQueryClient()
+  const workflows = useQuery(q.workflows())
+  const [name, setName] = useState(project?.name ?? "")
+  const [key, setKey] = useState(project?.key ?? "")
+  const [repoPath, setRepoPath] = useState(project?.repoPath ?? "")
+  const [defaultBranch, setDefaultBranch] = useState(project?.defaultBranch ?? "")
+  const [harness, setHarness] = useState<HarnessId>(project?.defaultHarness ?? "claude")
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(project?.permissionMode ?? "ask")
+  const [testCommand, setTestCommand] = useState(project?.testCommand ?? "")
+  const [workflowId, setWorkflowId] = useState(project?.defaultWorkflowId ?? "")
+  const save = useMutation({
+    mutationFn: () =>
+      project
+        ? api.updateProject(project.id, {
+            name,
+            repoPath,
+            defaultBranch: defaultBranch || undefined,
+            defaultHarness: harness,
+            permissionMode,
+            testCommand: testCommand || null,
+            defaultWorkflowId: workflowId || null
+          })
+        : api.createProject({
+            name,
+            key: key || undefined,
+            repoPath,
+            defaultBranch: defaultBranch || undefined,
+            defaultHarness: harness,
+            permissionMode,
+            testCommand: testCommand || null,
+            defaultWorkflowId: workflowId || null
+          }),
+    onSuccess: (p) => {
+      void qc.invalidateQueries({ queryKey: ["projects"] })
+      onDone?.(p)
+    }
+  })
+  const pick = async () => {
+    const dir = await bridge()?.pickDirectory()
+    if (dir) {
+      setRepoPath(dir)
+      if (!name) setName(dir.split("/").filter(Boolean).at(-1) ?? "")
+    }
+  }
+  const mode = PERMISSION_MODES.find((m) => m.id === permissionMode)
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault()
+        save.mutate()
+      }}
+    >
+      <div className="grid grid-cols-[1fr_120px] gap-2">
+        <Field label="Name">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Payments service" data-testid="project-name" />
+        </Field>
+        <Field label="Key">
+          <Input value={key} onChange={(e) => setKey(e.target.value.toUpperCase())} placeholder="auto" disabled={!!project} />
+        </Field>
+      </div>
+      <Field label="Repository path" hint="Agents never write here directly; each run gets its own git worktree.">
+        <div className="flex gap-2">
+          <Input value={repoPath} onChange={(e) => setRepoPath(e.target.value)} placeholder="/Users/me/src/repo" className="font-mono" data-testid="project-repo" />
+          {bridge() && (
+            <Button type="button" variant="secondary" onClick={() => void pick()}>
+              <FolderOpen /> Browse
+            </Button>
+          )}
+        </div>
+      </Field>
+      <div className="grid grid-cols-3 gap-2">
+        <Field label="Default branch">
+          <Input value={defaultBranch} onChange={(e) => setDefaultBranch(e.target.value)} placeholder="auto-detect" />
+        </Field>
+        <Field label="Default harness">
+          <Select value={harness} onChange={(e) => setHarness(e.target.value as HarnessId)} data-testid="project-harness">
+            {(Object.keys(HARNESS_LABELS) as Array<HarnessId>).map((h) => (
+              <option key={h} value={h}>
+                {HARNESS_LABELS[h]}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Default workflow">
+          <Select value={workflowId} onChange={(e) => setWorkflowId(e.target.value)}>
+            <option value="">None</option>
+            {(workflows.data ?? []).map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+      <Field label="Agent permissions" hint={mode?.hint}>
+        <Select value={permissionMode} onChange={(e) => setPermissionMode(e.target.value as PermissionMode)}>
+          {PERMISSION_MODES.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Test command" hint="Used by workflow `command` steps that don't specify one.">
+        <Input value={testCommand} onChange={(e) => setTestCommand(e.target.value)} placeholder="pnpm test" className="font-mono" />
+      </Field>
+      {save.error && <p className="text-xs text-danger">{(save.error as Error).message}</p>}
+      <div className="flex justify-end">
+        <Button type="submit" disabled={!name || !repoPath || save.isPending} data-testid="project-save">
+          {save.isPending && <Spinner />}
+          {project ? "Save project" : "Register project"}
+        </Button>
+      </div>
+    </form>
+  )
+}

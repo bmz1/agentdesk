@@ -1,0 +1,145 @@
+import type {
+  ActivityEvent,
+  AgentSession,
+  Approval,
+  ApprovalDecision,
+  Artifact,
+  CreateJiraConnectionBody,
+  CreateProjectBody,
+  CreateTicketBody,
+  DaemonInfo,
+  Diff,
+  HarnessDetection,
+  HarnessId,
+  JiraConnection,
+  Project,
+  StoredAgentEvent,
+  Ticket,
+  UpdateJiraConnectionBody,
+  UpdateProjectBody,
+  UpdateTicketBody,
+  WorkflowDefinitionSummary,
+  WorkflowRun,
+  WorkflowRunDetail,
+  Workspace
+} from "@agentdesk/contracts"
+import type { Connection } from "./connection"
+
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string
+  ) {
+    super(message)
+  }
+}
+
+let connection: Connection | null = null
+export const setConnection = (c: Connection | null) => {
+  connection = c
+}
+export const getConnection = () => connection
+
+const request = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+  if (!connection) throw new ApiError(0, "NoDaemon", "Not connected to the AgentDesk daemon")
+  let res: Response
+  try {
+    res = await fetch(connection.url + path, {
+      method,
+      headers: {
+        Authorization: `Bearer ${connection.token}`,
+        ...(body !== undefined && { "Content-Type": "application/json" })
+      },
+      body: body === undefined ? undefined : JSON.stringify(body)
+    })
+  } catch (e) {
+    throw new ApiError(0, "NetworkError", `Daemon unreachable: ${(e as Error).message}`)
+  }
+  if (res.status === 204) return undefined as T
+  const text = await res.text()
+  const json = text ? JSON.parse(text) : undefined
+  if (!res.ok) throw new ApiError(res.status, json?.error ?? "Error", json?.message ?? res.statusText)
+  return json as T
+}
+
+const qs = (params: Record<string, string | number | boolean | undefined | null>) => {
+  const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")
+  return entries.length ? "?" + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString() : ""
+}
+
+export interface TicketQuery {
+  projectId?: string
+  source?: string
+  status?: string
+  q?: string
+  pinned?: boolean
+}
+
+export const api = {
+  info: () => request<DaemonInfo>("GET", "/info"),
+  harnesses: (refresh = false) => request<ReadonlyArray<HarnessDetection>>("GET", `/harnesses/detect${qs({ refresh: refresh ? 1 : undefined })}`),
+
+  projects: () => request<ReadonlyArray<Project>>("GET", "/projects"),
+  project: (id: string) => request<Project>("GET", `/projects/${id}`),
+  createProject: (b: CreateProjectBody) => request<Project>("POST", "/projects", b),
+  updateProject: (id: string, b: UpdateProjectBody) => request<Project>("PATCH", `/projects/${id}`, b),
+  deleteProject: (id: string) => request<void>("DELETE", `/projects/${id}`),
+
+  tickets: (q: TicketQuery = {}) =>
+    request<ReadonlyArray<Ticket>>("GET", `/tickets${qs({ ...q, pinned: q.pinned ? 1 : undefined })}`),
+  ticket: (id: string) => request<Ticket>("GET", `/tickets/${id}`),
+  createTicket: (b: CreateTicketBody) => request<Ticket>("POST", "/tickets", b),
+  updateTicket: (id: string, b: UpdateTicketBody) => request<Ticket>("PATCH", `/tickets/${id}`, b),
+  deleteTicket: (id: string) => request<void>("DELETE", `/tickets/${id}`),
+  ticketActivity: (id: string) => request<ReadonlyArray<ActivityEvent>>("GET", `/tickets/${id}/activity`),
+  ticketSessions: (id: string) => request<ReadonlyArray<AgentSession>>("GET", `/tickets/${id}/sessions`),
+  ticketApprovals: (id: string) => request<ReadonlyArray<Approval>>("GET", `/tickets/${id}/approvals`),
+  ticketDiff: (id: string) => request<Diff>("GET", `/tickets/${id}/diff`),
+  ticketWorkspace: (id: string) => request<Workspace | null>("GET", `/tickets/${id}/workspace`),
+  ticketRuns: (id: string) => request<ReadonlyArray<WorkflowRun>>("GET", `/tickets/${id}/runs`),
+  startSession: (ticketId: string, b: { harness?: HarnessId; prompt?: string; useRepoDirectly?: boolean }) =>
+    request<AgentSession>("POST", `/tickets/${ticketId}/sessions`, b),
+  startRun: (ticketId: string, b: { workflowId?: string; harness?: HarnessId }) =>
+    request<WorkflowRun>("POST", `/tickets/${ticketId}/start-run`, b),
+  cleanupWorkspace: (id: string, force = false) =>
+    request<Workspace>("POST", `/workspaces/${id}/cleanup${qs({ force: force ? 1 : undefined })}`),
+
+  sessions: (active = false) => request<ReadonlyArray<AgentSession>>("GET", `/sessions${qs({ active: active ? 1 : undefined })}`),
+  session: (id: string) => request<AgentSession>("GET", `/sessions/${id}`),
+  sessionHistory: (id: string, after = 0) => request<ReadonlyArray<StoredAgentEvent>>("GET", `/sessions/${id}/history${qs({ after })}`),
+  prompt: (id: string, text: string) => request<void>("POST", `/sessions/${id}/prompt`, { text }),
+  interrupt: (id: string) => request<void>("POST", `/sessions/${id}/interrupt`),
+  stopSession: (id: string) => request<void>("POST", `/sessions/${id}/stop`),
+
+  approvals: (pending = false) => request<ReadonlyArray<Approval>>("GET", `/approvals${qs({ pending: pending ? 1 : undefined })}`),
+  decide: (id: string, decision: ApprovalDecision, note?: string) =>
+    request<void>("POST", `/approvals/${id}/decision`, { decision, note }),
+
+  activity: (limit = 100) => request<ReadonlyArray<ActivityEvent>>("GET", `/activity${qs({ limit })}`),
+
+  runs: (status?: string) => request<ReadonlyArray<WorkflowRun>>("GET", `/runs${qs({ status })}`),
+  run: (id: string) => request<WorkflowRunDetail>("GET", `/runs/${id}`),
+  cancelRun: (id: string) => request<void>("POST", `/runs/${id}/cancel`),
+  resumeRun: (id: string) => request<void>("POST", `/runs/${id}/resume`),
+  retryStep: (id: string) => request<void>("POST", `/runs/${id}/retry`),
+  artifact: (id: string) => request<Artifact>("GET", `/artifacts/${id}`),
+
+  workflows: () => request<ReadonlyArray<WorkflowDefinitionSummary>>("GET", "/workflows"),
+  workflow: (id: string) => request<WorkflowDefinitionSummary & { versions: ReadonlyArray<number> }>("GET", `/workflows/${id}`),
+  saveWorkflow: (yaml: string) => request<WorkflowDefinitionSummary>("POST", "/workflows", { yaml }),
+  validateWorkflow: (yaml: string) =>
+    request<{ ok: boolean; errors: ReadonlyArray<string> }>("POST", "/workflows/validate", { yaml }),
+
+  jiraConnections: () => request<ReadonlyArray<JiraConnection>>("GET", "/jira/connections"),
+  createJiraConnection: (b: CreateJiraConnectionBody) => request<JiraConnection>("POST", "/jira/connections", b),
+  updateJiraConnection: (id: string, b: UpdateJiraConnectionBody) =>
+    request<JiraConnection>("PATCH", `/jira/connections/${id}`, b),
+  deleteJiraConnection: (id: string) => request<void>("DELETE", `/jira/connections/${id}`),
+  syncJira: (id: string, full = false) =>
+    request<{ fetched: number; created: number; updated: number; missing: number }>(
+      "POST",
+      `/jira/connections/${id}/sync${qs({ full: full ? 1 : undefined })}`
+    ),
+  testJira: (id: string) => request<{ ok: boolean; message: string }>("POST", `/jira/connections/${id}/test`)
+}
