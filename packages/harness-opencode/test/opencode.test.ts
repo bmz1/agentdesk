@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { AgentEvent } from "@agentdesk/contracts"
-import { parseJsonLine } from "@agentdesk/harness-core"
+import { type HarnessSession, parseJsonLine } from "@agentdesk/harness-core"
 import { Effect, Stream } from "effect"
 import { describe, expect, it } from "vitest"
 import { makeOpenCodeAdapter, OpenCodeNormalizer, openCodePermissions } from "../src"
@@ -38,7 +38,7 @@ describe("OpenCodeNormalizer", () => {
 
 describe("OpenCode adapter (fake server)", () => {
   const adapter = makeOpenCodeAdapter({ binary: join(__dirname, "fake-opencode.mjs"), startupTimeoutMs: 10_000 })
-  const run = (prompt: string, onEvent: (e: AgentEvent, s: any) => Effect.Effect<void, any>, turns: number) =>
+  const run = (prompt: string, onEvent: (e: AgentEvent, s: HarnessSession) => Effect.Effect<void, unknown>, turns: number) =>
     Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {

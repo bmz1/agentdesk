@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { AgentEvent } from "@agentdesk/contracts"
-import { parseJsonLine } from "@agentdesk/harness-core"
+import { type HarnessSession, parseJsonLine } from "@agentdesk/harness-core"
 import { Effect, Stream } from "effect"
 import { describe, expect, it } from "vitest"
 import { CodexNormalizer, makeCodexAdapter } from "../src"
@@ -42,7 +42,7 @@ describe("CodexNormalizer", () => {
 describe("Codex adapter (fake app-server)", () => {
   const adapter = makeCodexAdapter({ binary: join(__dirname, "fake-codex.mjs"), requestTimeoutMs: 5000 })
 
-  const collect = (prompt: string, onEvent: (e: AgentEvent, s: any) => Effect.Effect<void, any>, turns: number) =>
+  const collect = (prompt: string, onEvent: (e: AgentEvent, s: HarnessSession) => Effect.Effect<void, unknown>, turns: number) =>
     Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
