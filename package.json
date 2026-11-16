@@ -1,0 +1,24 @@
+{
+  "name": "agentdesk",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev:daemon": "pnpm --filter @agentdesk/daemon dev",
+    "dev:desktop": "pnpm --filter @agentdesk/desktop dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.1.4",
+    "@types/node": "^22.20.5",
+    "effect": "4.1.4",
+    "typescript": "~5.9.3",
+    "vitest": "^5.1.0"
+  }
+}

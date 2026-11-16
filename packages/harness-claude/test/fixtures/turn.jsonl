@@ -1,0 +1,14 @@
+{"type":"control_response","response":{"subtype":"success","request_id":"init1","response":{"commands":[]}}}
+{"type":"system","subtype":"init","cwd":"/repo","session_id":"sess-1","model":"claude-test","tools":["Bash"]}
+{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}},"session_id":"sess-1","parent_tool_use_id":null,"api_message_id":"msg_1"}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Let me "}},"session_id":"sess-1","parent_tool_use_id":null,"api_message_id":"msg_1"}
+{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"check."}},"session_id":"sess-1","parent_tool_use_id":null,"api_message_id":"msg_1"}
+{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"Let me check."}]},"session_id":"sess-1","parent_tool_use_id":null}
+{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"echo hi > out.txt","description":"Write hi"}}]},"session_id":"sess-1","parent_tool_use_id":null}
+{"type":"control_request","request_id":"req-1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"echo hi > out.txt"},"description":"Write hi","tool_use_id":"toolu_1"}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"","is_error":false,"tool_use_id":"toolu_1"}]},"session_id":"sess-1","parent_tool_use_id":null}
+{"type":"assistant","message":{"id":"msg_sub","role":"assistant","content":[{"type":"text","text":"subagent noise"}]},"session_id":"sess-1","parent_tool_use_id":"toolu_task"}
+{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}
+not json at all
+{"type":"assistant","message":{"id":"msg_2","role":"assistant","content":[{"type":"thinking","thinking":"done?"},{"type":"text","text":"DONE"}]},"session_id":"sess-1","parent_tool_use_id":null}
+{"type":"result","subtype":"success","is_error":false,"duration_ms":1234,"total_cost_usd":0.01,"result":"DONE","session_id":"sess-1"}
