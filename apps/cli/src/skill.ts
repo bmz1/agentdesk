@@ -25,8 +25,8 @@ Always pass --json when you parse output. Every --json command prints one JSON v
 ## Commands
 
   agentdesk projects                          projects (id, key, repo path)
-  agentdesk new "<prompt>" [--project KEY]    start a thread; the project defaults to the one containing
-        [--title T] [--harness claude|codex|opencode] [--readonly] [--wait] [--timeout S]
+  agentdesk new "<prompt>" [--project KEY]    start a thread in its own worktree (project: the one containing $PWD)
+        [--title T] [--harness claude|codex|opencode] [--wait] [--timeout S]
   agentdesk ls [--active] [--attention]       sessions with state and a one-line status
   agentdesk show <session>                    one session, with its latest message
   agentdesk send <session> "<text>" [--wait]  follow-up prompt (resumes ended conversations)

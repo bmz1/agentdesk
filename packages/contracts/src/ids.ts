@@ -63,12 +63,5 @@ export type StepState = typeof StepState.Type
 export const ApprovalDecision = Schema.Literals(["allow", "deny"])
 export type ApprovalDecision = typeof ApprovalDecision.Type
 
-/**
- * How a ticket's agent works on the repo: in its own worktree from the start, or read-only
- * in the main checkout until the agent itself creates a worktree (which is then adopted).
- */
-export const WorkspaceMode = Schema.Literals(["worktree", "readonly"])
-export type WorkspaceMode = typeof WorkspaceMode.Type
-
 export const PermissionMode = Schema.Literals(["ask", "accept_edits", "plan", "unrestricted"])
 export type PermissionMode = typeof PermissionMode.Type

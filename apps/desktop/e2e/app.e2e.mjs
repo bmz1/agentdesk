@@ -32,6 +32,7 @@ const home = mkdtempSync(join(tmpdir(), "agentdesk-e2e-"))
 const repo = mkdtempSync(join(tmpdir(), "agentdesk-e2e-repo-"))
 execSync("git init -q -b main && git config user.email e2e@x && git config user.name e2e", { cwd: repo })
 writeFileSync(join(repo, "README.md"), "# e2e\n")
+writeFileSync(join(repo, ".gitignore"), ".agentdesk-setup-ran\n")
 execSync("git add . && git commit -qm init", { cwd: repo })
 
 const daemon = spawn(process.execPath, ["--import", "tsx", "src/main.ts"], {
@@ -106,6 +107,8 @@ try {
   await page.fill('[data-testid="project-name"]', "E2E Service")
   await page.fill('[data-testid="project-repo"]', repo)
   await page.selectOption('[data-testid="project-harness"]', "claude")
+  // Every new worktree runs this before its agent starts.
+  await page.fill('[data-testid="project-setup-command"]', 'echo "set up from $AGENTDESK_ROOT_PATH" > .agentdesk-setup-ran')
   await assertDropdowns()
   await page.click('[data-testid="project-save"]')
   await page.waitForSelector('[data-testid="board"]')
@@ -235,16 +238,20 @@ try {
   const final = await page.locator('[data-testid="run-status"]').getAttribute("data-status")
   if (final !== "completed") fail(`workflow ended ${final}`)
 
-  // A thread: ⌘N, one message, read-only in the main checkout, kept off the board until tracked.
+  // A thread: ⌘N, one message, in its own set-up worktree, kept off the board until tracked.
   await page.keyboard.press("ControlOrMeta+n")
   await page.fill('[data-testid="thread-prompt"]', "How should we structure the release notes? [noop]")
   await page.selectOption('[data-testid="ticket-harness"]', "mock")
-  if (await page.isChecked('[data-testid="thread-worktree"]')) fail("thread defaulted to a worktree")
   await page.keyboard.press("ControlOrMeta+Enter")
   await page.waitForSelector('[data-testid="ticket-heading"]:has-text("How should we structure the release notes?")')
-  await page.waitForSelector('[data-testid="thread-readonly"]')
+  await page.waitForSelector('[data-testid="worktree-branch"]')
+  await page.getByText("Setup script").first().waitFor()
+  await page.screenshot({ path: join(home, "thread-setup.png") })
   const thread = (await get("/tickets?tracked=0"))[0]
-  if (!thread || thread.workspaceMode !== "readonly") fail("thread was not created read-only and untracked")
+  if (!thread) fail("thread was not created untracked")
+  const [threadSession] = await get(`/tickets/${thread.id}/sessions`)
+  if (!threadSession || threadSession.cwd === repo) fail("thread agent ran in the main checkout")
+  if (!readFileSync(join(threadSession.cwd, ".agentdesk-setup-ran"), "utf8").startsWith("set up from /")) fail("setup script did not run in the thread's worktree")
   if ((await get("/tickets?tracked=1")).some((t) => t.id === thread.id)) fail("thread appeared on the board")
   await page.click('[data-testid="track-thread"]')
   await page.waitForSelector('[data-testid="ticket-status"]')

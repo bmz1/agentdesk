@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { AgentSession, HarnessDefaults } from "./models"
-import { ApprovalDecision, BoardStatus, GitProvider, HarnessId, PermissionMode, Priority, WorkspaceMode } from "./ids"
+import { ApprovalDecision, BoardStatus, GitProvider, HarnessId, PermissionMode, Priority } from "./ids"
 
 /** Request bodies validated at the HTTP boundary. */
 
@@ -14,7 +14,8 @@ export const CreateProjectBody = Schema.Struct({
   defaultWorkflowId: Schema.optional(Schema.NullOr(Schema.String)),
   permissionMode: Schema.optional(PermissionMode),
   inheritHarnessPermissions: Schema.optional(Schema.Boolean),
-  testCommand: Schema.optional(Schema.NullOr(Schema.String))
+  testCommand: Schema.optional(Schema.NullOr(Schema.String)),
+  setupCommand: Schema.optional(Schema.NullOr(Schema.String))
 })
 export type CreateProjectBody = typeof CreateProjectBody.Type
 
@@ -27,7 +28,8 @@ export const UpdateProjectBody = Schema.Struct({
   defaultWorkflowId: Schema.optional(Schema.NullOr(Schema.String)),
   permissionMode: Schema.optional(PermissionMode),
   inheritHarnessPermissions: Schema.optional(Schema.Boolean),
-  testCommand: Schema.optional(Schema.NullOr(Schema.String))
+  testCommand: Schema.optional(Schema.NullOr(Schema.String)),
+  setupCommand: Schema.optional(Schema.NullOr(Schema.String))
 })
 export type UpdateProjectBody = typeof UpdateProjectBody.Type
 
@@ -44,8 +46,7 @@ export const CreateTicketBody = Schema.Struct({
   workflowId: Schema.optional(Schema.NullOr(Schema.String)),
   labels: Schema.optional(Schema.Array(Schema.String)),
   /** False creates a thread, kept off the board. Defaults to true. */
-  tracked: Schema.optional(Schema.Boolean),
-  workspaceMode: Schema.optional(WorkspaceMode)
+  tracked: Schema.optional(Schema.Boolean)
 })
 export type CreateTicketBody = typeof CreateTicketBody.Type
 
@@ -70,8 +71,6 @@ export type UpdateTicketBody = typeof UpdateTicketBody.Type
 export const StartSessionBody = Schema.Struct({
   harness: Schema.optional(HarnessId),
   prompt: Schema.optional(Schema.String),
-  /** When true, run in the project repo itself instead of a fresh worktree. */
-  useRepoDirectly: Schema.optional(Schema.Boolean),
   /** Attachment ids from `POST /attachments`, sent with the first prompt. */
   images: Schema.optional(Schema.Array(Schema.String))
 })

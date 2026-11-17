@@ -9,8 +9,7 @@ import {
   RunStatus,
   SessionState,
   StepState,
-  TicketSource,
-  WorkspaceMode
+  TicketSource
 } from "./ids"
 
 const NullableString = Schema.NullOr(Schema.String)
@@ -27,6 +26,8 @@ export const Project = Schema.Struct({
   permissionMode: PermissionMode,
   inheritHarnessPermissions: Schema.Boolean,
   testCommand: NullableString,
+  /** Shell script run once in every new worktree before an agent starts (install dependencies, copy .env, …). */
+  setupCommand: NullableString,
   createdAt: Schema.String,
   updatedAt: Schema.String
 })
@@ -76,7 +77,6 @@ export const Ticket = Schema.Struct({
   pinned: Schema.Boolean,
   /** False for threads: conversations kept off the board until promoted. */
   tracked: Schema.Boolean,
-  workspaceMode: WorkspaceMode,
   sortOrder: Schema.Number,
   createdAt: Schema.String,
   updatedAt: Schema.String,
@@ -135,6 +135,8 @@ export const Workspace = Schema.Struct({
   path: Schema.String,
   baseCommit: Schema.String,
   cleanupState: Schema.Literals(["active", "retained", "removed"]),
+  /** "pending" until the project's setup script has succeeded in this worktree. */
+  setupState: Schema.Literals(["pending", "done"]),
   createdAt: Schema.String
 })
 export type Workspace = typeof Workspace.Type

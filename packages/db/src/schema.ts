@@ -15,6 +15,7 @@ export const projects = sqliteTable("projects", {
   permissionMode: text("permission_mode").notNull(),
   inheritHarnessPermissions: integer("inherit_harness_permissions", { mode: "boolean" }).notNull().default(false),
   testCommand: text("test_command"),
+  setupCommand: text("setup_command"),
   ticketCounter: integer("ticket_counter").notNull().default(0),
   createdAt: ts("created_at").notNull(),
   updatedAt: ts("updated_at").notNull()
@@ -39,7 +40,6 @@ export const tickets = sqliteTable(
     labels: json<Array<string>>("labels").notNull(),
     pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
     tracked: integer("tracked", { mode: "boolean" }).notNull().default(true),
-    workspaceMode: text("workspace_mode").notNull().default("worktree"),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: ts("created_at").notNull(),
     updatedAt: ts("updated_at").notNull(),
@@ -113,6 +113,8 @@ export const workspaces = sqliteTable("workspaces", {
   path: text("path").notNull(),
   baseCommit: text("base_commit").notNull(),
   cleanupState: text("cleanup_state").notNull(),
+  /** "pending" until the project's setup script succeeded here; worktrees from before setup scripts are "done". */
+  setupState: text("setup_state").notNull().default("done"),
   /** Session or run currently holding the exclusive writer lock. */
   lockedBy: text("locked_by"),
   createdAt: ts("created_at").notNull()

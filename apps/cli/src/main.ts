@@ -7,7 +7,7 @@ const USAGE = `usage: agentdesk <command> [options]
 
   status                       daemon info
   projects                     list projects
-  new <prompt>                 start a thread   [--project KEY] [--title T] [--harness H] [--readonly] [--wait] [--timeout S]
+  new <prompt>                 start a thread   [--project KEY] [--title T] [--harness H] [--wait] [--timeout S]
   ls                           list sessions    [--active] [--attention]
   show <session>               one session
   send <session> <text>        follow-up prompt [--wait] [--timeout S]
@@ -35,7 +35,6 @@ const OPTIONS = {
   project: { type: "string", short: "p" },
   title: { type: "string" },
   harness: { type: "string" },
-  readonly: { type: "boolean" },
   wait: { type: "boolean", short: "w" },
   timeout: { type: "string" },
   note: { type: "string" },
@@ -101,7 +100,7 @@ export const run = async (argv: ReadonlyArray<string>, io: Io): Promise<number> 
           client(),
           out,
           text("prompt"),
-          { project: o.project, title: o.title, harness: o.harness, readonly: o.readonly, wait: o.wait, timeoutSec },
+          { project: o.project, title: o.title, harness: o.harness, wait: o.wait, timeoutSec },
           io.cwd
         )
       case "send":

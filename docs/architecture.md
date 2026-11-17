@@ -76,11 +76,11 @@ A subscription registers on the PubSub *before* it reads history, then drops liv
 
 Transcripts open end first: the renderer fetches the newest page (`GET /sessions/:id/history?tail=2000`), draws it, then attaches the live stream after its last id. Older pages come from `?tail=2000&before=<id>` and are folded in by rebuilding the transcript from the full event list.
 
-A turn's end is ordered: post-turn work (worktree adoption, ready-for-review), then the `turn.completed` event, then the `idle` state, under a per-session lock shared with live prompts. Whoever sees `idle` has already seen the turn end, and a prompt sent in reaction cannot interleave with it.
+A turn's end is ordered: post-turn work (ready-for-review), then the `turn.completed` event, then the `idle` state, under a per-session lock shared with live prompts. Whoever sees `idle` has already seen the turn end, and a prompt sent in reaction cannot interleave with it.
 
 ## Sessions
 
-The `Sessions` service owns live harness sessions in daemon scopes. A UI disconnect has no effect on them. An ad-hoc session takes the worktree's single-writer lock. Approvals are persisted, routed back to the harness, and expired if the process dies. On startup, sessions left live are marked `interrupted`; orphaned harness processes are terminated after a pid and command check. A follow-up prompt resumes the provider conversation in a new process. **Resuming a conversation does not resume the original process.**
+The `Sessions` service owns live harness sessions in daemon scopes. A UI disconnect has no effect on them. Every session runs in an AgentDesk worktree, never the main checkout. An ad-hoc session takes the worktree's single-writer lock. A worktree whose project setup script has not yet succeeded (`workspaces.setup_state = pending`) runs it first: the session answers `starting` at once and boots in the background, recording the script as a `tool.started`/`tool.completed` pair. A failure fails the session and leaves the worktree pending, and a stop during setup cancels it. Workflow runs run the same script while `preparing`. Approvals are persisted, routed back to the harness, and expired if the process dies. On startup, sessions left live are marked `interrupted`; orphaned harness processes are terminated after a pid and command check. A follow-up prompt resumes the provider conversation in a new process. **Resuming a conversation does not resume the original process.**
 
 ## Workflow durability
 

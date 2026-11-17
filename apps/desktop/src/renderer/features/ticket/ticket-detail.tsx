@@ -1,7 +1,7 @@
 import type { BoardStatus, Ticket } from "@agentdesk/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { Bot, CheckSquare, ChevronLeft, Eye, FileDiff, FolderGit2, FolderTree, GitBranch, GitBranchPlus, History, Info, KanbanSquare, MessagesSquare, Pin, PinOff, Columns2 } from "lucide-react"
+import { Bot, CheckSquare, ChevronLeft, FileDiff, FolderGit2, FolderTree, GitBranch, GitBranchPlus, History, Info, KanbanSquare, MessagesSquare, Pin, PinOff, Columns2 } from "lucide-react"
 import { BOARD_COLUMNS, RunStatusBadge, SourceBadge } from "@/components/status"
 import { Button } from "@/components/ui/button"
 import { Select } from "@/components/ui/input"
@@ -77,7 +77,7 @@ export const TicketDetail = ({
           setLayout(ticketId, { split: !split, width: layout?.width ?? 50 })
           if (tab !== "agent" && tab !== "changes") onTab("agent")
         }} data-testid="toggle-agent-split"><Columns2 /> Chat + changes</Button>
-        {t.workspaceMode === "readonly" && <WorkspaceIndicator branch={workspace.data?.cleanupState === "active" ? workspace.data.branch : undefined} />}
+        {workspace.data?.cleanupState === "active" && <WorkspaceIndicator branch={workspace.data.branch} />}
         {t.tracked ? (
           <Select
             value={t.status}
@@ -200,18 +200,9 @@ const HistoryTab = ({ ticketId }: { ticketId: string }) => {
   )
 }
 
-/** Where a read-only thread's agent works: the main checkout until it creates a worktree we adopt. */
-const WorkspaceIndicator = ({ branch }: { branch: string | undefined }) =>
-  branch ? (
-    <span className="inline-flex max-w-48 items-center gap-1 rounded bg-bg-muted px-1.5 py-0.5 text-[11px] text-fg-muted" title={`Agent's worktree: ${branch}`} data-testid="thread-worktree-branch">
-      <GitBranch className="size-3 shrink-0" /> <span className="truncate font-mono">{branch}</span>
-    </span>
-  ) : (
-    <span
-      className="inline-flex items-center gap-1 rounded bg-bg-muted px-1.5 py-0.5 text-[11px] text-fg-muted"
-      title="The agent reads your main checkout without changing it. When it needs to edit code it creates a worktree, which is picked up automatically."
-      data-testid="thread-readonly"
-    >
-      <Eye className="size-3" /> Read-only
-    </span>
-  )
+/** The branch of the agent's worktree. */
+const WorkspaceIndicator = ({ branch }: { branch: string }) => (
+  <span className="inline-flex max-w-48 items-center gap-1 rounded bg-bg-muted px-1.5 py-0.5 text-[11px] text-fg-muted" title={`Agent's worktree: ${branch}`} data-testid="worktree-branch">
+    <GitBranch className="size-3 shrink-0" /> <span className="truncate font-mono">{branch}</span>
+  </span>
+)

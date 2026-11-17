@@ -109,8 +109,6 @@ export interface NewOptions {
   readonly project?: string
   readonly title?: string
   readonly harness?: string
-  /** Read-only thread in the project checkout instead of a new worktree. */
-  readonly readonly?: boolean
   readonly wait?: boolean
   readonly timeoutSec?: number
 }
@@ -127,8 +125,7 @@ export const newThread = async (client: Client, out: Output, prompt: string, opt
     projectId: project.id,
     title,
     tracked: false,
-    ...(opts.harness && { harness: opts.harness }),
-    ...(opts.readonly && { workspaceMode: "readonly" })
+    ...(opts.harness && { harness: opts.harness })
   })
   const session = await client.post<AgentSession>(`/tickets/${ticket.id}/sessions`, {
     prompt,
@@ -190,6 +187,8 @@ export const waitForTurn = async (client: Client, out: Output, sessionId: string
       else if (event.type === "turn.completed")
         code = event.status === "error" ? Exit.failed : event.status === "interrupted" ? Exit.interrupted : Exit.ok
       else if (event.type === "session.exited") code = Exit.ok
+      // A failed start (setup script, missing harness) ends the session without a turn.
+      else if (event.type === "session.error" && (await client.get<AgentSession>(`/sessions/${sessionId}`)).state === "failed") code = Exit.failed
       if (code !== undefined) break
     }
   } finally {

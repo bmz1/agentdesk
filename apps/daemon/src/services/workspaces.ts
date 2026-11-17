@@ -3,8 +3,9 @@ import { join } from "node:path"
 import type { Diff, Project, Workspace } from "@agentdesk/contracts"
 import { projects, workspaces } from "@agentdesk/db"
 import * as Git from "@agentdesk/git"
+import { runCommand } from "@agentdesk/harness-core"
 import { and, desc, eq, isNull, or } from "drizzle-orm"
-import { Context, Effect, Layer } from "effect"
+import { Context, Duration, Effect, Layer } from "effect"
 import { ChildProcessSpawner } from "effect/process"
 import { DaemonConfig } from "../config"
 import { BadRequest, Conflict, type DbError, NotFound } from "../errors"
@@ -21,6 +22,7 @@ const toWorkspace = (r: Row): Workspace => ({
   path: r.path,
   baseCommit: r.baseCommit,
   cleanupState: r.cleanupState as Workspace["cleanupState"],
+  setupState: r.setupState === "pending" ? "pending" : "done",
   createdAt: r.createdAt
 })
 
@@ -41,22 +43,35 @@ export const canonicalPath = (p: string) => {
   }
 }
 
-export interface AdoptInput {
-  readonly project: Project
-  readonly ticketId: string
-  /** A linked worktree of the project repo that an agent created itself. */
-  readonly worktree: Git.WorktreeEntry
+/** The project's setup script, when it still has to run in this worktree. */
+export const pendingSetup = (workspace: Workspace, project: Project): string | undefined =>
+  workspace.setupState === "pending" ? project.setupCommand?.trim() || undefined : undefined
+
+export interface SetupResult {
+  readonly ok: boolean
+  /** null when the script timed out. */
+  readonly exitCode: number | null
+  /** The end of stdout and stderr. */
+  readonly output: string
+  readonly durationMs: number
 }
+
+/** Long enough for a cold dependency install; a hung script fails the start instead of blocking it forever. */
+export const SETUP_TIMEOUT_MS = 20 * 60_000
+const SETUP_OUTPUT_CHARS = 8_000
+const tail = (s: string) => (s.length > SETUP_OUTPUT_CHARS ? `…${s.slice(-SETUP_OUTPUT_CHARS)}` : s)
 
 export interface WorkspacesShape {
   /** Create a dedicated git worktree + branch for a ticket/run. */
   readonly allocate: (input: AllocateInput) => Effect.Effect<Workspace, Git.GitError | BadRequest | DbError>
   /** Reuse the ticket's most recent active (non-run) workspace, or allocate a new one. */
   readonly forTicket: (input: AllocateInput) => Effect.Effect<Workspace, Git.GitError | BadRequest | DbError>
-  /** Register a worktree the agent created itself, so diff, review, cleanup and PRs see it. */
-  readonly adopt: (input: AdoptInput) => Effect.Effect<Workspace, Git.GitError | DbError>
-  /** Canonical paths of every worktree AgentDesk already knows about for a project (any state). */
-  readonly registeredPaths: (projectId: string) => Effect.Effect<ReadonlySet<string>, DbError>
+  /**
+   * Run the project's setup script in the worktree (see `pendingSetup`) with
+   * `AGENTDESK_WORKSPACE_PATH`, `AGENTDESK_ROOT_PATH` and `AGENTDESK_BRANCH` set. Success marks the
+   * worktree set up; a failure leaves it pending so the next start runs the script again.
+   */
+  readonly runSetup: (workspace: Workspace, project: Project, command: string) => Effect.Effect<SetupResult, DbError>
   readonly get: (id: string) => Effect.Effect<Workspace, NotFound | DbError>
   readonly latestForTicket: (ticketId: string) => Effect.Effect<Workspace | undefined, DbError>
   /** Exclusive single-writer lock. Fails with Conflict if held by someone else. */
@@ -115,6 +130,7 @@ export const WorkspacesLive = Layer.effect(
           path,
           baseCommit: base,
           cleanupState: "active",
+          setupState: "pending",
           lockedBy: null,
           createdAt: yield* nowIso
         }
@@ -130,40 +146,38 @@ export const WorkspacesLive = Layer.effect(
         return toWorkspace(row)
       }, withProcesses)
 
-    const adopt = Effect.fn("Workspaces.adopt")(function* ({ project, ticketId, worktree }: AdoptInput) {
-        yield* Effect.annotateCurrentSpan({ ticketId, projectId: project.id, path: worktree.path })
-        const head = worktree.head ?? (yield* Git.revParse(worktree.path, "HEAD"))
-        // Diff against where the agent's branch left the default branch, not the default branch's tip.
-        const baseCommit = yield* Git.git(worktree.path, ["merge-base", "HEAD", project.defaultBranch]).pipe(
-          Effect.map((s) => s.trim()),
-          Effect.orElseSucceed(() => head)
-        )
-        const row: Row = {
-          id: newId(),
-          projectId: project.id,
-          runId: null,
-          ticketId,
-          branch: worktree.branch ?? head,
-          path: canonicalPath(worktree.path),
-          baseCommit,
-          cleanupState: "active",
-          lockedBy: null,
-          createdAt: yield* nowIso
+    const runSetup = Effect.fn("Workspaces.runSetup")(function* (ws: Workspace, project: Project, command: string) {
+        yield* Effect.annotateCurrentSpan({ workspaceId: ws.id, command })
+        const [elapsed, r] = yield* runCommand("sh", ["-c", command], {
+          cwd: ws.path,
+          timeoutMs: SETUP_TIMEOUT_MS,
+          env: {
+            AGENTDESK_WORKSPACE_PATH: ws.path,
+            AGENTDESK_ROOT_PATH: project.repoPath,
+            AGENTDESK_BRANCH: ws.branch,
+            FORCE_COLOR: "0"
+          }
+        }).pipe(withProcesses, Effect.timed)
+        const result: SetupResult = {
+          ok: r.code === 0,
+          exitCode: r.code,
+          output: tail([r.stdout.trimEnd(), r.stderr.trimEnd()].filter(Boolean).join("\n")),
+          durationMs: Duration.toMillis(elapsed)
         }
-        yield* use((db) => db.insert(workspaces).values(row).run())
+        yield* Effect.annotateCurrentSpan({ exitCode: r.code ?? -1, durationMs: result.durationMs })
+        if (result.ok) yield* use((db) => db.update(workspaces).set({ setupState: "done" }).where(eq(workspaces.id, ws.id)).run())
+        const row = yield* use((db) => db.select({ ticketId: workspaces.ticketId }).from(workspaces).where(eq(workspaces.id, ws.id)).get())
         yield* activity.record({
-          kind: "workspace.adopted",
-          message: `Agent created worktree on ${worktree.branch ? `branch ${worktree.branch}` : "a detached HEAD"}; now tracking it`,
-          ticketId,
-          data: { path: row.path, branch: row.branch, baseCommit }
+          kind: result.ok ? "workspace.setup" : "workspace.setup_failed",
+          message: result.ok
+            ? `Setup script finished in ${(result.durationMs / 1000).toFixed(1)}s`
+            : `Setup script ${r.code === null ? "timed out" : `failed with exit code ${r.code}`}`,
+          ticketId: row?.ticketId ?? null,
+          runId: ws.runId,
+          data: { command, exitCode: r.code, output: result.output }
         })
-        return toWorkspace(row)
-      }, withProcesses)
-
-    const registeredPaths = (projectId: string) =>
-      use((db) => db.select({ path: workspaces.path }).from(workspaces).where(eq(workspaces.projectId, projectId)).all()).pipe(
-        Effect.map((rows) => new Set(rows.map((r) => canonicalPath(r.path))))
-      )
+        return result
+      })
 
     const latestRow = (ticketId: string) =>
       use((db) =>
@@ -247,8 +261,7 @@ export const WorkspacesLive = Layer.effect(
     return Workspaces.of({
       allocate,
       forTicket,
-      adopt,
-      registeredPaths,
+      runSetup,
       get,
       latestForTicket: (ticketId) => latestRow(ticketId).pipe(Effect.map((r) => (r ? toWorkspace(r) : undefined))),
       lock,

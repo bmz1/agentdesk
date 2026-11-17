@@ -4,7 +4,7 @@ import { FolderOpen } from "lucide-react"
 import { useState } from "react"
 import { HARNESS_LABELS } from "@/components/status"
 import { Button } from "@/components/ui/button"
-import { Field, Input, Select } from "@/components/ui/input"
+import { Field, Input, Select, Textarea } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/misc"
 import { api } from "@/lib/api"
 import { bridge } from "@/lib/connection"
@@ -32,6 +32,7 @@ export const ProjectForm = ({ project, onDone }: { project?: Project; onDone?: (
   const [harness, setHarness] = useState<HarnessId | "">(project?.defaultHarness ?? "")
   const [permissionMode, setPermissionMode] = useState<PermissionMode | "">(project && !project.inheritHarnessPermissions ? project.permissionMode : "")
   const [testCommand, setTestCommand] = useState(project?.testCommand ?? "")
+  const [setupCommand, setSetupCommand] = useState(project?.setupCommand ?? "")
   const [workflowId, setWorkflowId] = useState(project?.defaultWorkflowId ?? "")
   const save = useMutation({
     mutationFn: () =>
@@ -44,6 +45,7 @@ export const ProjectForm = ({ project, onDone }: { project?: Project; onDone?: (
             permissionMode: permissionMode || undefined,
             inheritHarnessPermissions: !permissionMode,
             testCommand: testCommand || null,
+            setupCommand: setupCommand.trim() || null,
             defaultWorkflowId: workflowId || null
           })
         : api.createProject({
@@ -55,6 +57,7 @@ export const ProjectForm = ({ project, onDone }: { project?: Project; onDone?: (
             permissionMode: permissionMode || undefined,
             inheritHarnessPermissions: !permissionMode,
             testCommand: testCommand || null,
+            setupCommand: setupCommand.trim() || null,
             defaultWorkflowId: workflowId || null
           }),
     onSuccess: (p) => {
@@ -130,6 +133,19 @@ export const ProjectForm = ({ project, onDone }: { project?: Project; onDone?: (
             </option>
           ))}
         </Select>
+      </Field>
+      <Field
+        label="Setup script"
+        hint="Runs once in every new worktree before the agent starts, from the worktree. $AGENTDESK_ROOT_PATH is your main checkout, $AGENTDESK_WORKSPACE_PATH the worktree."
+      >
+        <Textarea
+          value={setupCommand}
+          onChange={(e) => setSetupCommand(e.target.value)}
+          rows={3}
+          placeholder={"pnpm install\ncp \"$AGENTDESK_ROOT_PATH/.env\" .env"}
+          className="font-mono text-xs"
+          data-testid="project-setup-command"
+        />
       </Field>
       <Field label="Test command" hint="Used by workflow `command` steps that don't specify one.">
         <Input value={testCommand} onChange={(e) => setTestCommand(e.target.value)} placeholder="pnpm test" className="font-mono" />

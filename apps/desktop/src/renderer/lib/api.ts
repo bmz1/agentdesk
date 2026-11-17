@@ -145,7 +145,7 @@ export const api = {
   ticketFile: (id: string, path: string) => request<FileContent>("GET", `/tickets/${id}/file${qs({ path })}`),
   ticketWorkspace: (id: string) => request<Workspace | null>("GET", `/tickets/${id}/workspace`),
   ticketRuns: (id: string) => request<ReadonlyArray<WorkflowRun>>("GET", `/tickets/${id}/runs`),
-  startSession: (ticketId: string, b: { harness?: HarnessId; prompt?: string; useRepoDirectly?: boolean; images?: ReadonlyArray<string> }) =>
+  startSession: (ticketId: string, b: { harness?: HarnessId; prompt?: string; images?: ReadonlyArray<string> }) =>
     request<AgentSession>("POST", `/tickets/${ticketId}/sessions`, b),
   startRun: (ticketId: string, b: { workflowId?: string; harness?: HarnessId }) =>
     request<WorkflowRun>("POST", `/tickets/${ticketId}/start-run`, b),
