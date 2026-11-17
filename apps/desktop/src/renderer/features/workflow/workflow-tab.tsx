@@ -48,7 +48,7 @@ export const WorkflowTab = ({ ticket }: { ticket: Ticket }) => {
       {runs.data && runs.data.length > 1 && (
         <div className="flex items-center gap-2 text-xs">
           <span className="text-fg-muted">Run</span>
-          <Select value={runId} onChange={(e) => setSelected(e.target.value)}>
+          <Select aria-label="Workflow run" className="min-w-0 flex-1" value={runId} onChange={(e) => setSelected(e.target.value)}>
             {runs.data.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.workflowId} v{r.workflowVersion} · {r.status} · {relativeTime(r.createdAt)}
@@ -81,8 +81,8 @@ const StartRun = ({ ticket, hasActive }: { ticket: Ticket; hasActive: boolean })
   const wf = workflows.data?.find((w) => w.id === workflowId)
   return (
     <div className="rounded-lg border bg-bg-subtle p-3">
-      <div className="flex items-center gap-2">
-        <Select value={workflowId} onChange={(e) => setWorkflowId(e.target.value)} data-testid="workflow-select">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <Select aria-label="Workflow" className="min-w-0 max-w-full sm:max-w-80" value={workflowId} onChange={(e) => setWorkflowId(e.target.value)} data-testid="workflow-select">
           {(workflows.data ?? []).map((w) => (
             <option key={w.id} value={w.id}>
               {w.name} (v{w.version})
@@ -124,7 +124,7 @@ const RunView = ({ runId, ticket }: { runId: string; ticket: Ticket }) => {
   const pr = r.artifacts.find((a) => a.type === "pull_request")
   return (
     <div className="space-y-4" data-testid="run-view">
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
         <span data-testid="run-status" data-status={r.status}>
           <RunStatusBadge status={r.status} />
         </span>

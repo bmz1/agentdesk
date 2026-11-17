@@ -8,6 +8,8 @@ export interface RunPolicy {
   /** Environment variables passed to the harness. Secrets (Jira/Git tokens) must not be included. */
   readonly env?: Readonly<Record<string, string>>
   readonly model?: string
+  /** Reasoning effort level (harness-specific values such as low/medium/high). */
+  readonly effort?: string
   /** Extra system prompt appended to the harness' default. */
   readonly appendSystemPrompt?: string
   /**
@@ -24,6 +26,11 @@ export interface PromptImage {
   readonly data: string
   /** Absolute path of the same image on disk. */
   readonly path: string
+}
+
+export interface PromptOptions {
+  readonly model?: string
+  readonly effort?: string
 }
 
 export interface StartInput {
@@ -52,13 +59,16 @@ export interface HarnessSession {
   readonly pid: number | undefined
   /** Canonical events. Single consumer; ends when the harness exits. */
   readonly events: Stream.Stream<AgentEvent, HarnessError>
-  readonly prompt: (text: string, images?: ReadonlyArray<PromptImage>) => Effect.Effect<void, HarnessError>
+  /** Send a prompt. `options.model` switches the model from this turn on (undefined keeps the current one). */
+  readonly prompt: (text: string, images?: ReadonlyArray<PromptImage>, options?: PromptOptions) => Effect.Effect<void, HarnessError>
   readonly respondToApproval: (
     providerRequestId: string,
     decision: ApprovalDecision,
     note?: string
   ) => Effect.Effect<void, HarnessError>
   readonly interrupt: Effect.Effect<void, HarnessError>
+  /** False when an effort change needs a new process (resumed with the new effort). Default true. */
+  readonly liveEffort?: boolean
 }
 
 /** Services a harness may use: its owning scope and the platform process spawner. */

@@ -8,6 +8,7 @@ import { AttachmentsLive } from "./services/attachments"
 import { CredentialStoreLive } from "./services/credentials"
 import { Database } from "./services/database"
 import { EventLog } from "./services/event-log"
+import { HarnessSettings } from "./services/harness-settings"
 import { HarnessesLive } from "./services/harnesses"
 import { TaskSourcesLive, TaskSyncLive, type TaskSyncOptions } from "./services/task-sync"
 import type { TaskSourceAdapter } from "@agentdesk/task-source"
@@ -39,6 +40,7 @@ export const makeAppLayer = (config: DaemonConfigShape, options: AppLayerOptions
   const base = Layer.mergeAll(Database.layer, Notices.layer).pipe(Layer.provideMerge(platform))
   const infra = Layer.mergeAll(
     EventLog.layer,
+    HarnessSettings.layer,
     Activity.layer,
     AttachmentsLive,
     CredentialStoreLive(options.credentialStore),

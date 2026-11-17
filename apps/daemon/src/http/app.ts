@@ -1,4 +1,5 @@
 import {
+  UpdateHarnessSettingsBody,
   ApprovalDecisionBody,
   type BoardStatus,
   CreateJiraConnectionBody,
@@ -27,6 +28,7 @@ import { Approvals } from "../services/approvals"
 import { Attachments } from "../services/attachments"
 import { listTicketFiles, readTicketFile, readTicketImage } from "../services/files"
 import { EventLog } from "../services/event-log"
+import { HarnessSettings } from "../services/harness-settings"
 import { Harnesses } from "../services/harnesses"
 import { TaskSync } from "../services/task-sync"
 import { Notices } from "../services/notices"
@@ -79,6 +81,11 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
     }))
   )
 
+  app.get("/settings/harnesses", (c) => respond(c, HarnessSettings.use((s) => s.get)))
+  app.patch("/settings/harnesses", (c) => respond(c,
+    body(c, UpdateHarnessSettingsBody).pipe(Effect.flatMap((b) => HarnessSettings.use((s) => s.update(b))))
+  ))
+
   // ---- projects --------------------------------------------------------------------
   app.get("/projects", (c) => respond(c, Projects.use((p) => p.list)))
   app.post("/projects", (c) =>
@@ -101,7 +108,8 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
           source: (q.source as TicketSource) || undefined,
           status: (q.status as BoardStatus) || undefined,
           q: q.q || undefined,
-          pinned: q.pinned === "1" ? true : undefined
+          pinned: q.pinned === "1" ? true : undefined,
+          tracked: q.tracked === "1" ? true : q.tracked === "0" ? false : undefined
         })
       )
     )
@@ -158,6 +166,7 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
   // ---- sessions --------------------------------------------------------------------
   app.get("/sessions", (c) => respond(c, Sessions.use((s) => s.list({ active: c.req.query("active") === "1", limit: 100 }))))
   app.get("/sessions/:id", (c) => respond(c, Sessions.use((s) => s.get(id(c)))))
+  app.get("/sessions/:id/preview", (c) => respond(c, EventLog.use((e) => e.preview(id(c)))))
   app.get("/sessions/:id/history", (c) =>
     respond(c, EventLog.use((e) => e.history(id(c), { after: Number(c.req.query("after") ?? 0) || 0, limit: 5000 })))
   )
@@ -172,7 +181,17 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
     )
   })
   app.post("/sessions/:id/prompt", (c) =>
-    respond(c, body(c, PromptBody).pipe(Effect.flatMap((b) => Sessions.use((s) => s.prompt(id(c), b.text, "user", b.images)))))
+    respond(
+      c,
+      body(c, PromptBody).pipe(
+        Effect.flatMap((b) => Sessions.use((s) => s.prompt(id(c), b.text, "user", b.images, {
+          ...(b.model !== undefined && { model: b.model }),
+          ...(b.effort !== undefined && { effort: b.effort })
+        }))),
+        // Continuing an interrupted workflow step by hand resumes its run around that conversation.
+        Effect.tap(() => Workflows.use((w) => w.continueFromSession(id(c))))
+      )
+    )
   )
   app.post("/sessions/:id/interrupt", (c) => respond(c, Sessions.use((s) => s.interrupt(id(c)))))
   app.post("/sessions/:id/stop", (c) => respond(c, Sessions.use((s) => s.stop(id(c)))))

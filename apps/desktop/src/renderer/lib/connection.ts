@@ -10,6 +10,7 @@ interface Bridge {
   openExternal(url: string): Promise<void>
   revealPath(path: string): Promise<void>
   pickDirectory(): Promise<string | null>
+  updateNotificationState?(count: number, seen: Record<string, number>): Promise<void>
 }
 
 declare global {

@@ -38,6 +38,20 @@ layer(NodeProcessLayer, { excludeTestServices: true })("git", (it) => {
     })
   )
 
+  it.effect("lists linked worktrees, excluding the main checkout", () =>
+    Effect.gen(function* () {
+      const repo = makeRepo()
+      expect(yield* Git.worktreeList(repo)).toEqual([])
+      const wt = join(mkdtempSync(join(tmpdir(), "wt-")), "w")
+      yield* Git.worktreeAdd(repo, wt, "feat/x", yield* Git.revParse(repo, "main"))
+      execSync(`git worktree add -q --detach ${join(wt, "..", "d")}`, { cwd: repo })
+      const list = yield* Git.worktreeList(repo)
+      expect(list.map((w) => w.branch)).toHaveLength(2)
+      expect(list.find((w) => w.branch === "feat/x")?.path.endsWith("/w")).toBe(true)
+      expect(list.find((w) => w.branch === null)?.path.endsWith("/d")).toBe(true)
+    })
+  )
+
   it.effect("fails with a typed GitError", () =>
     Effect.gen(function* () {
       const error = yield* Effect.flip(Git.revParse(makeRepo(), "does-not-exist"))

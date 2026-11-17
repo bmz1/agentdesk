@@ -102,6 +102,47 @@ describe("crash recovery (real daemon process)", () => {
     expect(await new Promise((r) => d2.child.on("exit", r))).toBe(0)
     expect(existsSync(join(home, "daemon.json"))).toBe(false)
   }, 90_000)
+  it("continues an interrupted step with the conversation the user resumed by hand", async () => {
+    const home = mkdtempSync(join(tmpdir(), "agentdesk-continue-"))
+    const d1 = await spawnDaemon(home)
+    const project = await d1.call("POST", "/projects", {
+      name: "Cont",
+      repoPath: makeRepo(),
+      defaultHarness: "mock",
+      permissionMode: "accept_edits",
+      testCommand: "true"
+    })
+    const ticket = await d1.call("POST", "/tickets", { projectId: project.id, title: "Long step [slow]" })
+    const run = await d1.call("POST", `/tickets/${ticket.id}/start-run`, { workflowId: "quick-fix" })
+    const started = await waitFor(async () => {
+      const r = await d1.call("GET", `/runs/${run.id}`)
+      return r.steps[0]?.state === "running" && r.steps[0]?.sessionId ? r : undefined
+    }, 15_000)
+    const sessionId = started.steps[0].sessionId
+    d1.child.kill("SIGKILL")
+    await new Promise((r) => d1.child.on("exit", r))
+
+    const d2 = await spawnDaemon(home)
+    try {
+      expect((await d2.call("GET", `/runs/${run.id}`)).status).toBe("interrupted")
+      // A follow-up to the interrupted step's session resumes the run around that conversation.
+      await d2.call("POST", `/sessions/${sessionId}/prompt`, { text: "Carry on where you stopped [noop]" })
+      const done = await waitFor(async () => {
+        const x = await d2.call("GET", `/runs/${run.id}`)
+        return ["completed", "failed"].includes(x.status) ? x : undefined
+      }, 30_000)
+      expect(done.status).toBe("completed")
+      expect(done.steps.map((s: any) => `${s.stepId}#${s.attempt}:${s.state}`)).toEqual([
+        "implement#1:interrupted",
+        "implement#2:completed",
+        "test#1:completed"
+      ])
+      expect(done.steps[1].sessionId).toBe(sessionId)
+      expect(done.steps[1].output).toContain("Carry on where you stopped")
+    } finally {
+      d2.child.kill("SIGTERM")
+    }
+  }, 90_000)
 })
 
 describe("security guardrails", () => {

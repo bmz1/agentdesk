@@ -48,6 +48,28 @@ export const languageFor = (pathOrLang: string): string | undefined => {
   return id && id in bundledLanguages ? id : undefined
 }
 
+const DIFF = /^(diff --git |@@ -\d+(,\d+)? \+\d+(,\d+)? @@)/m
+const looksLikeJson = (text: string) => {
+  const t = text.trim()
+  if (!/^[[{]/.test(t)) return false
+  try {
+    JSON.parse(t)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Language for a tool's input or output: JSON when it parses, a diff when it contains hunks,
+ * otherwise the language of the file the tool touched (Read/Write/Edit results).
+ */
+export const guessLanguage = (text: string, filePath?: string): string | undefined => {
+  if (DIFF.test(text)) return "diff"
+  if (looksLikeJson(text)) return "json"
+  return filePath ? languageFor(filePath) : undefined
+}
+
 let highlighter: Promise<HighlighterCore> | undefined
 const getHighlighter = () =>
   (highlighter ??= createHighlighterCore({

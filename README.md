@@ -28,6 +28,16 @@ pnpm dev:desktop           # terminal 2: Electron app (or `pnpm dev:web` for a b
 
 When you run `pnpm dev:web`, open `http://localhost:5173/?daemon=http://127.0.0.1:4317&token=$(cat ~/.agentdesk/token)` once. Electron discovers the daemon automatically through `~/.agentdesk/daemon.json`, and starts it if needed.
 
+## Managing agent work
+
+- **Threads** are for brainstorming and back-and-forth work. Start one with **⌘N** (or the sidebar **+**): write a message, pick a project, go. Threads stay off the board, show up in the sidebar and **Agents**, and become board tickets with **Track on board**. By default a thread is read-only in the main checkout: edits there are refused automatically. When the agent needs to change code, it creates its own git worktree, and AgentDesk infers it from the worktrees that appeared during the session and the agent's tool calls, then adopts it for diff, review and PRs. Tick **Start in a new worktree** to isolate a thread from the first message.
+- Use the project’s **+** to create a local ticket with any supported harness. **Create & start** launches it immediately; a failed start keeps the ticket available for retry. Closing the dialog preserves the draft until creation succeeds.
+- **Agents** offers board and list layouts, grouped into Needs you, Working, Awaiting follow-up, and Recent. Cards show the latest meaningful message and open the exact session. A finished turn does not mark the ticket Done.
+- Project and issue views remember their layout and filters. Explicit URL filters take precedence over saved preferences.
+- **Chat + changes** opens a resizable split, remembered per ticket. Add feedback with the **+** beside a diff line, then send unresolved comments together to an idle/resumable session or a new installed harness. Stop the current agent before starting another. Comments retain their original code and line context, and stay available for verification and resolution after sending.
+- **Settings → Agent harness defaults** configures the harness for new projects plus each harness’s model, permissions, and extra instructions. New projects inherit harness permissions; existing projects keep their explicit policy until changed to **Use harness default**. Ticket models override harness models. Defaults apply to future launches and resumes, including workflow steps.
+- **Inbox** includes unread agent updates alongside pending approvals. Opening a focused conversation marks its streamed events read; Mark unread keeps an update available for later. Read state, view preferences, split layouts, and saved review comments stay local to this app installation. The native macOS Dock badge mirrors approvals and unread updates, deduplicating sessions with pending approvals; it continues polling while the desktop app is running with its window closed.
+
 ## Repository layout
 
 | Path | Purpose |
@@ -50,7 +60,9 @@ When you run `pnpm dev:web`, open `http://localhost:5173/?daemon=http://127.0.0.
 pnpm typecheck
 pnpm test                                    # unit, protocol fixtures, daemon integration, crash recovery
 AGENTDESK_SMOKE=claude,codex,opencode pnpm test:smoke   # real CLIs (each must be logged in)
+pnpm --filter @agentdesk/desktop exec playwright install chromium  # once, for browser tests
 pnpm e2e                                     # Playwright: renderer + real daemon, full ticket → PR flow
+pnpm --filter @agentdesk/desktop e2e:native    # after pnpm build: real macOS Electron Dock badge + closed-window polling
 ```
 
 ## Documentation

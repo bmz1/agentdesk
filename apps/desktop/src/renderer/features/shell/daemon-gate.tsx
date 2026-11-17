@@ -1,12 +1,12 @@
 import type { ChangeNotice } from "@agentdesk/contracts"
 import { Server } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { EmptyState, Spinner } from "@/components/ui/misc"
 import { setConnection } from "@/lib/api"
 import { type Connection, resolveConnection } from "@/lib/connection"
-import { applyNotice } from "@/lib/queries"
+import { applyNotice, queryClient } from "@/lib/queries"
 import { subscribeSse } from "@/lib/sse"
 import { useUi } from "@/lib/store"
 
@@ -15,6 +15,7 @@ export const DaemonGate = ({ children }: { children: React.ReactNode }) => {
   const [conn, setConn] = useState<Connection | null | undefined>(undefined)
   const theme = useUi((s) => s.theme)
   const setDaemonConnected = useUi((s) => s.setDaemonConnected)
+  const wasConnected = useRef<boolean | undefined>(undefined)
 
   useEffect(() => {
     const dark =
@@ -31,14 +32,23 @@ export const DaemonGate = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     if (!conn) return
+    setConnection(conn)
     return subscribeSse(
       () => "/events",
       (m) => {
         if (m.event === "notice") applyNotice(JSON.parse(m.data) as ChangeNotice)
       },
-      { onStatus: setDaemonConnected }
+      {
+        onStatus: (connected) => {
+          setDaemonConnected(connected)
+          // After a daemon restart, notices sent while disconnected are lost and queries may hold
+          // errors from the outage: refresh everything once the stream is back.
+          if (connected && wasConnected.current === false) void queryClient.invalidateQueries()
+          wasConnected.current = connected
+        }
+      }
     )
-  }, [conn, setDaemonConnected])
+  }, [conn, setDaemonConnected, setConnection])
 
   if (conn === undefined) {
     return (

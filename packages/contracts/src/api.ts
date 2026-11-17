@@ -1,5 +1,6 @@
 import { Schema } from "effect"
-import { ApprovalDecision, BoardStatus, GitProvider, HarnessId, PermissionMode, Priority } from "./ids"
+import { HarnessDefaults } from "./models"
+import { ApprovalDecision, BoardStatus, GitProvider, HarnessId, PermissionMode, Priority, WorkspaceMode } from "./ids"
 
 /** Request bodies validated at the HTTP boundary. */
 
@@ -12,6 +13,7 @@ export const CreateProjectBody = Schema.Struct({
   defaultHarness: Schema.optional(HarnessId),
   defaultWorkflowId: Schema.optional(Schema.NullOr(Schema.String)),
   permissionMode: Schema.optional(PermissionMode),
+  inheritHarnessPermissions: Schema.optional(Schema.Boolean),
   testCommand: Schema.optional(Schema.NullOr(Schema.String))
 })
 export type CreateProjectBody = typeof CreateProjectBody.Type
@@ -24,6 +26,7 @@ export const UpdateProjectBody = Schema.Struct({
   defaultHarness: Schema.optional(HarnessId),
   defaultWorkflowId: Schema.optional(Schema.NullOr(Schema.String)),
   permissionMode: Schema.optional(PermissionMode),
+  inheritHarnessPermissions: Schema.optional(Schema.Boolean),
   testCommand: Schema.optional(Schema.NullOr(Schema.String))
 })
 export type UpdateProjectBody = typeof UpdateProjectBody.Type
@@ -37,8 +40,12 @@ export const CreateTicketBody = Schema.Struct({
   priority: Schema.optional(Priority),
   harness: Schema.optional(Schema.NullOr(HarnessId)),
   model: Schema.optional(Schema.NullOr(Schema.String)),
+  effort: Schema.optional(Schema.NullOr(Schema.String)),
   workflowId: Schema.optional(Schema.NullOr(Schema.String)),
-  labels: Schema.optional(Schema.Array(Schema.String))
+  labels: Schema.optional(Schema.Array(Schema.String)),
+  /** False creates a thread, kept off the board. Defaults to true. */
+  tracked: Schema.optional(Schema.Boolean),
+  workspaceMode: Schema.optional(WorkspaceMode)
 })
 export type CreateTicketBody = typeof CreateTicketBody.Type
 
@@ -50,9 +57,11 @@ export const UpdateTicketBody = Schema.Struct({
   priority: Schema.optional(Priority),
   harness: Schema.optional(Schema.NullOr(HarnessId)),
   model: Schema.optional(Schema.NullOr(Schema.String)),
+  effort: Schema.optional(Schema.NullOr(Schema.String)),
   workflowId: Schema.optional(Schema.NullOr(Schema.String)),
   labels: Schema.optional(Schema.Array(Schema.String)),
   pinned: Schema.optional(Schema.Boolean),
+  tracked: Schema.optional(Schema.Boolean),
   sortOrder: Schema.optional(Schema.Number),
   projectId: Schema.optional(Schema.String)
 })
@@ -85,7 +94,11 @@ export type StartRunBody = typeof StartRunBody.Type
 export const PromptBody = Schema.Struct({
   text: Schema.NonEmptyString,
   /** Attachment ids from `POST /attachments`. */
-  images: Schema.optional(Schema.Array(Schema.String))
+  images: Schema.optional(Schema.Array(Schema.String)),
+  /** Switch the session's model from this turn on; null returns to the harness default. */
+  model: Schema.optional(Schema.NullOr(Schema.String)),
+  /** Switch the reasoning effort from this turn on; null returns to the model default. */
+  effort: Schema.optional(Schema.NullOr(Schema.String))
 })
 export type PromptBody = typeof PromptBody.Type
 
@@ -153,9 +166,20 @@ export type ApiErrorBody = typeof ApiErrorBody.Type
 
 /** Live board/run invalidation notifications sent over `GET /events`. */
 export const ChangeNotice = Schema.Struct({
-  topic: Schema.Literals(["tickets", "projects", "runs", "sessions", "approvals", "activity", "sources", "workflows"]),
+  topic: Schema.Literals(["tickets", "projects", "runs", "sessions", "approvals", "activity", "sources", "workflows", "settings"]),
   ticketId: Schema.optional(Schema.String),
   runId: Schema.optional(Schema.String),
   sessionId: Schema.optional(Schema.String)
 })
 export type ChangeNotice = typeof ChangeNotice.Type
+
+export const UpdateHarnessSettingsBody = Schema.Struct({
+  defaultHarness: Schema.optional(HarnessId),
+  harnesses: Schema.optional(Schema.Struct({
+    claude: Schema.optional(HarnessDefaults),
+    codex: Schema.optional(HarnessDefaults),
+    opencode: Schema.optional(HarnessDefaults),
+    mock: Schema.optional(HarnessDefaults)
+  }))
+})
+export type UpdateHarnessSettingsBody = typeof UpdateHarnessSettingsBody.Type

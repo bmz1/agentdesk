@@ -12,6 +12,7 @@ export const queryClient = new QueryClient({
 /** Query key factory. Route loaders and components share these, never ad-hoc keys. */
 export const qk = {
   info: ["info"] as const,
+  harnessSettings: ["settings", "harnesses"] as const,
   harnesses: ["harnesses"] as const,
   projects: ["projects"] as const,
   project: (id: string) => ["projects", id] as const,
@@ -27,6 +28,7 @@ export const qk = {
   ticketRuns: (id: string) => ["tickets", "detail", id, "runs"] as const,
   sessions: (active: boolean) => ["sessions", { active }] as const,
   session: (id: string) => ["sessions", "detail", id] as const,
+  sessionPreview: (id: string) => ["sessions", "detail", id, "preview"] as const,
   approvals: (pending: boolean) => ["approvals", { pending }] as const,
   activity: ["activity"] as const,
   runs: (status?: string) => ["runs", { status }] as const,
@@ -38,6 +40,7 @@ export const qk = {
 }
 
 export const q = {
+  harnessSettings: () => queryOptions({ queryKey: qk.harnessSettings, queryFn: api.harnessSettings }),
   info: () => queryOptions({ queryKey: qk.info, queryFn: api.info, refetchInterval: 15_000 }),
   harnesses: () => queryOptions({ queryKey: qk.harnesses, queryFn: () => api.harnesses(), staleTime: 60_000 }),
   projects: () => queryOptions({ queryKey: qk.projects, queryFn: api.projects }),
@@ -55,6 +58,7 @@ export const q = {
   ticketRuns: (id: string) => queryOptions({ queryKey: qk.ticketRuns(id), queryFn: () => api.ticketRuns(id) }),
   sessions: (active = false) => queryOptions({ queryKey: qk.sessions(active), queryFn: () => api.sessions(active) }),
   session: (id: string) => queryOptions({ queryKey: qk.session(id), queryFn: () => api.session(id) }),
+  sessionPreview: (id: string) => queryOptions({ queryKey: qk.sessionPreview(id), queryFn: () => api.sessionPreview(id), staleTime: 10_000, refetchInterval: 10_000 }),
   approvals: (pending = false) => queryOptions({ queryKey: qk.approvals(pending), queryFn: () => api.approvals(pending) }),
   activity: () => queryOptions({ queryKey: qk.activity, queryFn: () => api.activity(150) }),
   runs: (status?: string) => queryOptions({ queryKey: qk.runs(status), queryFn: () => api.runs(status) }),
@@ -69,6 +73,9 @@ export const q = {
 export const applyNotice = (n: ChangeNotice) => {
   const inv = (key: ReadonlyArray<unknown>) => void queryClient.invalidateQueries({ queryKey: key })
   switch (n.topic) {
+    case "settings":
+      inv(qk.harnessSettings)
+      break
     case "tickets":
       inv(["tickets"])
       break

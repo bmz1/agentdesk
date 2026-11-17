@@ -9,7 +9,8 @@ import {
   RunStatus,
   SessionState,
   StepState,
-  TicketSource
+  TicketSource,
+  WorkspaceMode
 } from "./ids"
 
 const NullableString = Schema.NullOr(Schema.String)
@@ -24,6 +25,7 @@ export const Project = Schema.Struct({
   defaultHarness: HarnessId,
   defaultWorkflowId: NullableString,
   permissionMode: PermissionMode,
+  inheritHarnessPermissions: Schema.Boolean,
   testCommand: NullableString,
   createdAt: Schema.String,
   updatedAt: Schema.String
@@ -67,9 +69,14 @@ export const Ticket = Schema.Struct({
   harness: Schema.NullOr(HarnessId),
   /** Model for the ticket's harness; null uses the harness' own default. */
   model: NullableString,
+  /** Reasoning effort for the ticket's harness; null uses the model's default. */
+  effort: NullableString,
   workflowId: NullableString,
   labels: Schema.Array(Schema.String),
   pinned: Schema.Boolean,
+  /** False for threads: conversations kept off the board until promoted. */
+  tracked: Schema.Boolean,
+  workspaceMode: WorkspaceMode,
   sortOrder: Schema.Number,
   createdAt: Schema.String,
   updatedAt: Schema.String,
@@ -210,7 +217,10 @@ export const HarnessModel = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
   /** Upstream provider, for harnesses that route to several (OpenCode). */
-  provider: Schema.optional(Schema.String)
+  provider: Schema.optional(Schema.String),
+  /** Reasoning effort levels this model accepts, when they differ per model (Codex). */
+  efforts: Schema.optional(Schema.Array(Schema.String)),
+  defaultEffort: Schema.optional(Schema.String)
 })
 export type HarnessModel = typeof HarnessModel.Type
 
@@ -222,7 +232,9 @@ export const HarnessDetection = Schema.Struct({
   binary: Schema.optional(Schema.String),
   detail: Schema.optional(Schema.String),
   /** Models the harness offers; empty or missing means free-form entry only. */
-  models: Schema.optional(Schema.Array(HarnessModel))
+  models: Schema.optional(Schema.Array(HarnessModel)),
+  /** Reasoning effort levels for every model of the harness (Claude). Missing: per model, or unsupported. */
+  efforts: Schema.optional(Schema.Array(Schema.String))
 })
 export type HarnessDetection = typeof HarnessDetection.Type
 
@@ -321,3 +333,22 @@ export const FileContent = Schema.Struct({
   content: Schema.String
 })
 export type FileContent = typeof FileContent.Type
+
+/** Daemon-owned launch defaults, applied to future sessions and workflow steps. */
+export const HarnessDefaults = Schema.Struct({
+  model: Schema.NullOr(Schema.String.check(Schema.isMaxLength(500))),
+  permissionMode: PermissionMode,
+  instructions: Schema.String.check(Schema.isMaxLength(20_000))
+})
+export type HarnessDefaults = typeof HarnessDefaults.Type
+
+export const HarnessSettings = Schema.Struct({
+  defaultHarness: HarnessId,
+  harnesses: Schema.Struct({
+    claude: HarnessDefaults,
+    codex: HarnessDefaults,
+    opencode: HarnessDefaults,
+    mock: HarnessDefaults
+  })
+})
+export type HarnessSettings = typeof HarnessSettings.Type

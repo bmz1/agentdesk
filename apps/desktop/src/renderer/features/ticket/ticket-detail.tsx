@@ -1,14 +1,16 @@
 import type { BoardStatus, Ticket } from "@agentdesk/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { Bot, CheckSquare, ChevronLeft, FileDiff, FolderGit2, FolderTree, GitBranchPlus, History, Info, Pin, PinOff } from "lucide-react"
+import { Bot, CheckSquare, ChevronLeft, Eye, FileDiff, FolderGit2, FolderTree, GitBranch, GitBranchPlus, History, Info, KanbanSquare, MessagesSquare, Pin, PinOff, Columns2 } from "lucide-react"
 import { BOARD_COLUMNS, RunStatusBadge, SourceBadge } from "@/components/status"
 import { Button } from "@/components/ui/button"
 import { Select } from "@/components/ui/input"
 import { EmptyState, Spinner, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/misc"
 import { api } from "@/lib/api"
 import { q, qk } from "@/lib/queries"
-import { DiffViewer } from "../diff/diff-viewer"
+import { ReviewChanges } from "../diff/review-changes"
+import { AgentWorkspace } from "../session/agent-workspace"
+import { useUi } from "@/lib/store"
 import { FileBrowser } from "../files/file-browser"
 import { AgentPanel } from "../session/agent-panel"
 import { ChecksTab, WorkflowTab } from "../workflow/workflow-tab"
@@ -32,6 +34,9 @@ export const TicketDetail = ({
   onSession: (id: string | undefined) => void
 }) => {
   const ticket = useQuery(q.ticket(ticketId))
+  const workspace = useQuery(q.ticketWorkspace(ticketId))
+  const layout = useUi((s) => s.ticketLayouts[ticketId])
+  const setLayout = useUi((s) => s.setTicketLayout)
   const qc = useQueryClient()
   const update = useMutation({
     mutationFn: (b: Parameters<typeof api.updateTicket>[1]) => api.updateTicket(ticketId, b),
@@ -54,11 +59,12 @@ export const TicketDetail = ({
   }
   if (!ticket.data) return <EmptyState title="Ticket not found" />
   const t = ticket.data
+  const split = !!layout?.split
 
   return (
     <div className="flex h-full min-w-0 flex-col">
       <header className="flex items-center gap-2 border-b px-4 py-2">
-        <Link to="/issues" className="rounded p-1 text-fg-muted hover:bg-bg-muted">
+        <Link to={t.tracked ? "/issues" : "/agents"} className="rounded p-1 text-fg-muted hover:bg-bg-muted">
           <ChevronLeft className="size-4" />
         </Link>
         <span className="font-mono text-xs text-fg-muted">{t.identifier}</span>
@@ -67,18 +73,34 @@ export const TicketDetail = ({
         <h1 className="min-w-0 flex-1 truncate text-sm font-semibold" data-testid="ticket-heading">
           {t.title}
         </h1>
-        <Select
-          value={t.status}
-          onChange={(e) => update.mutate({ status: e.target.value as BoardStatus })}
-          title="Local board status (never written back to the source)"
-          data-testid="ticket-status"
-        >
-          {BOARD_COLUMNS.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label}
-            </option>
-          ))}
-        </Select>
+        <Button size="sm" variant={split ? "secondary" : "ghost"} aria-pressed={split} onClick={() => {
+          setLayout(ticketId, { split: !split, width: layout?.width ?? 50 })
+          if (tab !== "agent" && tab !== "changes") onTab("agent")
+        }} data-testid="toggle-agent-split"><Columns2 /> Chat + changes</Button>
+        {t.workspaceMode === "readonly" && <WorkspaceIndicator branch={workspace.data?.cleanupState === "active" ? workspace.data.branch : undefined} />}
+        {t.tracked ? (
+          <Select
+            value={t.status}
+            onChange={(e) => update.mutate({ status: e.target.value as BoardStatus })}
+            title="Local board status (never written back to the source)"
+            data-testid="ticket-status"
+          >
+            {BOARD_COLUMNS.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </Select>
+        ) : (
+          <>
+            <span className="inline-flex items-center gap-1 rounded bg-bg-muted px-1.5 py-0.5 text-[11px] text-fg-muted" title="Threads stay off the board">
+              <MessagesSquare className="size-3" /> Thread
+            </span>
+            <Button size="sm" variant="ghost" onClick={() => update.mutate({ tracked: true })} title="Put this thread on the board as a ticket" data-testid="track-thread">
+              <KanbanSquare /> Track on board
+            </Button>
+          </>
+        )}
         <Button variant="ghost" size="icon" onClick={() => update.mutate({ pinned: !t.pinned })} title={t.pinned ? "Unpin" : "Pin to My issues"}>
           {t.pinned ? <PinOff /> : <Pin />}
         </Button>
@@ -112,7 +134,8 @@ export const TicketDetail = ({
           <Overview ticket={t} onUpdate={(b) => update.mutate(b)} onTab={onTab} />
         </TabsContent>
         <TabsContent value="agent" className="min-h-0 flex-1">
-          <AgentPanel ticket={t} sessionId={sessionId} onSelectSession={onSession} />
+          {split ? <AgentWorkspace key={t.id} ticket={t} sessionId={sessionId} onSelectSession={onSession} /> :
+            <AgentPanel key={t.id} ticket={t} sessionId={sessionId} onSelectSession={onSession} />}
         </TabsContent>
         <TabsContent value="workflow" className="min-h-0 flex-1 overflow-y-auto">
           <WorkflowTab ticket={t} />
@@ -120,8 +143,9 @@ export const TicketDetail = ({
         <TabsContent value="checks" className="min-h-0 flex-1 overflow-y-auto">
           <ChecksTab ticket={t} />
         </TabsContent>
-        <TabsContent value="changes" className="min-h-0 flex-1 overflow-y-auto p-4">
-          <Changes ticketId={t.id} />
+        <TabsContent value="changes" className="min-h-0 flex-1 overflow-y-auto">
+          {split ? <AgentWorkspace key={t.id} ticket={t} sessionId={sessionId} onSelectSession={onSession} /> :
+            <Changes ticket={t} onSelectSession={onSession} />}
         </TabsContent>
         <TabsContent value="files" className="min-h-0 flex-1">
           <FileBrowser ticketId={t.id} onShowChanges={() => onTab("changes")} />
@@ -134,18 +158,16 @@ export const TicketDetail = ({
   )
 }
 
-const Changes = ({ ticketId }: { ticketId: string }) => {
-  const diff = useQuery({ ...q.ticketDiff(ticketId), refetchInterval: 5_000 })
+const Changes = ({ ticket, onSelectSession }: { ticket: Ticket; onSelectSession: (id: string) => void }) => {
+  const ticketId = ticket.id
   const workspace = useQuery(q.ticketWorkspace(ticketId))
   const qc = useQueryClient()
   const cleanup = useMutation({
     mutationFn: (force: boolean) => api.cleanupWorkspace(workspace.data!.id, force),
     onSettled: () => qc.invalidateQueries({ queryKey: qk.ticketWorkspace(ticketId) })
   })
-  if (diff.isLoading) return <Spinner />
-  if (diff.error) return <p className="text-xs text-danger">{(diff.error as Error).message}</p>
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 p-4">
       {workspace.data && (
         <div className="flex items-center gap-2 text-xs text-fg-muted">
           <FolderGit2 className="size-3.5" />
@@ -164,7 +186,7 @@ const Changes = ({ ticketId }: { ticketId: string }) => {
           </Button>
         </div>
       )}
-      {diff.data && <DiffViewer diff={diff.data} />}
+      <ReviewChanges ticket={ticket} onSelectSession={onSelectSession} />
     </div>
   )
 }
@@ -177,3 +199,19 @@ const HistoryTab = ({ ticketId }: { ticketId: string }) => {
     </div>
   )
 }
+
+/** Where a read-only thread's agent works: the main checkout until it creates a worktree we adopt. */
+const WorkspaceIndicator = ({ branch }: { branch: string | undefined }) =>
+  branch ? (
+    <span className="inline-flex max-w-48 items-center gap-1 rounded bg-bg-muted px-1.5 py-0.5 text-[11px] text-fg-muted" title={`Agent's worktree: ${branch}`} data-testid="thread-worktree-branch">
+      <GitBranch className="size-3 shrink-0" /> <span className="truncate font-mono">{branch}</span>
+    </span>
+  ) : (
+    <span
+      className="inline-flex items-center gap-1 rounded bg-bg-muted px-1.5 py-0.5 text-[11px] text-fg-muted"
+      title="The agent reads your main checkout without changing it. When it needs to edit code it creates a worktree, which is picked up automatically."
+      data-testid="thread-readonly"
+    >
+      <Eye className="size-3" /> Read-only
+    </span>
+  )

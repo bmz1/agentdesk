@@ -37,6 +37,7 @@ import { q } from "@/lib/queries"
 import { cn, relativeTime } from "@/lib/utils"
 import { RichText } from "../session/rich-text"
 import { ActivityTimeline } from "./activity-timeline"
+import { effortsFor } from "../session/model-picker"
 import type { TicketTab } from "./ticket-detail"
 
 type UpdateBody = Parameters<typeof api.updateTicket>[1]
@@ -301,7 +302,10 @@ const Sidebar = ({ ticket, onUpdate }: { ticket: Ticket; onUpdate: (b: UpdateBod
           </Select>
         </Prop>
         {project.data && (
-          <ModelProps harness={ticket.harness ?? project.data.defaultHarness} value={ticket.model} onChange={(model) => onUpdate({ model })} />
+          <>
+            <ModelProps harness={ticket.harness ?? project.data.defaultHarness} value={ticket.model} onChange={(model) => onUpdate({ model })} />
+            <EffortProp harness={ticket.harness ?? project.data.defaultHarness} model={ticket.model} value={ticket.effort} onChange={(effort) => onUpdate({ effort })} />
+          </>
         )}
         <Prop label="Workflow">
           <Select value={ticket.workflowId ?? ""} onChange={(e) => onUpdate({ workflowId: e.target.value || null })} className={ghostSelect}>
@@ -374,7 +378,7 @@ const Sidebar = ({ ticket, onUpdate }: { ticket: Ticket; onUpdate: (b: UpdateBod
   )
 }
 
-const ghostSelect = "h-7 min-w-0 flex-1 w-full -mx-1.5 border-transparent bg-transparent px-1.5 hover:border-border hover:bg-bg-muted"
+const ghostSelect = "h-7 min-w-0 flex-1 w-full border-transparent bg-transparent px-1.5 hover:border-border hover:bg-bg-muted"
 
 /**
  * Model picker for the ticket's effective harness. Harnesses that route to several
@@ -382,6 +386,8 @@ const ghostSelect = "h-7 min-w-0 flex-1 w-full -mx-1.5 border-transparent bg-tra
  */
 const ModelProps = ({ harness, value, onChange }: { harness: HarnessId; value: string | null; onChange: (model: string | null) => void }) => {
   const detections = useQuery(q.harnesses())
+  const defaults = useQuery(q.harnessSettings())
+  const defaultModel = defaults.data?.harnesses[harness].model
   const models: ReadonlyArray<HarnessModel> = detections.data?.find((d) => d.id === harness)?.models ?? []
   const [draft, setDraft] = useState(value ?? "")
   useEffect(() => setDraft(value ?? ""), [value])
@@ -394,7 +400,7 @@ const ModelProps = ({ harness, value, onChange }: { harness: HarnessId; value: s
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={() => draft.trim() !== (value ?? "") && onChange(draft.trim() || null)}
-          placeholder={detections.isPending ? "Loading…" : "Harness default"}
+          placeholder={detections.isPending ? "Loading…" : defaultModel ? `Default · ${defaultModel}` : "Harness default"}
           className="-mx-1.5 h-7 w-full border-transparent bg-transparent px-1.5 font-mono text-[12px] hover:border-border"
         />
       </Prop>
@@ -414,7 +420,7 @@ const ModelProps = ({ harness, value, onChange }: { harness: HarnessId; value: s
       {providers.length > 0 && (
         <Prop label="Provider">
           <Select value={provider} onChange={(e) => onChange(options.find((m) => m.provider === e.target.value)?.id ?? null)} className={ghostSelect}>
-            <option value="">Harness default</option>
+            <option value="">{defaultModel ? `Default · ${defaultModel}` : "Harness default"}</option>
             {providers.map((p) => (
               <option key={p} value={p}>
                 {p}
@@ -430,7 +436,7 @@ const ModelProps = ({ harness, value, onChange }: { harness: HarnessId; value: s
           disabled={providers.length > 0 && !provider}
           className={ghostSelect}
         >
-          <option value="">Harness default</option>
+          <option value="">{defaultModel ? `Default · ${defaultModel}` : "Harness default"}</option>
           {shown.map((m) => (
             <option key={m.id} value={m.id}>
               {m.label}
@@ -439,6 +445,28 @@ const ModelProps = ({ harness, value, onChange }: { harness: HarnessId; value: s
         </Select>
       </Prop>
     </>
+  )
+}
+
+/** Reasoning effort for the ticket's harness; hidden when the harness reports no levels. */
+const EffortProp = ({ harness, model, value, onChange }: { harness: HarnessId; model: string | null; value: string | null; onChange: (effort: string | null) => void }) => {
+  const detections = useQuery(q.harnesses())
+  const defaults = useQuery(q.harnessSettings())
+  const detection = detections.data?.find((d) => d.id === harness)
+  const { levels, defaultLevel } = effortsFor(detection?.efforts, detection?.models ?? [], model ?? defaults.data?.harnesses[harness]?.model)
+  if (levels.length === 0 && !value) return null
+  const options = value && !levels.includes(value) ? [...levels, value] : levels
+  return (
+    <Prop label="Effort">
+      <Select value={value ?? ""} onChange={(e) => onChange(e.target.value || null)} className={ghostSelect} data-testid="ticket-effort">
+        <option value="">{defaultLevel ? `Default · ${defaultLevel}` : "Model default"}</option>
+        {options.map((l) => (
+          <option key={l} value={l}>
+            {l}
+          </option>
+        ))}
+      </Select>
+    </Prop>
   )
 }
 

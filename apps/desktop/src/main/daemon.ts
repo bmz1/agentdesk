@@ -15,7 +15,7 @@ export interface DaemonConnection {
 
 const dataDir = () => process.env.AGENTDESK_HOME ?? join(homedir(), ".agentdesk")
 
-const readConnectionFile = (): Omit<DaemonConnection, "spawnedByApp"> | undefined => {
+export const readConnectionFile = (): Omit<DaemonConnection, "spawnedByApp"> | undefined => {
   const file = join(dataDir(), "daemon.json")
   if (!existsSync(file)) return undefined
   try {

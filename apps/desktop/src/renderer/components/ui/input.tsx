@@ -34,10 +34,13 @@ export const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttrib
     <select
       ref={ref}
       className={cn(
-        "h-7 rounded-md border bg-bg px-1.5 text-[13px] text-fg focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40",
-        className
+        "select-control h-7 min-w-0 max-w-full truncate rounded-md border bg-bg pl-2 text-[13px] text-fg focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/40 disabled:opacity-50",
+        className,
+        "appearance-none pr-7"
       )}
       {...props}
+      // Inline so no stylesheet can bring back the native arrow next to the custom chevron.
+      style={{ ...props.style, appearance: "none", WebkitAppearance: "none" }}
     />
   )
 )
@@ -48,7 +51,7 @@ export const Label = ({ className, ...props }: React.LabelHTMLAttributes<HTMLLab
 )
 
 export const Field = ({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) => (
-  <div className="flex flex-col gap-1">
+  <div className="flex min-w-0 flex-col gap-1">
     <Label>{label}</Label>
     {children}
     {hint && <p className="text-[11px] text-fg-subtle">{hint}</p>}

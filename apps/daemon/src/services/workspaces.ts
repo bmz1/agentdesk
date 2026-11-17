@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs"
+import { existsSync, mkdirSync, realpathSync } from "node:fs"
 import { join } from "node:path"
 import type { Diff, Project, Workspace } from "@agentdesk/contracts"
 import { projects, workspaces } from "@agentdesk/db"
@@ -32,11 +32,31 @@ export interface AllocateInput {
   readonly runId?: string
 }
 
+/** Canonical form for comparing worktree paths (macOS /var → /private/var, trailing slashes). */
+export const canonicalPath = (p: string) => {
+  try {
+    return realpathSync(p)
+  } catch {
+    return p.replace(/\/+$/, "")
+  }
+}
+
+export interface AdoptInput {
+  readonly project: Project
+  readonly ticketId: string
+  /** A linked worktree of the project repo that an agent created itself. */
+  readonly worktree: Git.WorktreeEntry
+}
+
 export interface WorkspacesShape {
   /** Create a dedicated git worktree + branch for a ticket/run. */
   readonly allocate: (input: AllocateInput) => Effect.Effect<Workspace, Git.GitError | BadRequest | DbError>
   /** Reuse the ticket's most recent active (non-run) workspace, or allocate a new one. */
   readonly forTicket: (input: AllocateInput) => Effect.Effect<Workspace, Git.GitError | BadRequest | DbError>
+  /** Register a worktree the agent created itself, so diff, review, cleanup and PRs see it. */
+  readonly adopt: (input: AdoptInput) => Effect.Effect<Workspace, Git.GitError | DbError>
+  /** Canonical paths of every worktree AgentDesk already knows about for a project (any state). */
+  readonly registeredPaths: (projectId: string) => Effect.Effect<ReadonlySet<string>, DbError>
   readonly get: (id: string) => Effect.Effect<Workspace, NotFound | DbError>
   readonly latestForTicket: (ticketId: string) => Effect.Effect<Workspace | undefined, DbError>
   /** Exclusive single-writer lock. Fails with Conflict if held by someone else. */
@@ -109,6 +129,41 @@ export const WorkspacesLive = Layer.effect(
         })
         return toWorkspace(row)
       }, withProcesses)
+
+    const adopt = Effect.fn("Workspaces.adopt")(function* ({ project, ticketId, worktree }: AdoptInput) {
+        yield* Effect.annotateCurrentSpan({ ticketId, projectId: project.id, path: worktree.path })
+        const head = worktree.head ?? (yield* Git.revParse(worktree.path, "HEAD"))
+        // Diff against where the agent's branch left the default branch, not the default branch's tip.
+        const baseCommit = yield* Git.git(worktree.path, ["merge-base", "HEAD", project.defaultBranch]).pipe(
+          Effect.map((s) => s.trim()),
+          Effect.orElseSucceed(() => head)
+        )
+        const row: Row = {
+          id: newId(),
+          projectId: project.id,
+          runId: null,
+          ticketId,
+          branch: worktree.branch ?? head,
+          path: canonicalPath(worktree.path),
+          baseCommit,
+          cleanupState: "active",
+          lockedBy: null,
+          createdAt: yield* nowIso
+        }
+        yield* use((db) => db.insert(workspaces).values(row).run())
+        yield* activity.record({
+          kind: "workspace.adopted",
+          message: `Agent created worktree on ${worktree.branch ? `branch ${worktree.branch}` : "a detached HEAD"}; now tracking it`,
+          ticketId,
+          data: { path: row.path, branch: row.branch, baseCommit }
+        })
+        return toWorkspace(row)
+      }, withProcesses)
+
+    const registeredPaths = (projectId: string) =>
+      use((db) => db.select({ path: workspaces.path }).from(workspaces).where(eq(workspaces.projectId, projectId)).all()).pipe(
+        Effect.map((rows) => new Set(rows.map((r) => canonicalPath(r.path))))
+      )
 
     const latestRow = (ticketId: string) =>
       use((db) =>
@@ -192,6 +247,8 @@ export const WorkspacesLive = Layer.effect(
     return Workspaces.of({
       allocate,
       forTicket,
+      adopt,
+      registeredPaths,
       get,
       latestForTicket: (ticketId) => latestRow(ticketId).pipe(Effect.map((r) => (r ? toWorkspace(r) : undefined))),
       lock,

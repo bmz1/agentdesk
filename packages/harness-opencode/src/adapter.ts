@@ -5,6 +5,7 @@ import {
   type HarnessAdapter,
   type HarnessSession,
   type PromptImage,
+  type PromptOptions,
   isRecord,
   runCommand,
   spawnManaged,
@@ -129,7 +130,7 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
       const sessionId = isRecord(session) ? str(session.id) : undefined
       if (!sessionId) return yield* new HarnessError({ harness: "opencode", reason: "protocol", message: "opencode returned no session id" })
 
-      const model = openCodeModel(input.policy.model)
+      let model = openCodeModel(input.policy.model)
       const normalizer = new OpenCodeNormalizer(sessionId)
       const events = yield* Queue.unbounded<AgentEvent, HarnessError | Cause.Done>()
       const emit = (e: AgentEvent) => Queue.offer(events, e).pipe(Effect.asVoid)
@@ -147,8 +148,11 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
       )
       yield* Effect.addFinalizer(() => Queue.end(events))
 
-      const prompt = (text: string, images: ReadonlyArray<PromptImage> = []) =>
-        Effect.sync(() => normalizer.markBusy()).pipe(
+      const prompt = (text: string, images: ReadonlyArray<PromptImage> = [], options?: PromptOptions) =>
+        Effect.sync(() => {
+          if (options?.model) model = openCodeModel(options.model) ?? model
+          normalizer.markBusy()
+        }).pipe(
           Effect.andThen(
             http("POST", `/session/${sessionId}/prompt_async`, {
               parts: [

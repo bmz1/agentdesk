@@ -23,6 +23,8 @@ export interface TicketFilter {
   readonly status?: BoardStatus
   readonly q?: string
   readonly pinned?: boolean
+  /** true: board tickets only; false: threads only. */
+  readonly tracked?: boolean
   readonly ids?: ReadonlyArray<string>
 }
 
@@ -76,6 +78,7 @@ export const loadTickets = (database: DatabaseShape, filter: TicketFilter = {}) 
       filter.source ? eq(tickets.sourceKind, filter.source) : undefined,
       filter.status ? eq(tickets.status, filter.status) : undefined,
       filter.pinned !== undefined ? eq(tickets.pinned, filter.pinned) : undefined,
+      filter.tracked !== undefined ? eq(tickets.tracked, filter.tracked) : undefined,
       idFilter ? inArray(tickets.id, idFilter) : undefined
     )
     const rows = db
@@ -142,9 +145,12 @@ export const loadTickets = (database: DatabaseShape, filter: TicketFilter = {}) 
         source: t.sourceKind as TicketSource,
         harness: (t.harness as Ticket["harness"]) ?? null,
         model: t.model ?? null,
+        effort: t.effort ?? null,
         workflowId: t.workflowId,
         labels: t.labels ?? [],
         pinned: t.pinned,
+        tracked: t.tracked,
+        workspaceMode: t.workspaceMode === "readonly" ? "readonly" : "worktree",
         sortOrder: t.sortOrder,
         createdAt: t.createdAt,
         updatedAt: t.updatedAt,
@@ -209,9 +215,12 @@ export const TicketsLive = Layer.effect(
               sourceKind: "local",
               harness: body.harness ?? null,
               model: body.model ?? null,
+              effort: body.effort ?? null,
               workflowId: body.workflowId ?? null,
               labels: [...(body.labels ?? [])],
               pinned: false,
+              tracked: body.tracked ?? true,
+              workspaceMode: body.workspaceMode ?? "worktree",
               sortOrder: minOrder - 1,
               createdAt: now,
               updatedAt: now,
@@ -248,9 +257,14 @@ export const TicketsLive = Layer.effect(
               ...(body.model !== undefined
                 ? { model: body.model }
                 : body.harness !== undefined && body.harness !== before.harness && { model: null }),
+              // Effort levels are model-specific: a new harness or model starts from its default.
+              ...(body.effort !== undefined
+                ? { effort: body.effort }
+                : ((body.harness !== undefined && body.harness !== before.harness) || (body.model !== undefined && body.model !== before.model)) && { effort: null }),
               ...(body.workflowId !== undefined && { workflowId: body.workflowId }),
               ...(body.labels !== undefined && { labels: [...body.labels] }),
               ...(body.pinned !== undefined && { pinned: body.pinned }),
+              ...(body.tracked !== undefined && { tracked: body.tracked }),
               ...(body.sortOrder !== undefined && { sortOrder: body.sortOrder }),
               ...(body.projectId !== undefined && { projectId: body.projectId }),
               updatedAt
@@ -265,6 +279,13 @@ export const TicketsLive = Layer.effect(
             ticketId: id,
             actor,
             data: { from: before.status, to: body.status }
+          })
+        } else if (body.tracked !== undefined && body.tracked !== before.tracked) {
+          yield* activity.record({
+            kind: "ticket.tracked",
+            message: body.tracked ? "Thread tracked on the board" : "Removed from the board (kept as a thread)",
+            ticketId: id,
+            actor
           })
         } else if (body.title !== undefined || body.description !== undefined || body.priority !== undefined) {
           yield* activity.record({ kind: "ticket.updated", message: "Ticket details updated", ticketId: id, actor })

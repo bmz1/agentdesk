@@ -11,7 +11,8 @@
     "dev:web": "vite --config vite.renderer.config.ts",
     "build:web": "vite build --config vite.renderer.config.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "e2e": "node e2e/app.e2e.mjs"
+    "e2e": "node e2e/app.e2e.mjs",
+    "e2e:native": "node e2e/native-badge.e2e.mjs"
   },
   "dependencies": {
     "@agentdesk/contracts": "workspace:*",
@@ -44,6 +45,7 @@
     "@vitejs/plugin-react": "^6.3.0",
     "electron": "^45.3.3",
     "electron-vite": "^6.0.0",
+    "playwright": "^1.65.1",
     "shadcn": "^4.23.0",
     "tailwindcss": "^4.3.5",
     "vite": "^8.3.8"

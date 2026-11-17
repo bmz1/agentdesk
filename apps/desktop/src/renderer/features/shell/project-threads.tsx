@@ -1,11 +1,12 @@
 import type { AgentSession, Ticket } from "@agentdesk/contracts"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useRouterState } from "@tanstack/react-router"
-import { LoaderCircle } from "lucide-react"
 import { useMemo, useState } from "react"
-import { HarnessIcon, NeedsInputDot } from "@/components/status"
+import { HarnessIcon, SessionStateBadge } from "@/components/status"
 import { q } from "@/lib/queries"
-import { cn, relativeTime } from "@/lib/utils"
+import { isSessionUnread } from "@/lib/agent-state"
+import { useUi } from "@/lib/store"
+import { cn } from "@/lib/utils"
 
 const LIVE = new Set(["starting", "running", "waiting_for_approval", "idle"])
 const VISIBLE = 5
@@ -42,6 +43,7 @@ export const useProjectThreads = () => {
 
 export const ProjectThreads = ({ threads }: { threads: ReadonlyArray<Thread> }) => {
   const [expanded, setExpanded] = useState(false)
+  const seen = useUi((s) => s.sessionSeen)
   const location = useRouterState({ select: (s) => s.location })
   const currentSession = (location.search as { session?: string }).session
   // Live threads always show; the rest fold behind "Show more".
@@ -62,7 +64,7 @@ export const ProjectThreads = ({ threads }: { threads: ReadonlyArray<Thread> }) 
             params={{ ticketId: ticket.id }}
             search={{ tab: "agent", session: session.id }}
             className={cn(
-              "group flex h-7 items-center gap-2 rounded-md pr-2 pl-7 text-[12.5px] text-fg-muted hover:bg-bg-muted hover:text-fg",
+              "group flex h-7 items-center gap-2 rounded-md pr-1 pl-5 text-[12.5px] text-fg-muted hover:bg-bg-muted hover:text-fg",
               active && "bg-bg-muted text-fg"
             )}
             title={`${ticket.identifier} · ${ticket.title}`}
@@ -70,6 +72,7 @@ export const ProjectThreads = ({ threads }: { threads: ReadonlyArray<Thread> }) 
           >
             <HarnessIcon harness={session.harness} />
             <span className="min-w-0 flex-1 truncate">{ticket.title}</span>
+            {isSessionUnread(session, seen) && <span className="size-1.5 shrink-0 rounded-full bg-accent" aria-label="Unread" />}
             <ThreadState session={session} />
           </Link>
         )
@@ -88,16 +91,4 @@ export const ProjectThreads = ({ threads }: { threads: ReadonlyArray<Thread> }) 
   )
 }
 
-const ThreadState = ({ session }: { session: AgentSession }) => {
-  switch (session.state) {
-    case "waiting_for_approval":
-      return <NeedsInputDot />
-    case "starting":
-    case "running":
-      return <LoaderCircle className="size-3 shrink-0 animate-spin text-accent" aria-label="Running" />
-    case "idle":
-      return <span className="size-1.5 shrink-0 rounded-full bg-success" title="Awaiting follow-up" />
-    default:
-      return <span className="shrink-0 text-[10px] text-fg-subtle tabular-nums">{relativeTime(session.updatedAt).replace(" ago", "")}</span>
-  }
-}
+const ThreadState = ({ session }: { session: AgentSession }) => <SessionStateBadge state={session.state} compact />

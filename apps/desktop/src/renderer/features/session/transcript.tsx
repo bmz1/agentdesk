@@ -21,6 +21,7 @@ import {
   TraceLine,
   TraceTitle
 } from "@/components/ui/trace"
+import { guessLanguage } from "@/lib/highlight"
 import { cn } from "@/lib/utils"
 import { AttachmentImage } from "./images"
 import { Code, Markdown } from "./markdown"
@@ -176,6 +177,13 @@ const TurnFooter = ({ item }: { item: Item<"turn"> }) => {
 
 const stringify = (u: unknown) => (typeof u === "string" ? u : JSON.stringify(u, null, 2))
 
+const toolFilePath = (input: unknown) => {
+  if (!input || typeof input !== "object") return undefined
+  const o = input as Record<string, unknown>
+  const v = o.file_path ?? o.notebook_path ?? o.path
+  return typeof v === "string" ? v : undefined
+}
+
 const toolSummary = (input: unknown) => {
   if (input && typeof input === "object") {
     const o = input as Record<string, unknown>
@@ -218,9 +226,14 @@ const StepLine = ({ step }: { step: Step }) => {
             </TraceLine>
           </TraceCollapsibleTrigger>
           <TraceCollapsibleContent>
-            {step.input !== undefined && <Code code={stringify(step.input)} title="Input" />}
+            {step.input !== undefined && <Code code={stringify(step.input)} title="Input" lang={guessLanguage(stringify(step.input))} />}
             {step.result !== undefined && (
-              <Code code={stringify(step.result) || "(no output)"} title={step.isError ? "Error" : "Output"} tone={step.isError ? "destructive" : "default"} />
+              <Code
+                code={stringify(step.result) || "(no output)"}
+                title={step.isError ? "Error" : "Output"}
+                tone={step.isError ? "destructive" : "default"}
+                lang={step.isError ? undefined : guessLanguage(stringify(step.result), toolFilePath(step.input))}
+              />
             )}
           </TraceCollapsibleContent>
         </TraceCollapsible>

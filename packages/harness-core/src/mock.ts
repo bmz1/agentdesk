@@ -9,6 +9,8 @@ import type { HarnessAdapter, HarnessSession, PromptImage, StartInput } from "./
 export interface MockOptions {
   /** Delay between streamed chunks. */
   readonly delayMs?: number
+  /** Simulate a harness that only takes effort at launch (like Claude's `--effort`). */
+  readonly effortAtLaunchOnly?: boolean
 }
 
 /**
@@ -31,7 +33,9 @@ export const makeMockAdapter = (options: MockOptions = {}): HarnessAdapter => {
       const emit = (e: AgentEvent) => Queue.offer(events, e)
 
       yield* Effect.addFinalizer(() => Queue.end(events))
-      yield* emit({ type: "session.started", providerSessionId, model: "mock-1", cwd: input.cwd })
+      // The reported model reflects the launch policy (`model@effort`), so tests can see what a process got.
+      const launched = `${input.policy.model ?? "mock-1"}${input.policy.effort ? `@${input.policy.effort}` : ""}`
+      yield* emit({ type: "session.started", providerSessionId, model: launched, cwd: input.cwd })
 
       const runTurn = (text: string, images: ReadonlyArray<PromptImage> = []) =>
         Effect.gen(function* () {
@@ -127,7 +131,8 @@ export const makeMockAdapter = (options: MockOptions = {}): HarnessAdapter => {
             }
             yield* Deferred.succeed(d, decision)
           }),
-        interrupt: FiberHandle.clear(turnFiber)
+        interrupt: FiberHandle.clear(turnFiber),
+        ...(options.effortAtLaunchOnly && { liveEffort: false })
       } satisfies HarnessSession
     })
 

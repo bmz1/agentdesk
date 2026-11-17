@@ -13,6 +13,8 @@ import type {
   FileTree,
   HarnessDetection,
   HarnessId,
+  HarnessSettings,
+  UpdateHarnessSettingsBody,
   ImageRef,
   Project,
   StoredAgentEvent,
@@ -28,7 +30,7 @@ import type {
   WorkflowRunDetail,
   Workspace
 } from "@agentdesk/contracts"
-import type { Connection } from "./connection"
+import { type Connection, resolveConnection } from "./connection"
 
 export class ApiError extends Error {
   constructor(
@@ -40,13 +42,27 @@ export class ApiError extends Error {
   }
 }
 
-let connection: Connection | null = null
+// React Fast Refresh can replace this module without remounting DaemonGate.
+// Keep the already resolved connection across that replacement.
+let connection: Connection | null = import.meta.hot?.data.connection ?? null
+if (import.meta.hot) import.meta.hot.dispose((data) => { data.connection = connection })
 export const setConnection = (c: Connection | null) => {
   connection = c
 }
 export const getConnection = () => connection
 
+/**
+ * The connection is resolved once at startup; if it was lost (e.g. this module was hot-replaced
+ * mid-session), resolve it again instead of failing every request until a reload.
+ */
+const ensureConnection = async () => {
+  if (!connection) connection = (await resolveConnection().catch(() => null)) ?? null
+  if (!connection) throw new ApiError(0, "NoDaemon", "Not connected to the AgentDesk daemon")
+  return connection
+}
+
 const request = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+  await ensureConnection()
   if (!connection) throw new ApiError(0, "NoDaemon", "Not connected to the AgentDesk daemon")
   let res: Response
   try {
@@ -70,6 +86,7 @@ const request = async <T>(method: string, path: string, body?: unknown): Promise
 
 /** Binary GET (images): the daemon needs the bearer token, which <img src> cannot send. */
 const requestBlob = async (path: string): Promise<Blob> => {
+  await ensureConnection()
   if (!connection) throw new ApiError(0, "NoDaemon", "Not connected to the AgentDesk daemon")
   const res = await fetch(connection.url + path, { headers: { Authorization: `Bearer ${connection.token}` } })
   if (!res.ok) {
@@ -98,9 +115,13 @@ export interface TicketQuery {
   status?: string
   q?: string
   pinned?: boolean
+  /** true: board tickets only; false: threads only; omitted: both. */
+  tracked?: boolean
 }
 
 export const api = {
+  harnessSettings: () => request<HarnessSettings>("GET", "/settings/harnesses"),
+  updateHarnessSettings: (body: UpdateHarnessSettingsBody) => request<HarnessSettings>("PATCH", "/settings/harnesses", body),
   info: () => request<DaemonInfo>("GET", "/info"),
   harnesses: (refresh = false) => request<ReadonlyArray<HarnessDetection>>("GET", `/harnesses/detect${qs({ refresh: refresh ? 1 : undefined })}`),
 
@@ -111,7 +132,7 @@ export const api = {
   deleteProject: (id: string) => request<void>("DELETE", `/projects/${id}`),
 
   tickets: (q: TicketQuery = {}) =>
-    request<ReadonlyArray<Ticket>>("GET", `/tickets${qs({ ...q, pinned: q.pinned ? 1 : undefined })}`),
+    request<ReadonlyArray<Ticket>>("GET", `/tickets${qs({ ...q, pinned: q.pinned ? 1 : undefined, tracked: q.tracked === undefined ? undefined : q.tracked ? 1 : 0 })}`),
   ticket: (id: string) => request<Ticket>("GET", `/tickets/${id}`),
   createTicket: (b: CreateTicketBody) => request<Ticket>("POST", "/tickets", b),
   updateTicket: (id: string, b: UpdateTicketBody) => request<Ticket>("PATCH", `/tickets/${id}`, b),
@@ -133,9 +154,11 @@ export const api = {
 
   sessions: (active = false) => request<ReadonlyArray<AgentSession>>("GET", `/sessions${qs({ active: active ? 1 : undefined })}`),
   session: (id: string) => request<AgentSession>("GET", `/sessions/${id}`),
+  sessionPreview: (id: string) => request<string | null>("GET", `/sessions/${id}/preview`),
   sessionHistory: (id: string, after = 0) => request<ReadonlyArray<StoredAgentEvent>>("GET", `/sessions/${id}/history${qs({ after })}`),
-  prompt: (id: string, text: string, images?: ReadonlyArray<string>) =>
-    request<void>("POST", `/sessions/${id}/prompt`, { text, ...(images?.length && { images }) }),
+  /** `switches` change the session's model/effort from this message on (null: default); omitted keys stay. */
+  prompt: (id: string, text: string, images?: ReadonlyArray<string>, switches: { model?: string | null; effort?: string | null } = {}) =>
+    request<void>("POST", `/sessions/${id}/prompt`, { text, ...(images?.length && { images }), ...switches }),
   uploadAttachment: async (file: File) =>
     request<ImageRef>("POST", "/attachments", { mimeType: file.type, data: await toBase64(file), name: file.name || undefined }),
   attachment: (id: string) => requestBlob(`/attachments/${id}`),

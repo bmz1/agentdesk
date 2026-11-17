@@ -8,8 +8,10 @@ import { Select, Textarea } from "@/components/ui/input"
 import { EmptyState, Spinner, Tooltip } from "@/components/ui/misc"
 import { api } from "@/lib/api"
 import { q, qk } from "@/lib/queries"
+import { useUi } from "@/lib/store"
 import { relativeTime } from "@/lib/utils"
 import { Composer } from "./composer"
+import { ComposerModelPicker } from "./model-picker"
 import { Transcript } from "./transcript"
 import { useSessionEvents } from "./use-session-events"
 
@@ -39,7 +41,7 @@ export const AgentPanel = ({
   return (
     <div className="flex h-full flex-col">
       <SessionHeader sessions={list} selected={selected} onSelect={onSelectSession} ticket={ticket} />
-      <SessionView session={selected} />
+      <SessionView key={selected.id} session={selected} ticket={ticket} />
     </div>
   )
 }
@@ -63,9 +65,9 @@ const SessionHeader = ({
   const [starting, setStarting] = useState(false)
   const live = ["starting", "running", "waiting_for_approval", "idle"].includes(selected.state)
   return (
-    <div className="flex items-center gap-2 border-b px-4 py-2">
-      <Bot className="size-4 text-fg-muted" />
-      <Select value={selected.id} onChange={(e) => onSelect(e.target.value)} className="max-w-72" data-testid="session-select">
+    <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
+      <Bot className="size-4 shrink-0 text-fg-muted" />
+      <Select value={selected.id} onChange={(e) => onSelect(e.target.value)} className="min-w-32 max-w-72 flex-1" aria-label="Agent session" data-testid="session-select">
         {sessions.map((s) => (
           <option key={s.id} value={s.id}>
             {HARNESS_LABELS[s.harness]} · {relativeTime(s.createdAt)} · {s.state}
@@ -74,7 +76,7 @@ const SessionHeader = ({
       </Select>
       <SessionStateBadge state={selected.state} />
       <Tooltip content={selected.cwd}>
-        <span className="truncate font-mono text-[11px] text-fg-subtle">{selected.cwd.split("/").slice(-2).join("/")}</span>
+        <span className="min-w-0 max-w-48 truncate font-mono text-[11px] text-fg-subtle">{selected.cwd.split("/").slice(-2).join("/")}</span>
       </Tooltip>
       <div className="flex-1" />
       {live ? (
@@ -105,8 +107,31 @@ const SessionHeader = ({
   )
 }
 
-const SessionView = ({ session }: { session: AgentSession }) => {
-  const { items, connected } = useSessionEvents(session.id)
+const SessionView = ({ session, ticket }: { session: AgentSession; ticket: Ticket }) => {
+  const { items, connected, lastId } = useSessionEvents(session.id)
+  const project = useQuery(q.project(ticket.projectId))
+  // The ticket's model applies when the session runs the ticket's own harness; otherwise the harness default
+  // until switched here. `picked` is a switch not yet sent.
+  const ticketHarness = ticket.harness ?? project.data?.defaultHarness
+  const own = session.harness === ticketHarness
+  const [switched, setSwitched] = useState<{ model?: string | null; effort?: string | null }>({})
+  const [picked, setPicked] = useState<{ model?: string | null; effort?: string | null }>({})
+  const current = {
+    model: switched.model !== undefined ? switched.model : own ? ticket.model : null,
+    effort: switched.effort !== undefined ? switched.effort : own ? ticket.effort : null
+  }
+  const model = picked.model !== undefined ? picked.model : current.model
+  const effort = picked.effort !== undefined ? picked.effort : current.effort
+  const markRead = useUi((s) => s.markSessionRead)
+  useEffect(() => {
+    const read = () => {
+      if (document.visibilityState === "visible" && document.hasFocus() && lastId > 0) markRead(session.id, lastId)
+    }
+    read()
+    window.addEventListener("focus", read)
+    document.addEventListener("visibilitychange", read)
+    return () => { window.removeEventListener("focus", read); document.removeEventListener("visibilitychange", read) }
+  }, [session.id, lastId, markRead])
   const qc = useQueryClient()
   const [deciding, setDeciding] = useState<string | null>(null)
   const decide = async (approvalId: string, decision: "allow" | "deny") => {
@@ -139,10 +164,32 @@ const SessionView = ({ session }: { session: AgentSession }) => {
         )}
       </div>
       <Composer
-        onSend={(text, images) => api.prompt(session.id, text, images)}
+        onSend={async (text, images) => {
+          const change = {
+            ...(model !== current.model && { model }),
+            ...(effort !== current.effort && { effort })
+          }
+          await api.prompt(session.id, text, images, change)
+          setSwitched((s) => ({ ...s, ...change }))
+          setPicked({})
+        }}
         onInterrupt={() => void api.interrupt(session.id)}
         running={session.state === "running"}
-        meta={`${HARNESS_LABELS[session.harness]} · ${session.state === "idle" ? "awaiting follow-up" : session.state.replace(/_/g, " ")}`}
+        meta={
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="shrink-0">{HARNESS_LABELS[session.harness]}</span>
+            <ComposerModelPicker
+              harness={session.harness}
+              model={model}
+              effort={effort}
+              // A new model has its own effort levels: start from its default.
+              onModel={(m) => setPicked({ model: m, effort: null })}
+              onEffort={(e) => setPicked((p) => ({ ...p, effort: e }))}
+              disabled={!live && !resumable}
+            />
+            <span className="truncate">· {session.state === "idle" ? "awaiting follow-up" : session.state.replace(/_/g, " ")}</span>
+          </span>
+        }
         disabled={!live && !resumable}
         placeholder={
           live ? undefined : resumable ? "Send a follow-up to resume this conversation…" : "This session has ended. Start a new session."

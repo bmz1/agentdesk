@@ -10,6 +10,7 @@ import { BadRequest, Conflict, type DbError, NotFound } from "../errors"
 import { newId, nowIso } from "../util"
 import { Activity } from "./activity"
 import { Database } from "./database"
+import { HarnessSettings } from "./harness-settings"
 import { Notices } from "./notices"
 
 type ProjectRow = typeof projects.$inferSelect
@@ -24,6 +25,7 @@ export const toProject = (r: ProjectRow): Project => ({
   defaultHarness: r.defaultHarness as Project["defaultHarness"],
   defaultWorkflowId: r.defaultWorkflowId,
   permissionMode: r.permissionMode as Project["permissionMode"],
+  inheritHarnessPermissions: r.inheritHarnessPermissions,
   testCommand: r.testCommand,
   createdAt: r.createdAt,
   updatedAt: r.updatedAt
@@ -51,6 +53,7 @@ export const ProjectsLive = Layer.effect(
     const { use } = yield* Database
     const activity = yield* Activity
     const notices = yield* Notices
+    const defaults = yield* HarnessSettings
     // Git runs through effect/process; capture the spawner so the service interface stays free of it.
     const withProcesses = Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, yield* ChildProcessSpawner.ChildProcessSpawner)
 
@@ -68,6 +71,7 @@ export const ProjectsLive = Layer.effect(
       })).pipe(Effect.withSpan("Projects.validateRepo", { attributes: { repoPath } }))
 
     const create = Effect.fn("Projects.create")(function* (body: CreateProjectBody) {
+        const configured = yield* defaults.get
         const repoPath = yield* validateRepo(body.repoPath)
         const key = (body.key?.trim() || deriveKey(body.name)).toUpperCase().replace(/[^A-Z0-9]/g, "")
         if (!key) return yield* new BadRequest({ message: "Project key must contain letters or digits" })
@@ -83,9 +87,10 @@ export const ProjectsLive = Layer.effect(
           repoPath,
           defaultBranch,
           gitProvider,
-          defaultHarness: body.defaultHarness ?? "claude",
+          defaultHarness: body.defaultHarness ?? configured.defaultHarness,
           defaultWorkflowId: body.defaultWorkflowId ?? null,
           permissionMode: body.permissionMode ?? "ask",
+          inheritHarnessPermissions: body.inheritHarnessPermissions ?? body.permissionMode === undefined,
           testCommand: body.testCommand ?? null,
           ticketCounter: 0,
           createdAt: now,
@@ -112,7 +117,8 @@ export const ProjectsLive = Layer.effect(
               ...(body.gitProvider !== undefined && { gitProvider: body.gitProvider }),
               ...(body.defaultHarness !== undefined && { defaultHarness: body.defaultHarness }),
               ...(body.defaultWorkflowId !== undefined && { defaultWorkflowId: body.defaultWorkflowId }),
-              ...(body.permissionMode !== undefined && { permissionMode: body.permissionMode }),
+              ...(body.permissionMode !== undefined && { permissionMode: body.permissionMode, inheritHarnessPermissions: false }),
+              ...(body.inheritHarnessPermissions !== undefined && { inheritHarnessPermissions: body.inheritHarnessPermissions }),
               ...(body.testCommand !== undefined && { testCommand: body.testCommand }),
               updatedAt
             })

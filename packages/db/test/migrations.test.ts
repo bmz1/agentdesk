@@ -57,3 +57,41 @@ describe("migration 2: generic task sources", () => {
     expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'jira_%'").all()).toEqual([])
   })
 })
+
+describe("migration 4: harness permission inheritance", () => {
+  it("preserves existing explicit permissions", () => {
+    const Database = require("better-sqlite3")
+    const sqlite = new Database(":memory:")
+    migrate(sqlite, migrations.filter((m) => m.id < 4))
+    sqlite.prepare(`INSERT INTO projects (id,key,name,repo_path,default_branch,git_provider,default_harness,permission_mode,created_at,updated_at) VALUES ('p','P','P','/tmp','main','none','mock','plan','now','now')`).run()
+    expect(migrate(sqlite, migrations.filter((m) => m.id <= 4))).toEqual([4])
+    expect(sqlite.prepare("SELECT permission_mode, inherit_harness_permissions FROM projects WHERE id='p'").get()).toEqual({ permission_mode: "plan", inherit_harness_permissions: 0 })
+    sqlite.close()
+  })
+})
+
+describe("migration 5: ticket threads", () => {
+  it("keeps existing tickets on the board with worktree-first behaviour", () => {
+    const Database = require("better-sqlite3")
+    const sqlite = new Database(":memory:")
+    migrate(sqlite, migrations.filter((m) => m.id < 5))
+    sqlite.prepare(`INSERT INTO projects (id,key,name,repo_path,default_branch,git_provider,default_harness,permission_mode,created_at,updated_at) VALUES ('p','P','P','/tmp','main','none','mock','ask','now','now')`).run()
+    sqlite.prepare(`INSERT INTO tickets (id,project_id,number,title,status,priority,source_kind,labels,created_at,updated_at,last_activity_at) VALUES ('t','p',1,'T','todo','none','local','[]','now','now','now')`).run()
+    expect(migrate(sqlite, migrations.filter((m) => m.id <= 5))).toEqual([5])
+    expect(sqlite.prepare("SELECT tracked, workspace_mode FROM tickets WHERE id='t'").get()).toEqual({ tracked: 1, workspace_mode: "worktree" })
+    sqlite.close()
+  })
+})
+
+describe("migration 6: ticket effort", () => {
+  it("adds an empty effort to existing tickets", () => {
+    const Database = require("better-sqlite3")
+    const sqlite = new Database(":memory:")
+    migrate(sqlite, migrations.filter((m) => m.id < 6))
+    sqlite.prepare(`INSERT INTO projects (id,key,name,repo_path,default_branch,git_provider,default_harness,permission_mode,created_at,updated_at) VALUES ('p','P','P','/tmp','main','none','mock','ask','now','now')`).run()
+    sqlite.prepare(`INSERT INTO tickets (id,project_id,number,title,status,priority,source_kind,labels,created_at,updated_at,last_activity_at) VALUES ('t','p',1,'T','todo','none','local','[]','now','now','now')`).run()
+    expect(migrate(sqlite, migrations)).toEqual([6])
+    expect(sqlite.prepare("SELECT effort FROM tickets WHERE id='t'").get()).toEqual({ effort: null })
+    sqlite.close()
+  })
+})
