@@ -91,14 +91,22 @@ const ensureLanguage = async (h: HighlighterCore, lang: string) => {
 
 export type HighlightedLines = ReadonlyArray<ReadonlyArray<ThemedToken>>
 
-/** Tokenized lines for `code`, or undefined while loading / when not highlightable. */
-export const useHighlightedLines = (code: string | undefined, lang: string | undefined) => {
+/**
+ * Tokenized lines for `code`, or undefined while loading / when not highlightable.
+ * `live` is for text being edited: re-highlighting is debounced and the previous tokens
+ * stay until the new ones are ready, so the text doesn't flash plain on every keystroke.
+ * Callers must check each token line still matches its text line (see `tokensFor`).
+ */
+export const useHighlightedLines = (code: string | undefined, lang: string | undefined, { live = false } = {}) => {
   const [lines, setLines] = useState<HighlightedLines>()
   useEffect(() => {
-    setLines(undefined)
-    if (code === undefined || !lang || code.length > MAX_CHARS) return
+    if (!live) setLines(undefined)
+    if (code === undefined || !lang || code.length > MAX_CHARS) {
+      if (live) setLines(undefined)
+      return
+    }
     let cancelled = false
-    void (async () => {
+    const run = async () => {
       try {
         const h = await getHighlighter()
         await ensureLanguage(h, lang)
@@ -108,12 +116,24 @@ export const useHighlightedLines = (code: string | undefined, lang: string | und
       } catch {
         // Unknown grammar or tokenizer failure: stay plain.
       }
-    })()
+    }
+    const timer = live ? setTimeout(() => void run(), 120) : undefined
+    if (!live) void run()
     return () => {
       cancelled = true
+      clearTimeout(timer)
     }
-  }, [code, lang])
+  }, [code, lang, live])
   return lines
+}
+
+/** Tokens for line `i` when they still describe `line` (live highlighting can lag behind edits). */
+export const tokensFor = (lines: HighlightedLines | undefined, i: number, line: string) => {
+  const tokens = lines?.[i]
+  if (!tokens) return undefined
+  let joined = ""
+  for (const t of tokens) joined += t.content
+  return joined === line ? tokens : undefined
 }
 
 /** One highlighted line as spans; colors come from --shiki-light / --shiki-dark. */

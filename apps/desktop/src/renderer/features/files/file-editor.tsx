@@ -1,6 +1,7 @@
 import type { FileContent } from "@agentdesk/contracts"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useMemo, useRef, useState } from "react"
+import type * as React from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -8,11 +9,23 @@ import { Spinner } from "@/components/ui/misc"
 import { ApiError, api } from "@/lib/api"
 import { formatChord, matchesChord } from "@/lib/keymap"
 import { qk } from "@/lib/queries"
+import { CodeSurface } from "./code-surface"
 
 const INDENT = "  "
 
 /**
- * Plain-text editor for one file. `base` is the read the edit started from; `disk` is the
+ * Replace the textarea's selection through the browser's editing pipeline, so the change
+ * lands on the native undo stack (⌘Z) and fires a normal input event.
+ */
+const editText = (el: HTMLTextAreaElement, insert: string) => {
+  // execCommand is deprecated but is still the only way to keep native undo in a textarea.
+  if (insert ? document.execCommand("insertText", false, insert) : document.execCommand("delete")) return
+  el.setRangeText(insert, el.selectionStart, el.selectionEnd, "end")
+  el.dispatchEvent(new Event("input", { bubbles: true }))
+}
+
+/**
+ * Editor for one file, rendered with the viewer's own code surface and header. `base` is the read the edit started from; `disk` is the
  * latest poll. When the two diverge while there are unsaved changes (an agent wrote the file),
  * or a save is refused as stale, the user picks: overwrite the disk copy or discard their edits.
  */
@@ -20,12 +33,15 @@ export const FileEditor = ({
   ticketId,
   disk,
   onDone,
-  onDirtyChange
+  onDirtyChange,
+  header
 }: {
   ticketId: string
   disk: FileContent
   onDone: () => void
   onDirtyChange: (dirty: boolean) => void
+  /** The viewer's header, with these edit actions in its toolbar. */
+  header: (actions: React.ReactNode) => React.ReactNode
 }) => {
   const queryClient = useQueryClient()
   const [base, setBase] = useState(disk)
@@ -95,58 +111,41 @@ export const FileEditor = ({
       const el = e.currentTarget
       const { selectionStart: start, selectionEnd: end } = el
       if (e.shiftKey) {
-        const lineStart = text.lastIndexOf("\n", start - 1) + 1
-        if (text.startsWith(INDENT, lineStart)) {
-          setText(text.slice(0, lineStart) + text.slice(lineStart + INDENT.length))
-          requestAnimationFrame(() => el.setSelectionRange(Math.max(lineStart, start - INDENT.length), Math.max(lineStart, end - INDENT.length)))
-        }
+        const lineStart = el.value.lastIndexOf("\n", start - 1) + 1
+        if (!el.value.startsWith(INDENT, lineStart)) return
+        el.setSelectionRange(lineStart, lineStart + INDENT.length)
+        editText(el, "")
+        el.setSelectionRange(Math.max(lineStart, start - INDENT.length), Math.max(lineStart, end - INDENT.length))
         return
       }
-      setText(text.slice(0, start) + INDENT + text.slice(end))
-      requestAnimationFrame(() => el.setSelectionRange(start + INDENT.length, start + INDENT.length))
+      editText(el, INDENT)
     }
   }
 
-  const lineCount = useMemo(() => text.split("\n").length, [text])
-  const gutter = `${String(lineCount).length + 2}ch`
-  const gutterRef = useRef<HTMLDivElement>(null)
-
   return (
-    <div className="flex min-h-0 flex-1 flex-col" data-testid="file-editor">
-      <div className="flex h-8 shrink-0 items-center gap-2 border-b bg-bg-subtle px-3 text-xs">
-        <span className={dirty ? "text-warning" : "text-fg-subtle"}>{dirty ? "Unsaved changes" : "Editing"}</span>
-        {save.error && !conflict && <span role="alert" className="truncate text-danger">{save.error.message}</span>}
-        <div className="flex-1" />
-        <Button size="sm" variant="ghost" disabled={save.isPending} onClick={() => (dirty ? discard() : onDone())}>
-          {dirty ? "Discard" : "Done"}
-        </Button>
-        <Button size="sm" disabled={!dirty || save.isPending} onClick={() => save.mutate(false)} data-testid="file-save">
-          {save.isPending && <Spinner />}Save <kbd className="ml-1 text-[10px] opacity-60">{formatChord("mod+s")}</kbd>
-        </Button>
-      </div>
-      <div className="flex min-h-0 flex-1 bg-bg font-mono text-[12px] leading-[19px]">
-        <div ref={gutterRef} aria-hidden className="shrink-0 overflow-hidden py-1 pr-3 text-right text-fg-subtle select-none" style={{ width: gutter }}>
-          {Array.from({ length: lineCount }, (_, i) => (
-            <div key={i}>{i + 1}</div>
-          ))}
-        </div>
-        <textarea
-          autoFocus
-          aria-label={`Edit ${base.path}`}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={onKeyDown}
-          onScroll={(e) => {
-            if (gutterRef.current) gutterRef.current.scrollTop = e.currentTarget.scrollTop
-          }}
-          spellCheck={false}
-          autoCapitalize="off"
-          autoCorrect="off"
-          wrap="off"
-          className="min-h-0 flex-1 resize-none overflow-auto bg-transparent py-1 pr-4 text-fg outline-none"
-          data-testid="file-editor-input"
-        />
-      </div>
+    <>
+      {header(
+        <>
+          {save.error && !conflict && (
+            <span role="alert" className="max-w-64 truncate text-danger" title={save.error.message}>
+              {save.error.message}
+            </span>
+          )}
+          {dirty && <span className="text-warning">Unsaved</span>}
+          <Button size="sm" variant="ghost" disabled={save.isPending} onClick={() => (dirty ? discard() : onDone())}>
+            {dirty ? "Discard" : "Done"}
+          </Button>
+          <Button size="sm" disabled={!dirty || save.isPending} onClick={() => save.mutate(false)} data-testid="file-save">
+            {save.isPending && <Spinner />}Save <kbd className="ml-1 text-[10px] opacity-60">{formatChord("mod+s")}</kbd>
+          </Button>
+        </>
+      )}
+      <CodeSurface
+        text={text}
+        path={base.path}
+        edit={{ label: `Edit ${base.path}`, onChange: setText, onKeyDown }}
+        data-testid="file-editor"
+      />
       <Dialog open={conflict} onOpenChange={(open) => !open && !save.isPending && keepEditing()}>
         <DialogContent
           title="File changed on disk"
@@ -172,6 +171,6 @@ export const FileEditor = ({
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   )
 }

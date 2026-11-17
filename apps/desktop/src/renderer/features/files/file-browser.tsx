@@ -2,6 +2,7 @@ import type { FileTree } from "@agentdesk/contracts"
 import { useQuery } from "@tanstack/react-query"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { ChevronRight, Copy, File, FileDiff, Folder, FolderOpen, FolderSearch, Pencil, RefreshCw, Search } from "lucide-react"
+import type * as React from "react"
 import { useCallback, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -9,10 +10,10 @@ import { Input } from "@/components/ui/input"
 import { EmptyState, Spinner, Tooltip } from "@/components/ui/misc"
 import { bridge } from "@/lib/connection"
 import { api } from "@/lib/api"
-import { languageFor, tokenStyle, useHighlightedLines } from "@/lib/highlight"
 import { q } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 import { ImageFrame, useObjectUrl } from "../session/images"
+import { CodeSurface } from "./code-surface"
 import { FileEditor } from "./file-editor"
 
 type FileEntry = FileTree["files"][number]
@@ -245,7 +246,6 @@ export const FileBrowser = ({ ticketId, onShowChanges }: { ticketId: string; onS
   )
 }
 
-const LINE_H = 19
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i
 
 const FileView = ({
@@ -274,57 +274,61 @@ const FileView = ({
     refetchInterval: 10_000
   })
   const imageUrl = useObjectUrl(image.data)
-  const text = file.data && !file.data.binary ? file.data.content.replace(/\n$/, "") : undefined
-  const lines = useMemo(() => (text === undefined ? [] : text.split("\n")), [text])
-  const highlighted = useHighlightedLines(text, languageFor(path))
-  const widest = useMemo(() => lines.reduce((m, l) => Math.max(m, l.length), 0), [lines])
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const virtual = useVirtualizer({ count: lines.length, getScrollElement: () => scrollRef.current, estimateSize: () => LINE_H, overscan: 30 })
-  const gutter = `${String(lines.length).length + 2}ch`
   const absolute = `${root}/${path}`
+
+  const header = (actions: React.ReactNode) => (
+    <header className="flex h-9 shrink-0 items-center gap-2 border-b px-3 text-xs">
+      <span className="min-w-0 truncate font-mono text-fg-muted">
+        {path.split("/").map((part, i, all) => (
+          <span key={i}>
+            {i > 0 && <span className="px-1 text-fg-subtle">/</span>}
+            <span className={i === all.length - 1 ? "text-fg" : undefined}>{part}</span>
+          </span>
+        ))}
+      </span>
+      {status && <span className={cn("font-mono text-[10px]", statusClass(status))}>{statusLabel(status)}</span>}
+      <div className="flex-1" />
+      {file.data && <span className="text-fg-subtle">{formatBytes(file.data.size)}</span>}
+      {image.data && <span className="text-fg-subtle">{formatBytes(image.data.size)}</span>}
+      {actions}
+      {status && (
+        <Button size="sm" variant="ghost" onClick={onShowChanges}>
+          <FileDiff /> Diff
+        </Button>
+      )}
+      <Tooltip content="Copy path">
+        <Button size="icon" variant="ghost" className="size-6" onClick={() => void navigator.clipboard.writeText(absolute)}>
+          <Copy />
+        </Button>
+      </Tooltip>
+      {bridge() && (
+        <Tooltip content="Reveal in Finder">
+          <Button size="icon" variant="ghost" className="size-6" onClick={() => void bridge()!.revealPath(absolute)}>
+            <FolderSearch />
+          </Button>
+        </Tooltip>
+      )}
+    </header>
+  )
+
+  if (editing && file.data && !file.data.binary) {
+    return <FileEditor ticketId={ticketId} disk={file.data} onDone={stopEditing} onDirtyChange={onDirtyChange} header={header} />
+  }
 
   return (
     <>
-      <header className="flex h-9 shrink-0 items-center gap-2 border-b px-3 text-xs">
-        <span className="min-w-0 truncate font-mono text-fg-muted">
-          {path.split("/").map((part, i, all) => (
-            <span key={i}>
-              {i > 0 && <span className="px-1 text-fg-subtle">/</span>}
-              <span className={i === all.length - 1 ? "text-fg" : undefined}>{part}</span>
-            </span>
-          ))}
-        </span>
-        {status && <span className={cn("font-mono text-[10px]", statusClass(status))}>{statusLabel(status)}</span>}
-        <div className="flex-1" />
-        {file.data && <span className="text-fg-subtle">{formatBytes(file.data.size)}</span>}
-        {image.data && <span className="text-fg-subtle">{formatBytes(image.data.size)}</span>}
-        {file.data && !file.data.binary && !editing && (
-          <Tooltip content={file.data.editable ? "Edit file" : (file.data.readonlyReason ?? "Read-only")}>
-            <span>
-              <Button size="sm" variant="ghost" disabled={!file.data.editable} onClick={() => setEditing(true)} data-testid="file-edit">
-                <Pencil /> Edit
-              </Button>
-            </span>
-          </Tooltip>
-        )}
-        {status && (
-          <Button size="sm" variant="ghost" onClick={onShowChanges}>
-            <FileDiff /> Diff
-          </Button>
-        )}
-        <Tooltip content="Copy path">
-          <Button size="icon" variant="ghost" className="size-6" onClick={() => void navigator.clipboard.writeText(absolute)}>
-            <Copy />
-          </Button>
-        </Tooltip>
-        {bridge() && (
-          <Tooltip content="Reveal in Finder">
-            <Button size="icon" variant="ghost" className="size-6" onClick={() => void bridge()!.revealPath(absolute)}>
-              <FolderSearch />
-            </Button>
-          </Tooltip>
-        )}
-      </header>
+      {header(
+        file.data &&
+          !file.data.binary && (
+            <Tooltip content={file.data.editable ? "Edit file" : (file.data.readonlyReason ?? "Read-only")}>
+              <span>
+                <Button size="sm" variant="ghost" disabled={!file.data.editable} onClick={() => setEditing(true)} data-testid="file-edit">
+                  <Pencil /> Edit
+                </Button>
+              </span>
+            </Tooltip>
+          )
+      )}
       {isImage ? (
         <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-bg p-6" data-testid="file-image">
           {image.error ? (
@@ -341,35 +345,15 @@ const FileView = ({
         <EmptyState title="Can't open this file">{(file.error as Error).message}</EmptyState>
       ) : file.data?.binary ? (
         <EmptyState title="Binary file">{formatBytes(file.data.size)} · not shown</EmptyState>
-      ) : editing && file.data ? (
-        <FileEditor ticketId={ticketId} disk={file.data} onDone={stopEditing} onDirtyChange={onDirtyChange} />
-      ) : (
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto bg-bg font-mono text-[12px] leading-[19px]" data-testid="file-content">
-          <div style={{ height: virtual.getTotalSize(), minWidth: `calc(${gutter} + ${widest + 4}ch)` }} className="relative">
-            {virtual.getVirtualItems().map((v) => (
-              <div key={v.index} className="absolute inset-x-0 top-0 flex hover:bg-bg-muted/60" style={{ height: LINE_H, transform: `translateY(${v.start}px)` }}>
-                <span className="shrink-0 pr-3 text-right text-fg-subtle select-none" style={{ width: gutter }}>
-                  {v.index + 1}
-                </span>
-                <span className="shiki-code pr-4 whitespace-pre text-fg">
-                  {highlighted?.[v.index]
-                    ? highlighted[v.index]!.map((t, i) => (
-                        <span key={i} style={tokenStyle(t)}>
-                          {t.content}
-                        </span>
-                      ))
-                    : lines[v.index]}
-                </span>
-              </div>
-            ))}
-          </div>
-          {file.data?.truncated && (
+      ) : file.data ? (
+        <CodeSurface text={file.data.content.replace(/\n$/, "")} path={path} data-testid="file-content">
+          {file.data.truncated && (
             <p className="sticky bottom-0 border-t bg-bg-subtle px-3 py-1.5 font-sans text-[11px] text-warning">
               Large file: showing the first {formatBytes(file.data.content.length)}.
             </p>
           )}
-        </div>
-      )}
+        </CodeSurface>
+      ) : null}
     </>
   )
 }
