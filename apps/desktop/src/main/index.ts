@@ -1,6 +1,10 @@
 import { join } from "node:path"
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, session, shell } from "electron"
 import { ensureDaemon } from "./daemon"
+import appIcon from "../../resources/icon.png?asset"
+
+app.setName("AgentDesk")
+if (process.platform === "win32") app.setAppUserModelId("com.agentdesk.desktop")
 
 const isDev = !!process.env.ELECTRON_RENDERER_URL
 
@@ -21,6 +25,8 @@ const CSP = [
 
 const createWindow = () => {
   const win = new BrowserWindow({
+    title: "AgentDesk",
+    icon: appIcon,
     width: 1440,
     height: 900,
     minWidth: 960,
@@ -55,6 +61,8 @@ const createWindow = () => {
 }
 
 app.whenReady().then(() => {
+  if (process.platform === "darwin") app.dock?.setIcon(appIcon)
+
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({ responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [CSP] } })
   })
