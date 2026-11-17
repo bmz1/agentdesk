@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import {
   Bot,
+  ChevronDown,
   ChevronsLeft,
   FolderGit2,
   Inbox,
@@ -17,6 +18,7 @@ import { Kbd, Tooltip } from "@/components/ui/misc"
 import { q } from "@/lib/queries"
 import { useUi } from "@/lib/store"
 import { cn } from "@/lib/utils"
+import { ProjectThreads, useProjectThreads } from "./project-threads"
 
 const isMac = window.agentdesk?.platform === "darwin"
 
@@ -34,6 +36,9 @@ export const Sidebar = () => {
   const activeSessions = useQuery(q.sessions(true))
   const connected = useUi((s) => s.daemonConnected)
   const info = useQuery(q.info())
+  const threads = useProjectThreads()
+  const collapsedProjects = useUi((s) => s.collapsedProjects)
+  const toggleProject = useUi((s) => s.toggleProject)
 
   if (collapsed) {
     return (
@@ -93,20 +98,38 @@ export const Sidebar = () => {
             <Plus className="size-3.5" />
           </Link>
         </div>
-        {(projects.data ?? []).map((p) => (
-          <Link
-            key={p.id}
-            to="/projects/$projectId"
-            params={{ projectId: p.id }}
-            className={navItem}
-            activeProps={active}
-            data-testid="sidebar-project"
-          >
-            <FolderGit2 />
-            <span className="truncate">{p.name}</span>
-            <span className="ml-auto font-mono text-[10px] text-fg-subtle">{p.key}</span>
-          </Link>
-        ))}
+        {(projects.data ?? []).map((p) => {
+          const projectThreads = threads.get(p.id) ?? []
+          const folded = !!collapsedProjects[p.id]
+          return (
+            <div key={p.id}>
+              <div className="group relative">
+                <Link
+                  to="/projects/$projectId"
+                  params={{ projectId: p.id }}
+                  className={navItem}
+                  activeProps={active}
+                  data-testid="sidebar-project"
+                >
+                  <FolderGit2 />
+                  <span className="truncate">{p.name}</span>
+                  <span className={cn("ml-auto font-mono text-[10px] text-fg-subtle", projectThreads.length > 0 && "group-hover:invisible")}>{p.key}</span>
+                </Link>
+                {projectThreads.length > 0 && (
+                  <button
+                    onClick={() => toggleProject(p.id)}
+                    className="absolute top-1/2 right-1.5 hidden -translate-y-1/2 rounded p-0.5 text-fg-subtle group-hover:block hover:bg-bg-elevated hover:text-fg"
+                    aria-label={folded ? `Show ${p.name} threads` : `Hide ${p.name} threads`}
+                    title={folded ? "Show threads" : "Hide threads"}
+                  >
+                    <ChevronDown className={cn("size-3.5 transition-transform", folded && "-rotate-90")} />
+                  </button>
+                )}
+              </div>
+              {!folded && <ProjectThreads threads={projectThreads} />}
+            </div>
+          )
+        })}
         {projects.data?.length === 0 && (
           <Link to="/projects" className="px-2 text-xs text-accent hover:underline">
             Add your first project

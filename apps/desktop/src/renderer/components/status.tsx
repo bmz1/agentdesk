@@ -2,17 +2,21 @@ import type { BoardStatus, HarnessId, Priority, RunStatus, SessionState, Ticket 
 import {
   AlertOctagon,
   Bot,
+  Braces,
   CheckCircle2,
   Circle,
   CircleDashed,
   CircleDot,
   CircleSlash,
+  FlaskConical,
   Hand,
   Loader2,
   PauseCircle,
   SignalHigh,
   SignalLow,
   SignalMedium,
+  Sparkle,
+  SquareTerminal,
   XCircle
 } from "lucide-react"
 import { Badge } from "./ui/badge"
@@ -72,6 +76,23 @@ export const HARNESS_LABELS: Record<HarnessId, string> = {
   codex: "Codex",
   opencode: "OpenCode",
   mock: "Mock"
+}
+
+const HARNESS_GLYPH: Record<HarnessId, { icon: typeof Bot; className: string }> = {
+  claude: { icon: Sparkle, className: "bg-[#d97757]/15 text-[#d97757]" },
+  codex: { icon: SquareTerminal, className: "bg-info/15 text-info" },
+  opencode: { icon: Braces, className: "bg-success/15 text-success" },
+  mock: { icon: FlaskConical, className: "bg-bg-muted text-fg-muted" }
+}
+
+/** Small tinted glyph identifying a harness (generic icons, not vendor logos). */
+export const HarnessIcon = ({ harness, className }: { harness: HarnessId; className?: string }) => {
+  const g = HARNESS_GLYPH[harness] ?? HARNESS_GLYPH.mock
+  return (
+    <span className={cn("flex size-4 shrink-0 items-center justify-center rounded-[4px] [&_svg]:!size-2.5", g.className, className)} title={HARNESS_LABELS[harness]}>
+      <g.icon />
+    </span>
+  )
 }
 
 export const HarnessBadge = ({ harness }: { harness: HarnessId | null }) =>

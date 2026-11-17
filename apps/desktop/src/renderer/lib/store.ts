@@ -4,6 +4,9 @@ import { persist } from "zustand/middleware"
 /** Transient/local UI state only. Server state lives in TanStack Query; filters live in the URL. */
 interface UiState {
   sidebarCollapsed: boolean
+  /** Projects whose thread list is folded in the sidebar. */
+  collapsedProjects: Record<string, boolean>
+  toggleProject(id: string): void
   theme: "dark" | "light" | "system"
   commandOpen: boolean
   createTicketOpen: boolean
@@ -23,6 +26,8 @@ export const useUi = create<UiState>()(
   persist(
     (set) => ({
       sidebarCollapsed: false,
+      collapsedProjects: {},
+      toggleProject: (id) => set((s) => ({ collapsedProjects: { ...s.collapsedProjects, [id]: !s.collapsedProjects[id] } })),
       theme: "dark",
       commandOpen: false,
       createTicketOpen: false,
@@ -39,7 +44,7 @@ export const useUi = create<UiState>()(
     }),
     {
       name: "agentdesk.ui",
-      partialize: (s) => ({ sidebarCollapsed: s.sidebarCollapsed, theme: s.theme, lastRoute: s.lastRoute })
+      partialize: (s) => ({ sidebarCollapsed: s.sidebarCollapsed, collapsedProjects: s.collapsedProjects, theme: s.theme, lastRoute: s.lastRoute })
     }
   )
 )

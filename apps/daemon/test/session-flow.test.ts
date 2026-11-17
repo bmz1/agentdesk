@@ -45,10 +45,12 @@ describe("first milestone: ticket → headless agent in a worktree → live tran
     expect(readFileSync(join(session.cwd, "AGENTDESK_NOTES.md"), "utf8")).toContain("please write notes")
     expect(existsSync(join(repo, "AGENTDESK_NOTES.md"))).toBe(false)
 
-    // The ticket shows the active session; board status moved to in progress.
-    const t2 = await api.get(`/tickets/${ticket.id}`)
+    // The ticket shows the active session; the turn left changes, so it is ready for review.
+    const t2 = await waitFor(async () => {
+      const t = await api.get(`/tickets/${ticket.id}`)
+      return t.status === "in_review" ? t : undefined
+    })
     expect(t2.activeSessionId).toBe(session.id)
-    expect(t2.status).toBe("in_progress")
 
     // Follow-up prompt on the same live session.
     const lastId = ids.at(-1)

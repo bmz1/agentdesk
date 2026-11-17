@@ -211,6 +211,28 @@ export const SessionsLive = Layer.effect(
         if (row) yield* notices.publish({ topic: "tickets", ticketId: row.ticketId })
       })
 
+    /**
+     * In progress → In review when the agent's turn left changes in its worktree.
+     * Manual Blocked/Done and untouched worktrees (questions, analysis) are left alone.
+     */
+    const readyForReview = (sessionId: string, ticketId: string) =>
+      Effect.gen(function* () {
+        const ticket = yield* tickets.get(ticketId)
+        if (ticket.status !== "in_progress") return
+        const row = yield* getRow(sessionId)
+        if (!row.workspaceId) return
+        const diff = yield* workspaces.diff(row.workspaceId)
+        if (diff.files.length === 0 && diff.commits.length === 0) return
+        yield* tickets.update(ticketId, { status: "in_review" }, "system")
+      }).pipe(Effect.catch((e) => Effect.logWarning("ready-for-review check failed", e)))
+
+    /** A follow-up means the agent is working again: In review → In progress. */
+    const backToWork = (ticketId: string) =>
+      tickets.get(ticketId).pipe(
+        Effect.flatMap((t) => (t.status === "in_review" ? tickets.update(ticketId, { status: "in_progress" }, "system") : Effect.void)),
+        Effect.catch((e) => Effect.logWarning("status update failed", e))
+      )
+
     const onEvent = (sessionId: string, ticketId: string, runId: string | null, stepRunId: string | null, raw: AgentEvent) =>
       Effect.gen(function* () {
         let event = raw
@@ -257,6 +279,8 @@ export const SessionsLive = Layer.effect(
               )
             }
             yield* setState(sessionId, "idle")
+            // Ad-hoc work that produced changes is ready for review; workflows manage their own status.
+            if (!runId && (raw.status ?? "success") === "success") yield* readyForReview(sessionId, ticketId)
             break
           case "session.exited": {
             const l = live.get(sessionId)
@@ -420,6 +444,8 @@ export const SessionsLive = Layer.effect(
         yield* Effect.annotateCurrentSpan({ sessionId: id, live: !!l, chars: text.length, images: imageIds?.length ?? 0 })
         const images = yield* loadImages(imageIds)
         const promptEvent = { type: "user.prompt" as const, text, ...(images.refs.length && { images: images.refs }) }
+        const sessionRow = yield* getRow(id)
+        if (!sessionRow.runId) yield* backToWork(sessionRow.ticketId)
         if (l) {
           yield* events.append(id, promptEvent)
           yield* setState(id, "running")
