@@ -50,6 +50,12 @@ importers:
       '@agentdesk/jira':
         specifier: workspace:*
         version: link:../../packages/jira
+      '@agentdesk/linear':
+        specifier: workspace:*
+        version: link:../../packages/linear
+      '@agentdesk/task-source':
+        specifier: workspace:*
+        version: link:../../packages/task-source
       '@agentdesk/workflows':
         specifier: workspace:*
         version: link:../../packages/workflows
@@ -245,9 +251,34 @@ importers:
 
   packages/jira:
     dependencies:
+      '@agentdesk/task-source':
+        specifier: workspace:*
+        version: link:../task-source
       effect:
         specifier: 4.1.4
         version: 4.1.4
+
+  packages/linear:
+    dependencies:
+      '@agentdesk/task-source':
+        specifier: workspace:*
+        version: link:../task-source
+      effect:
+        specifier: 4.1.4
+        version: 4.1.4
+
+  packages/task-source:
+    dependencies:
+      effect:
+        specifier: 4.1.4
+        version: 4.1.4
+    devDependencies:
+      '@agentdesk/jira':
+        specifier: workspace:*
+        version: link:../jira
+      '@agentdesk/linear':
+        specifier: workspace:*
+        version: link:../linear
 
   packages/workflows:
     dependencies:

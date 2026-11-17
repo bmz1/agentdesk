@@ -40,7 +40,7 @@ export const HarnessSettings = () => {
       )}
       <p className="mt-3 text-[11px] text-fg-subtle">
         Harnesses run with their own supported login. AgentDesk never reads, copies or proxies subscription credentials, and
-        never forwards Jira/Git tokens into agent processes.
+        never forwards task-source or Git tokens into agent processes.
       </p>
     </Section>
   )

@@ -15,7 +15,7 @@ export const Route = createFileRoute("/inbox")({
   component: Inbox
 })
 
-const NOTABLE = /^(session\.(ended|interrupted)|run\.|jira\.sync\.failed|pr\.|step\.failed)/
+const NOTABLE = /^(session\.(ended|interrupted)|run\.|(source|jira)\.sync\.failed|pr\.|step\.failed)/
 
 function Inbox() {
   const pending = useQuery(q.approvals(true))

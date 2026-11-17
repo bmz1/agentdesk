@@ -11,7 +11,7 @@
 - Untrusted Jira and agent text is always rendered as text. No `innerHTML` is used, and ADF is converted to inert text.
 
 ## Credentials
-- Jira tokens are stored in the macOS Keychain or Linux Secret Service, passed on stdin and never on argv. SQLite stores only an opaque reference. A 0600 file store exists only behind `AGENTDESK_ALLOW_FILE_CREDENTIALS=1`.
+- Task source tokens (Jira, Linear) are stored in the macOS Keychain or Linux Secret Service, passed on stdin and never on argv. SQLite stores only an opaque reference. A 0600 file store exists only behind `AGENTDESK_ALLOW_FILE_CREDENTIALS=1`.
 - Agent processes never receive `JIRA_*`, `ATLASSIAN_API_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, `GITLAB_TOKEN`, `GL_TOKEN` or `AGENTDESK_TOKEN`. Provider CLIs (`gh`, `glab`) get their own tokens back explicitly, and only for PR operations.
 - Harnesses use their own supported login. AgentDesk never reads, copies or proxies subscription credentials.
 
@@ -22,7 +22,7 @@
   - `accept_edits`: file edits are allowed, while shell and network still ask (Codex: workspace-write sandbox).
   - `plan`: read-only planning.
   - `unrestricted`: refused unless `AGENTDESK_SANDBOX_CMD` configures a real sandbox command prefix, for example `["bwrap","--bind","{cwd}","{cwd}",...]` or a container runner. That prefix wraps the harness process.
-- PRs need explicit approval, are created as drafts and are never merged. Jira is read-only.
+- PRs need explicit approval, are created as drafts and are never merged. Every task source is read-only.
 - Secrets matching common formats (GitHub, GitLab, Atlassian, AWS, Slack, OpenAI/Anthropic keys, private keys, `Authorization` headers, `password=`-style assignments) are redacted from persisted agent events, logs and diff previews. This is best effort; do not rely on it as the only control.
 
 ## Audit

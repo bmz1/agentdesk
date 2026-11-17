@@ -1,6 +1,6 @@
 import type { HarnessError } from "@agentdesk/harness-core"
 import type { GitError, PullRequestError } from "@agentdesk/git"
-import type { JiraError } from "@agentdesk/jira"
+import type { TaskSourceError } from "@agentdesk/task-source"
 import type { WorkflowValidationError } from "@agentdesk/workflows"
 import { Schema } from "effect"
 
@@ -36,6 +36,6 @@ export type AppError =
   | HarnessError
   | GitError
   | PullRequestError
-  | JiraError
+  | TaskSourceError
   | WorkflowValidationError
   | Schema.SchemaError

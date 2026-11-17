@@ -17,7 +17,7 @@ export const startTestDaemon = async (opts: StartDaemonOptions = {}, dataDir = m
   const daemon = await startDaemon({
     adapters: [makeMockAdapter({ delayMs: 1 })],
     ...opts,
-    config: { dataDir, port: 0, token: "test-token", enableJiraPolling: false, ...opts.config }
+    config: { dataDir, port: 0, token: "test-token", enableSourcePolling: false, ...opts.config }
   })
   return { daemon, dataDir, api: makeClient(daemon) }
 }

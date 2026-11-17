@@ -38,7 +38,7 @@ Settings → Agent harnesses shows detected versions. Verify end to end with `AG
 | `AGENTDESK_RETENTION_DAYS` | `90` | Transcript retention for ended sessions |
 | `AGENTDESK_WORKFLOWS_DIR` / `AGENTDESK_PROMPTS_DIR` | repo `workflows/`, `prompts/` | Workflow sources |
 | `AGENTDESK_ALLOWED_ORIGINS` | — | Extra allowed UI origins |
-| `AGENTDESK_DISABLE_JIRA_POLLING` | — | `1` disables background Jira polling |
+| `AGENTDESK_DISABLE_SOURCE_POLLING` | — | `1` disables background polling of task sources (`AGENTDESK_DISABLE_JIRA_POLLING` still works) |
 | `AGENTDESK_ALLOW_FILE_CREDENTIALS` | — | `1` opts into the 0600 file credential store |
 | `AGENTDESK_{CLAUDE,CODEX,OPENCODE}_BIN` | PATH lookup | Harness binary overrides |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/HTTP collector base URL (e.g. `http://127.0.0.1:4318`); enables trace, log and metric export |
@@ -61,5 +61,6 @@ Settings → Agent harnesses shows detected versions. Verify end to end with `AG
 ## Troubleshooting
 - *"Another AgentDesk daemon is already using …"*: a daemon already runs for this data dir. Check `daemon.json` for its pid.
 - *Harness shows "not installed"*: the daemon's PATH differs from your shell's. Set `AGENTDESK_*_BIN` or the service's PATH.
-- *Jira "rejected credentials"*: use an email plus API token for Cloud, or a PAT for Data Center. Re-enter the token in Settings → Jira.
+- *Jira "rejected credentials"*: use an email plus API token for Cloud, or a PAT for Data Center. Re-enter the token in Settings → Task sources.
+- *Linear "rejected the API key"*: create a personal API key in Linear → Settings → API and re-enter it in Settings → Task sources.
 - *Packaged Electron:* the daemon is started with the system `node` so that the native `better-sqlite3` matches Node's ABI.

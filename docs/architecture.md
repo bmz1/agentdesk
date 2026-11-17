@@ -47,6 +47,23 @@ DaemonConfig · NodeServices (ChildProcessSpawner…) · Observability
 
 No adapter parses terminal output.
 
+## Task sources (Jira, Linear, …)
+
+Ticket sources follow the same adapter pattern as harnesses:
+
+```
+packages/task-source        TaskSourceAdapter / TaskSourceClient contract, RemoteTask, TaskSourceError, registry
+packages/jira  → jiraSource     JQL-scoped, Cloud + Data Center
+packages/linear → linearSource  team-scoped (assignee / state / label filters), GraphQL
+apps/daemon  TaskSources (registry service) + TaskSync (generic sync service)
+```
+
+An adapter only knows how to **validate its settings** (an Effect Schema), **describe its form** (`fields`, `credential`), **test** a connection and **fetch a page** of `RemoteTask`s (full, or incremental since an instant). Everything else lives once in `TaskSync`: idempotent upserts keyed by `(provider, connection, remoteId)`, the overlapping `updatedAt` watermark, out-of-scope detection on full syncs (tickets are marked `missing`, never deleted), polling with failure backoff (`FiberMap` + `Schedule`), per-connection serialization (`Semaphore`), credentials (`Redacted`, OS store), audit records and change notices. Board status stays local for every source; remote-owned title/description are read-only.
+
+Storage is generic (`source_connections` with validated JSON settings, `source_sync_state`); migration 2 moved existing Jira connections over. The API is `/sources` (descriptors for UIs) and `/sources/connections[/:id[/sync|/test]]`; `/jira/connections` remains as a deprecated alias for one release. The settings UI renders every source's form from its descriptor.
+
+**Adding a source** (e.g. GitHub Issues): create a package exporting a `TaskSourceAdapter` (settings schema, fields, `connect` → `test` + `fetchPage` mapping to `RemoteTask` and failing with `TaskSourceError`), add it to `defaultSources()` in `apps/daemon/src/services/task-sync.ts`, and optionally a display name in the renderer's `sourceLabel`. No schema, API or form changes are needed.
+
 ## Event pipeline
 
 ```
@@ -76,6 +93,6 @@ The scheduler is FIFO with a global cap (`AGENTDESK_MAX_RUNS`, default 3) and a 
 ## Data model
 
 See `packages/db/src/schema.ts`. Key separations:
-- `tickets.status` is the **local** board column. `ticket_external_links.remote_status` is Jira's status. Neither ever writes to the other.
+- `tickets.status` is the **local** board column. `ticket_external_links.remote_status` is the source's status (Jira, Linear, …). Neither ever writes to the other.
 - External identity (`provider, connection, remote_id`) is separate from the internal UUID.
 - `activity_events` is the immutable audit trail and survives transcript retention pruning.

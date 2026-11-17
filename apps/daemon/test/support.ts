@@ -26,7 +26,7 @@ export const TestApp = (overrides: ConfigOverrides = {}, options: AppLayerOption
       dataDir: mkdtempSync(join(tmpdir(), "agentdesk-svc-")),
       port: 0,
       token: "test",
-      enableJiraPolling: false,
+      enableSourcePolling: false,
       logFile: undefined,
       otlpEndpoint: undefined,
       ...overrides

@@ -2,6 +2,9 @@ import {
   ApprovalDecisionBody,
   type BoardStatus,
   CreateJiraConnectionBody,
+  CreateSourceConnectionBody,
+  type SourceConnection,
+  UpdateSourceConnectionBody,
   CreateProjectBody,
   CreateTicketBody,
   PromptBody,
@@ -22,7 +25,7 @@ import { Activity } from "../services/activity"
 import { Approvals } from "../services/approvals"
 import { EventLog } from "../services/event-log"
 import { Harnesses } from "../services/harnesses"
-import { JiraSync } from "../services/jira-sync"
+import { TaskSync } from "../services/task-sync"
 import { Notices } from "../services/notices"
 import { Projects } from "../services/projects"
 import { Sessions } from "../services/sessions"
@@ -169,17 +172,61 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
     )
   )
 
-  // ---- jira (read-only sync) ---------------------------------------------------------
-  app.get("/jira/connections", (c) => respond(c, JiraSync.use((j) => j.list)))
+  // ---- task sources (read-only sync: Jira, Linear, …) ------------------------------------
+  app.get("/sources", (c) => respond(c, TaskSync.use((t) => Effect.succeed(t.sources))))
+  app.get("/sources/connections", (c) => respond(c, TaskSync.use((t) => t.list)))
+  app.post("/sources/connections", (c) =>
+    respond(c, body(c, CreateSourceConnectionBody).pipe(Effect.flatMap((b) => TaskSync.use((t) => t.create(b)))), 201)
+  )
+  app.get("/sources/connections/:id", (c) => respond(c, TaskSync.use((t) => t.get(id(c)))))
+  app.patch("/sources/connections/:id", (c) =>
+    respond(c, body(c, UpdateSourceConnectionBody).pipe(Effect.flatMap((b) => TaskSync.use((t) => t.update(id(c), b)))))
+  )
+  app.delete("/sources/connections/:id", (c) => respond(c, TaskSync.use((t) => t.remove(id(c)))))
+  app.post("/sources/connections/:id/sync", (c) =>
+    respond(c, TaskSync.use((t) => t.sync(id(c), { full: c.req.query("full") === "1" })))
+  )
+  app.post("/sources/connections/:id/test", (c) => respond(c, TaskSync.use((t) => t.test(id(c)))))
+
+  // ---- deprecated /jira/* aliases (one release), translated to the generic API --------------
+  const asLegacyJira = (s: SourceConnection) => {
+    const settings = s.settings as { deployment: string; baseUrl: string; principal: string; jql: string }
+    const { settings: _settings, provider: _provider, ...rest } = s
+    return { ...rest, ...settings }
+  }
+  app.get("/jira/connections", (c) =>
+    respond(c, TaskSync.use((t) => t.list.pipe(Effect.map((all) => all.filter((x) => x.provider === "jira").map(asLegacyJira)))))
+  )
   app.post("/jira/connections", (c) =>
-    respond(c, body(c, CreateJiraConnectionBody).pipe(Effect.flatMap((b) => JiraSync.use((j) => j.create(b)))), 201)
+    respond(
+      c,
+      body(c, CreateJiraConnectionBody).pipe(
+        Effect.flatMap(({ deployment, baseUrl, principal, jql, ...rest }) =>
+          TaskSync.use((t) => t.create({ ...rest, provider: "jira", settings: { deployment, baseUrl, principal, jql } }))
+        ),
+        Effect.map(asLegacyJira)
+      ),
+      201
+    )
   )
   app.patch("/jira/connections/:id", (c) =>
-    respond(c, body(c, UpdateJiraConnectionBody).pipe(Effect.flatMap((b) => JiraSync.use((j) => j.update(id(c), b)))))
+    respond(
+      c,
+      Effect.gen(function* () {
+        const { jql, principal, ...rest } = yield* body(c, UpdateJiraConnectionBody)
+        const sync = yield* TaskSync
+        const current = yield* sync.get(id(c))
+        const settings =
+          jql !== undefined || principal !== undefined
+            ? { ...(current.settings as object), ...(jql !== undefined && { jql }), ...(principal !== undefined && { principal }) }
+            : undefined
+        return asLegacyJira(yield* sync.update(id(c), { ...rest, ...(settings && { settings }) }))
+      })
+    )
   )
-  app.delete("/jira/connections/:id", (c) => respond(c, JiraSync.use((j) => j.remove(id(c)))))
-  app.post("/jira/connections/:id/sync", (c) => respond(c, JiraSync.use((j) => j.sync(id(c), { full: c.req.query("full") === "1" }))))
-  app.post("/jira/connections/:id/test", (c) => respond(c, JiraSync.use((j) => j.test(id(c)))))
+  app.delete("/jira/connections/:id", (c) => respond(c, TaskSync.use((t) => t.remove(id(c)))))
+  app.post("/jira/connections/:id/sync", (c) => respond(c, TaskSync.use((t) => t.sync(id(c), { full: c.req.query("full") === "1" }))))
+  app.post("/jira/connections/:id/test", (c) => respond(c, TaskSync.use((t) => t.test(id(c)))))
 
   // ---- workflows ---------------------------------------------------------------------
   app.get("/workflows", (c) => respond(c, Workflows.use((w) => w.definitions)))

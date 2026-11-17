@@ -20,7 +20,7 @@ export interface DaemonConfigShape {
   readonly persistent: boolean
   readonly maxConcurrentRuns: number
   readonly maxRunsPerProject: number
-  readonly enableJiraPolling: boolean
+  readonly enableSourcePolling: boolean
   readonly workflowsDir: string
   readonly promptsDir: string
   /** Command prefix confining harness processes; required for "unrestricted" mode. `{cwd}` is substituted. */
@@ -70,6 +70,8 @@ const EnvConfig = Config.all({
   persistent: Config.String("AGENTDESK_PERSISTENT").pipe(Config.withDefault("0")),
   maxRuns: Config.Int("AGENTDESK_MAX_RUNS").pipe(Config.withDefault(3)),
   maxRunsPerProject: Config.Int("AGENTDESK_MAX_RUNS_PER_PROJECT").pipe(Config.withDefault(2)),
+  disableSourcePolling: Config.String("AGENTDESK_DISABLE_SOURCE_POLLING").pipe(Config.withDefault("0")),
+  /** @deprecated alias of AGENTDESK_DISABLE_SOURCE_POLLING */
   disableJiraPolling: Config.String("AGENTDESK_DISABLE_JIRA_POLLING").pipe(Config.withDefault("0")),
   workflowsDir: Config.String("AGENTDESK_WORKFLOWS_DIR").pipe(Config.option),
   promptsDir: Config.String("AGENTDESK_PROMPTS_DIR").pipe(Config.option),
@@ -127,7 +129,7 @@ export const loadConfig = Effect.fn("DaemonConfig.load")(function* (overrides: C
     persistent: overrides.persistent ?? env.persistent === "1",
     maxConcurrentRuns: overrides.maxConcurrentRuns ?? env.maxRuns,
     maxRunsPerProject: overrides.maxRunsPerProject ?? env.maxRunsPerProject,
-    enableJiraPolling: overrides.enableJiraPolling ?? env.disableJiraPolling !== "1",
+    enableSourcePolling: overrides.enableSourcePolling ?? (env.disableSourcePolling !== "1" && env.disableJiraPolling !== "1"),
     workflowsDir:
       overrides.workflowsDir ?? Option.getOrElse(env.workflowsDir, () => fileURLToPath(new URL("../../../workflows", import.meta.url))),
     promptsDir:

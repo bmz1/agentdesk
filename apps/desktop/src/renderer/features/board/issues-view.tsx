@@ -21,7 +21,7 @@ export interface IssuesSearch {
 
 export const validateIssuesSearch = (s: Record<string, unknown>): IssuesSearch => ({
   view: s.view === "list" ? "list" : s.view === "board" ? "board" : undefined,
-  source: s.source === "jira" || s.source === "local" ? s.source : undefined,
+  source: typeof s.source === "string" && /^[a-z0-9_-]+$/.test(s.source) ? s.source : undefined,
   q: typeof s.q === "string" && s.q ? s.q : undefined,
   project: typeof s.project === "string" && s.project ? s.project : undefined
 })
@@ -46,6 +46,7 @@ export const IssuesView = ({
   const query: TicketQuery = { projectId, source: search.source, q: search.q, pinned: pinnedOnly }
   const tickets = useQuery(q.tickets(query))
   const projects = useQuery(q.projects())
+  const sources = useQuery(q.sources())
   const projectNames = useMemo(() => new Map((projects.data ?? []).map((p) => [p.id, p.name])), [projects.data])
   const openCreate = useUi((s) => s.openCreateTicket)
   const [text, setText] = useState(search.q ?? "")
@@ -71,7 +72,11 @@ export const IssuesView = ({
         <Select value={search.source ?? ""} onChange={(e) => onSearch({ ...search, source: (e.target.value || undefined) as TicketSource })}>
           <option value="">All sources</option>
           <option value="local">Local</option>
-          <option value="jira">Jira</option>
+          {(sources.data ?? []).map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.displayName}
+            </option>
+          ))}
         </Select>
         {!fixedProjectId && (
           <Select value={search.project ?? ""} onChange={(e) => onSearch({ ...search, project: e.target.value || undefined })}>

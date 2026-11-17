@@ -2,7 +2,7 @@ import { Fragment } from "react"
 
 /**
  * Minimal, safe text renderer for agent/issue text: fenced code blocks and
- * inline code. Never uses innerHTML — untrusted Jira and agent text stays text.
+ * inline code. Never uses innerHTML — untrusted issue and agent text stays text.
  */
 export const RichText = ({ text }: { text: string }) => {
   const parts = text.split(/```(?:[\w+-]*)\n?/)

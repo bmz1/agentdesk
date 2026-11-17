@@ -9,6 +9,7 @@ import {
   PRIORITIES,
   RunStatusBadge,
   SourceBadge,
+  sourceLabel,
   StatusIcon
 } from "@/components/status"
 import { Badge } from "@/components/ui/badge"
@@ -80,7 +81,7 @@ export const TicketDetail = ({
         <Select
           value={t.status}
           onChange={(e) => update.mutate({ status: e.target.value as BoardStatus })}
-          title="Local board status (never written to Jira)"
+          title="Local board status (never written back to the source)"
           data-testid="ticket-status"
         >
           {BOARD_COLUMNS.map((c) => (
@@ -180,7 +181,9 @@ const Overview = ({ ticket, onUpdate }: { ticket: Ticket; onUpdate: (b: Paramete
             <div className="rounded-md border bg-bg-subtle p-3">
               {ticket.description ? <RichText text={ticket.description} /> : <span className="text-fg-subtle">No description</span>}
             </div>
-            <p className="text-[11px] text-fg-subtle">Title and description are synchronized read-only from Jira.</p>
+            <p className="text-[11px] text-fg-subtle">
+              Title and description are synchronized read-only from {sourceLabel(ticket.source)}.
+            </p>
           </>
         )}
         <Field label="Acceptance criteria">
@@ -250,7 +253,7 @@ const Overview = ({ ticket, onUpdate }: { ticket: Ticket; onUpdate: (b: Paramete
           </div>
         </Section>
         {ticket.external && (
-          <Section title="Jira">
+          <Section title={sourceLabel(ticket.external.provider)}>
             <div className="space-y-2 text-xs">
               <Prop label="Key">
                 <button className="flex items-center gap-1 text-accent hover:underline" onClick={() => openExternal(ticket.external!.url)}>
@@ -264,7 +267,7 @@ const Overview = ({ ticket, onUpdate }: { ticket: Ticket; onUpdate: (b: Paramete
               {ticket.external.remoteState === "missing" && (
                 <p className="text-warning">No longer returned by the sync scope (deleted, moved or no permission). Local history is kept.</p>
               )}
-              <p className="text-fg-subtle">Board moves stay local; AgentDesk never writes to Jira.</p>
+              <p className="text-fg-subtle">Board moves stay local; AgentDesk never writes back to {sourceLabel(ticket.external.provider)}.</p>
             </div>
           </Section>
         )}

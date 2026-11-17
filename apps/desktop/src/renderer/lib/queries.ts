@@ -31,7 +31,8 @@ export const qk = {
   run: (id: string) => ["runs", "detail", id] as const,
   workflows: ["workflows"] as const,
   workflow: (id: string) => ["workflows", id] as const,
-  jira: ["jira"] as const
+  sources: ["sources"] as const,
+  sourceConnections: ["sources", "connections"] as const
 }
 
 export const q = {
@@ -55,7 +56,8 @@ export const q = {
   run: (id: string) => queryOptions({ queryKey: qk.run(id), queryFn: () => api.run(id) }),
   workflows: () => queryOptions({ queryKey: qk.workflows, queryFn: api.workflows }),
   workflow: (id: string) => queryOptions({ queryKey: qk.workflow(id), queryFn: () => api.workflow(id) }),
-  jira: () => queryOptions({ queryKey: qk.jira, queryFn: api.jiraConnections })
+  sources: () => queryOptions({ queryKey: qk.sources, queryFn: api.sources, staleTime: Infinity }),
+  sourceConnections: () => queryOptions({ queryKey: qk.sourceConnections, queryFn: api.sourceConnections })
 }
 
 /** Map daemon change notices to query invalidations. */
@@ -92,8 +94,8 @@ export const applyNotice = (n: ChangeNotice) => {
     case "workflows":
       inv(qk.workflows)
       break
-    case "jira":
-      inv(qk.jira)
+    case "sources":
+      inv(qk.sourceConnections)
       inv(["tickets"])
       break
   }

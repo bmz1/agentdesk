@@ -4,18 +4,20 @@ import type {
   Approval,
   ApprovalDecision,
   Artifact,
-  CreateJiraConnectionBody,
+  CreateSourceConnectionBody,
   CreateProjectBody,
   CreateTicketBody,
   DaemonInfo,
   Diff,
   HarnessDetection,
   HarnessId,
-  JiraConnection,
   Project,
   StoredAgentEvent,
   Ticket,
-  UpdateJiraConnectionBody,
+  SourceConnection,
+  SourceDescriptor,
+  SyncResult,
+  UpdateSourceConnectionBody,
   UpdateProjectBody,
   UpdateTicketBody,
   WorkflowDefinitionSummary,
@@ -131,15 +133,13 @@ export const api = {
   validateWorkflow: (yaml: string) =>
     request<{ ok: boolean; errors: ReadonlyArray<string> }>("POST", "/workflows/validate", { yaml }),
 
-  jiraConnections: () => request<ReadonlyArray<JiraConnection>>("GET", "/jira/connections"),
-  createJiraConnection: (b: CreateJiraConnectionBody) => request<JiraConnection>("POST", "/jira/connections", b),
-  updateJiraConnection: (id: string, b: UpdateJiraConnectionBody) =>
-    request<JiraConnection>("PATCH", `/jira/connections/${id}`, b),
-  deleteJiraConnection: (id: string) => request<void>("DELETE", `/jira/connections/${id}`),
-  syncJira: (id: string, full = false) =>
-    request<{ fetched: number; created: number; updated: number; missing: number }>(
-      "POST",
-      `/jira/connections/${id}/sync${qs({ full: full ? 1 : undefined })}`
-    ),
-  testJira: (id: string) => request<{ ok: boolean; message: string }>("POST", `/jira/connections/${id}/test`)
+  sources: () => request<ReadonlyArray<SourceDescriptor>>("GET", "/sources"),
+  sourceConnections: () => request<ReadonlyArray<SourceConnection>>("GET", "/sources/connections"),
+  createSourceConnection: (b: CreateSourceConnectionBody) => request<SourceConnection>("POST", "/sources/connections", b),
+  updateSourceConnection: (id: string, b: UpdateSourceConnectionBody) =>
+    request<SourceConnection>("PATCH", `/sources/connections/${id}`, b),
+  deleteSourceConnection: (id: string) => request<void>("DELETE", `/sources/connections/${id}`),
+  syncSource: (id: string, full = false) =>
+    request<SyncResult>("POST", `/sources/connections/${id}/sync${qs({ full: full ? 1 : undefined })}`),
+  testSource: (id: string) => request<{ ok: boolean; message: string }>("POST", `/sources/connections/${id}/test`)
 }

@@ -31,7 +31,8 @@ export const Project = Schema.Struct({
 export type Project = typeof Project.Type
 
 export const ExternalLink = Schema.Struct({
-  provider: Schema.Literal("jira"),
+  /** Task source id ("jira", "linear", …). */
+  provider: Schema.String,
   remoteId: Schema.String,
   displayKey: Schema.String,
   url: Schema.String,
@@ -212,14 +213,13 @@ export const HarnessDetection = Schema.Struct({
 })
 export type HarnessDetection = typeof HarnessDetection.Type
 
-export const JiraConnection = Schema.Struct({
+/** A configured task source connection (provider-specific settings are validated by its adapter). */
+export const SourceConnection = Schema.Struct({
   id: Schema.String,
+  provider: Schema.String,
   name: Schema.String,
-  deployment: Schema.Literals(["cloud", "datacenter"]),
-  baseUrl: Schema.String,
-  principal: Schema.String,
-  jql: Schema.String,
   projectId: Schema.String,
+  settings: Schema.Unknown,
   pollIntervalSec: Schema.Number,
   enabled: Schema.Boolean,
   hasCredential: Schema.Boolean,
@@ -228,7 +228,37 @@ export const JiraConnection = Schema.Struct({
   lastError: NullableString,
   createdAt: Schema.String
 })
-export type JiraConnection = typeof JiraConnection.Type
+export type SourceConnection = typeof SourceConnection.Type
+
+export const SourceField = Schema.Struct({
+  key: Schema.String,
+  label: Schema.String,
+  type: Schema.Literals(["text", "url", "textarea", "select", "number"]),
+  required: Schema.optional(Schema.Boolean),
+  placeholder: Schema.optional(Schema.String),
+  hint: Schema.optional(Schema.String),
+  default: Schema.optional(Schema.String),
+  options: Schema.optional(Schema.Array(Schema.Struct({ value: Schema.String, label: Schema.String })))
+})
+export type SourceField = typeof SourceField.Type
+
+/** Describes an available task source so any UI can render its connection form. */
+export const SourceDescriptor = Schema.Struct({
+  id: Schema.String,
+  displayName: Schema.String,
+  description: Schema.String,
+  fields: Schema.Array(SourceField),
+  credential: Schema.Struct({ label: Schema.String, hint: Schema.String, required: Schema.Boolean })
+})
+export type SourceDescriptor = typeof SourceDescriptor.Type
+
+export interface SyncResult {
+  readonly fetched: number
+  readonly created: number
+  readonly updated: number
+  readonly missing: number
+  readonly full: boolean
+}
 
 export const DaemonInfo = Schema.Struct({
   version: Schema.String,

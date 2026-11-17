@@ -10,8 +10,13 @@ export const BOARD_STATUSES: ReadonlyArray<BoardStatus> = ["todo", "in_progress"
 export const Priority = Schema.Literals(["none", "low", "medium", "high", "urgent"])
 export type Priority = typeof Priority.Type
 
-export const TicketSource = Schema.Literals(["local", "jira"])
+/**
+ * Where a ticket came from: "local" or the id of a registered task source
+ * ("jira", "linear", …). Open-ended so new sources need no contract change.
+ */
+export const TicketSource = Schema.String
 export type TicketSource = typeof TicketSource.Type
+export const LOCAL_SOURCE = "local"
 
 export const GitProvider = Schema.Literals(["github", "gitlab", "none"])
 export type GitProvider = typeof GitProvider.Type

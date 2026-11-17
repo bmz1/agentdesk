@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@agentdesk/task-source": "workspace:*",
     "effect": "4.1.4"
   }
 }

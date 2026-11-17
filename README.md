@@ -2,7 +2,7 @@
 
 A local-first desktop control plane for coding agents, where work is organized around **tickets** rather than terminal windows.
 
-Pull selected Jira issues into one board next to local-only tickets. Assign Claude Code, Codex or OpenCode to a ticket and watch its structured live session. Approve tool calls, send follow-ups and review diffs. You can also run a durable **plan → approve → implement → test → review → draft PR** workflow. Agents run in a separate daemon inside per-ticket git worktrees, so closing the UI never stops them.
+Pull selected Jira and Linear issues (or any other pluggable task source) into one board next to local-only tickets. Assign Claude Code, Codex or OpenCode to a ticket and watch its structured live session. Approve tool calls, send follow-ups and review diffs. You can also run a durable **plan → approve → implement → test → review → draft PR** workflow. Agents run in a separate daemon inside per-ticket git worktrees, so closing the UI never stops them.
 
 ```
 Electron shell ─ React 19 SPA (TanStack Router/Query, Zustand, Tailwind, dnd-kit)
@@ -12,7 +12,7 @@ Daemon (Node + Effect v4 + Hono) ── SQLite (Drizzle, WAL) ── durable eve
         ├─ Harness adapters: Claude stream-json · Codex app-server · OpenCode serve
         ├─ Workflow engine (versioned YAML, durable step attempts, approval gates)
         ├─ Git worktrees, draft PRs via gh/glab
-        └─ Read-only Jira sync (Cloud & Data Center)
+        └─ Read-only task sources: Jira (Cloud & DC), Linear — one adapter interface
 ```
 
 ## Quick start
@@ -39,7 +39,8 @@ When you run `pnpm dev:web`, open `http://localhost:5173/?daemon=http://127.0.0.
 | `packages/harness-core` | `HarnessAdapter`/`HarnessSession` contract, process supervision, mock harness, redaction |
 | `packages/harness-{claude,codex,opencode}` | Protocol adapters and normalizers |
 | `packages/workflows` | YAML DSL, compiler and the pure `nextAction` state machine |
-| `packages/jira` | Jira Cloud/DC client, ADF to text |
+| `packages/task-source` | Task source adapter contract and registry |
+| `packages/jira`, `packages/linear` | Task source adapters (Jira Cloud/DC client + ADF to text; Linear GraphQL client) |
 | `packages/git` | Worktrees, diffs, commits, PR providers |
 | `workflows/`, `prompts/` | Built-in workflow definitions and prompt files |
 
@@ -61,4 +62,4 @@ pnpm e2e                                     # Playwright: renderer + real daemo
 
 ## Status and non-goals
 
-The MVP is complete through the pilot phase. These are deliberately out of scope: Jira write-back, auto-merge, multi-user sync, running several agents in the same worktree, a visual workflow builder, and terminal multiplexing.
+The MVP is complete through the pilot phase. These are deliberately out of scope: Write-back to task sources, auto-merge, multi-user sync, running several agents in the same worktree, a visual workflow builder, and terminal multiplexing.

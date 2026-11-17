@@ -7,7 +7,7 @@ import { DaemonConfig } from "../config"
 import { BadRequest } from "../errors"
 
 /**
- * Secrets (Jira tokens) live in the OS credential store, never in SQLite or
+ * Secrets (task-source API tokens) live in the OS credential store, never in SQLite or
  * logs. SQLite only stores an opaque `credentialRef`. Values cross this
  * boundary as `Redacted`, so they can't leak through logging or spans.
  */

@@ -24,6 +24,8 @@
     "@agentdesk/harness-core": "workspace:*",
     "@agentdesk/harness-opencode": "workspace:*",
     "@agentdesk/jira": "workspace:*",
+    "@agentdesk/linear": "workspace:*",
+    "@agentdesk/task-source": "workspace:*",
     "@agentdesk/workflows": "workspace:*",
     "@effect/platform-node": "4.1.4",
     "@hono/node-server": "2.1.8",

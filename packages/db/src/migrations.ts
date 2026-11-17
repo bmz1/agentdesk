@@ -237,5 +237,47 @@ CREATE TABLE settings (
   value TEXT NOT NULL
 );
 `
+  },
+  {
+    id: 2,
+    name: "generic_task_sources",
+    // Jira-specific connection tables become generic task-source tables.
+    // Provider settings move to validated JSON; credential refs and ticket links are kept.
+    sql: /* sql */ `
+CREATE TABLE source_connections (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  name TEXT NOT NULL,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  settings TEXT NOT NULL,
+  credential_ref TEXT NOT NULL,
+  poll_interval_sec INTEGER NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX source_connections_provider_idx ON source_connections(provider);
+
+CREATE TABLE source_sync_state (
+  connection_id TEXT PRIMARY KEY REFERENCES source_connections(id),
+  last_sync_at TEXT,
+  last_full_sync_at TEXT,
+  high_watermark TEXT,
+  last_error TEXT,
+  consecutive_failures INTEGER NOT NULL DEFAULT 0
+);
+
+INSERT INTO source_connections (id, provider, name, project_id, settings, credential_ref, poll_interval_sec, enabled, created_at)
+  SELECT id, 'jira', name, project_id,
+         json_object('deployment', deployment, 'baseUrl', base_url, 'principal', principal, 'jql', jql),
+         credential_ref, poll_interval_sec, enabled, created_at
+  FROM jira_connections;
+
+INSERT INTO source_sync_state (connection_id, last_sync_at, last_full_sync_at, high_watermark, last_error, consecutive_failures)
+  SELECT connection_id, last_sync_at, last_full_sync_at, high_watermark, last_error, consecutive_failures
+  FROM jira_sync_state;
+
+DROP TABLE jira_sync_state;
+DROP TABLE jira_connections;
+`
   }
 ]

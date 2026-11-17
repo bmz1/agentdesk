@@ -8,7 +8,8 @@ import { CredentialStoreLive } from "./services/credentials"
 import { Database } from "./services/database"
 import { EventLog } from "./services/event-log"
 import { HarnessesLive } from "./services/harnesses"
-import { JiraSyncLive, type JiraSyncOptions } from "./services/jira-sync"
+import { TaskSourcesLive, TaskSyncLive, type TaskSyncOptions } from "./services/task-sync"
+import type { TaskSourceAdapter } from "@agentdesk/task-source"
 import { Maintenance } from "./services/maintenance"
 import { Notices } from "./services/notices"
 import { ProjectsLive } from "./services/projects"
@@ -19,7 +20,10 @@ import { WorkspacesLive } from "./services/workspaces"
 
 export interface AppLayerOptions {
   readonly adapters?: ReadonlyArray<HarnessAdapter>
-  readonly jira?: JiraSyncOptions
+  /** Connection options (e.g. injected fetch) passed to every task source. */
+  readonly sources?: TaskSyncOptions
+  /** Override the registered task sources (default: Jira, Linear). */
+  readonly sourceAdapters?: ReadonlyArray<TaskSourceAdapter<any>>
   /** "memory" keeps secrets in-process only (tests). */
   readonly credentialStore?: "auto" | "memory"
   readonly workflows?: WorkflowsOptions
@@ -32,7 +36,12 @@ export interface AppLayerOptions {
 export const makeAppLayer = (config: DaemonConfigShape, options: AppLayerOptions = {}) => {
   const platform = Layer.mergeAll(DaemonConfigLive(config), NodeProcessLayer, ObservabilityLive(config))
   const base = Layer.mergeAll(Database.layer, Notices.layer).pipe(Layer.provideMerge(platform))
-  const infra = Layer.mergeAll(EventLog.layer, Activity.layer, CredentialStoreLive(options.credentialStore)).pipe(
+  const infra = Layer.mergeAll(
+    EventLog.layer,
+    Activity.layer,
+    CredentialStoreLive(options.credentialStore),
+    TaskSourcesLive(options.sourceAdapters)
+  ).pipe(
     Layer.provideMerge(base)
   )
   const domain = Layer.mergeAll(
@@ -41,7 +50,7 @@ export const makeAppLayer = (config: DaemonConfigShape, options: AppLayerOptions
     ApprovalsLive,
     WorkspacesLive,
     HarnessesLive(options.adapters),
-    JiraSyncLive(options.jira),
+    TaskSyncLive(options.sources),
     Maintenance.layer
   ).pipe(Layer.provideMerge(infra))
   const sessions = SessionsLive.pipe(Layer.provideMerge(domain))

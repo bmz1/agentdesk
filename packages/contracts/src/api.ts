@@ -79,6 +79,28 @@ export const ApprovalDecisionBody = Schema.Struct({
 })
 export type ApprovalDecisionBody = typeof ApprovalDecisionBody.Type
 
+export const CreateSourceConnectionBody = Schema.Struct({
+  provider: Schema.NonEmptyString,
+  name: Schema.NonEmptyString,
+  projectId: Schema.String,
+  /** Provider settings; validated by the source adapter's schema. */
+  settings: Schema.Unknown,
+  /** API token / key. Stored in the OS credential store, never SQLite. */
+  token: Schema.optional(Schema.String),
+  pollIntervalSec: Schema.optional(Schema.Number)
+})
+export type CreateSourceConnectionBody = typeof CreateSourceConnectionBody.Type
+
+export const UpdateSourceConnectionBody = Schema.Struct({
+  name: Schema.optional(Schema.NonEmptyString),
+  settings: Schema.optional(Schema.Unknown),
+  token: Schema.optional(Schema.String),
+  pollIntervalSec: Schema.optional(Schema.Number),
+  enabled: Schema.optional(Schema.Boolean)
+})
+export type UpdateSourceConnectionBody = typeof UpdateSourceConnectionBody.Type
+
+/** @deprecated Legacy /jira/connections body; use CreateSourceConnectionBody. */
 export const CreateJiraConnectionBody = Schema.Struct({
   name: Schema.NonEmptyString,
   deployment: Schema.Literals(["cloud", "datacenter"]),
@@ -92,6 +114,7 @@ export const CreateJiraConnectionBody = Schema.Struct({
 })
 export type CreateJiraConnectionBody = typeof CreateJiraConnectionBody.Type
 
+/** @deprecated Legacy /jira/connections body; use UpdateSourceConnectionBody. */
 export const UpdateJiraConnectionBody = Schema.Struct({
   name: Schema.optional(Schema.NonEmptyString),
   jql: Schema.optional(Schema.NonEmptyString),
@@ -114,7 +137,7 @@ export type ApiErrorBody = typeof ApiErrorBody.Type
 
 /** Live board/run invalidation notifications sent over `GET /events`. */
 export const ChangeNotice = Schema.Struct({
-  topic: Schema.Literals(["tickets", "projects", "runs", "sessions", "approvals", "activity", "jira", "workflows"]),
+  topic: Schema.Literals(["tickets", "projects", "runs", "sessions", "approvals", "activity", "sources", "workflows"]),
   ticketId: Schema.optional(Schema.String),
   runId: Schema.optional(Schema.String),
   sessionId: Schema.optional(Schema.String)

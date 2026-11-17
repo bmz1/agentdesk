@@ -6,7 +6,7 @@ const iconFor = (kind: string) => {
   if (kind.startsWith("session")) return <Bot />
   if (kind.startsWith("approval")) return <Hand />
   if (kind.startsWith("workspace") || kind.startsWith("pr")) return <GitBranch />
-  if (kind.startsWith("jira")) return <Link2 />
+  if (kind.startsWith("source") || kind.startsWith("jira")) return <Link2 />
   if (kind.startsWith("ticket")) return <CircleDot />
   return <User />
 }

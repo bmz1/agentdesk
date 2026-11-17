@@ -82,10 +82,15 @@ export const HarnessBadge = ({ harness }: { harness: HarnessId | null }) =>
     </Badge>
   ) : null
 
+/** Display name for a ticket source id ("jira" → "Jira"); unknown ids are title-cased. */
+export const sourceLabel = (source: string) =>
+  ({ local: "Local", jira: "Jira", linear: "Linear", github: "GitHub" })[source] ?? source.charAt(0).toUpperCase() + source.slice(1)
+
 export const SourceBadge = ({ ticket }: { ticket: Ticket }) =>
-  ticket.source === "jira" ? (
+  ticket.source !== "local" ? (
     <Badge tone={ticket.external?.remoteState === "missing" ? "warning" : "info"} title={ticket.external?.remoteStatus ?? undefined}>
-      Jira{ticket.external?.remoteState === "missing" ? " · missing" : ""}
+      {sourceLabel(ticket.source)}
+      {ticket.external?.remoteState === "missing" ? " · missing" : ""}
     </Badge>
   ) : (
     <Badge tone="neutral">Local</Badge>

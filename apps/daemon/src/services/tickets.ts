@@ -1,5 +1,6 @@
-import type {
-  BoardStatus,
+import {
+  LOCAL_SOURCE,
+  type BoardStatus,
   CreateTicketBody,
   ExternalLink,
   RunSummary,
@@ -116,7 +117,7 @@ export const loadTickets = (database: DatabaseShape, filter: TicketFilter = {}) 
     return rows.map(({ t, projectKey, link }) => {
       const external: ExternalLink | null = link
         ? {
-            provider: "jira",
+            provider: link.provider,
             remoteId: link.remoteId,
             displayKey: link.displayKey,
             url: link.url,
@@ -225,8 +226,10 @@ export const TicketsLive = Layer.effect(
         yield* Effect.annotateCurrentSpan({ ticketId: id })
         const before = yield* get(id)
         const updatedAt = yield* nowIso
-        if (before.source === "jira" && (body.title !== undefined || body.description !== undefined)) {
-          return yield* new BadRequest({ message: "Title and description of Jira tickets are owned by Jira (read-only sync)" })
+        if (before.source !== LOCAL_SOURCE && (body.title !== undefined || body.description !== undefined)) {
+          return yield* new BadRequest({
+            message: `Title and description of ${before.source} tickets are owned by the source (read-only sync)`
+          })
         }
         if (body.projectId) yield* ensureProject(body.projectId)
         yield* use((db) =>

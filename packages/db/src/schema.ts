@@ -62,26 +62,25 @@ export const ticketExternalLinks = sqliteTable(
   (t) => [uniqueIndex("ext_provider_remote").on(t.provider, t.connectionId, t.remoteId)]
 )
 
-export const jiraConnections = sqliteTable("jira_connections", {
+/** One configured task source (Jira site + JQL, Linear team, …). Secrets live in the OS credential store. */
+export const sourceConnections = sqliteTable("source_connections", {
   id: text("id").primaryKey(),
+  provider: text("provider").notNull(),
   name: text("name").notNull(),
-  deployment: text("deployment").notNull(),
-  baseUrl: text("base_url").notNull(),
-  /** Email (Cloud) or username (DC). The secret itself lives in the OS credential store. */
-  principal: text("principal").notNull(),
-  credentialRef: text("credential_ref").notNull(),
-  jql: text("jql").notNull(),
   projectId: text("project_id").notNull().references(() => projects.id),
+  /** Provider settings, validated by the adapter's schema. Never contains secrets. */
+  settings: json<unknown>("settings").notNull(),
+  credentialRef: text("credential_ref").notNull(),
   pollIntervalSec: integer("poll_interval_sec").notNull(),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   createdAt: ts("created_at").notNull()
 })
 
-export const jiraSyncState = sqliteTable("jira_sync_state", {
-  connectionId: text("connection_id").primaryKey().references(() => jiraConnections.id),
+export const sourceSyncState = sqliteTable("source_sync_state", {
+  connectionId: text("connection_id").primaryKey().references(() => sourceConnections.id),
   lastSyncAt: text("last_sync_at"),
   lastFullSyncAt: text("last_full_sync_at"),
-  /** Highest remote `updated` timestamp observed; used for incremental JQL. */
+  /** Highest remote `updated` timestamp observed; used for incremental fetches. */
   highWatermark: text("high_watermark"),
   lastError: text("last_error"),
   consecutiveFailures: integer("consecutive_failures").notNull().default(0)

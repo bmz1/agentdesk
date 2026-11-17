@@ -35,8 +35,13 @@ export const toHttpError = (e: AppError): ErrorBody => {
         message: e.message,
         details: { harness: e.harness, reason: e.reason }
       }
-    case "JiraError":
-      return { status: 502, error: e._tag, message: e.message, details: { kind: e.kind, status: e.status } }
+    case "TaskSourceError":
+      return {
+        status: e.kind === "config" ? 400 : 502,
+        error: e._tag,
+        message: e.message,
+        details: { source: e.source, kind: e.kind, status: e.status }
+      }
     case "PullRequestError":
       return { status: 502, error: e._tag, message: e.message }
     case "GitError":

@@ -6,7 +6,7 @@ import { makeFakeJira } from "../../../packages/jira/test/fake-jira"
 import { toHttpError } from "../src/http/respond"
 import { EventLog } from "../src/services/event-log"
 import { Database } from "../src/services/database"
-import { JiraSync } from "../src/services/jira-sync"
+import { TaskSync } from "../src/services/task-sync"
 import { Maintenance } from "../src/services/maintenance"
 import { Projects } from "../src/services/projects"
 import { Sessions } from "../src/services/sessions"
@@ -76,21 +76,19 @@ describe("time-dependent behaviour on the Effect Clock (TestClock)", () => {
     }).pipe(Effect.provide(TestApp({ retentionDays: 30 })))
   )
 
-  it.effect("the Jira poller backs off exponentially after failures", () => {
+  it.effect("source pollers back off exponentially after failures", () => {
     const fake = makeFakeJira({ deployment: "cloud", issues: [] })
     fake.state.failAuth = true
     return Effect.gen(function* () {
       const p = yield* Projects.use((x) => x.create({ name: "Jira", repoPath: makeRepo() }))
-      yield* JiraSync.use((j) =>
-        j.create({
+      yield* TaskSync.use((t) =>
+        t.create({
+          provider: "jira",
           name: "c",
-          deployment: "cloud",
-          baseUrl: "https://x.atlassian.net",
-          principal: "me@x",
           token: "t",
-          jql: "project = X",
           projectId: p.id,
-          pollIntervalSec: 60
+          pollIntervalSec: 60,
+          settings: { deployment: "cloud", baseUrl: "https://x.atlassian.net", principal: "me@x", jql: "project = X" }
         })
       )
       yield* settle
@@ -108,7 +106,7 @@ describe("time-dependent behaviour on the Effect Clock (TestClock)", () => {
       yield* TestClock.adjust(Duration.seconds(1))
       yield* settle
       expect(fake.state.calls).toHaveLength(3)
-    }).pipe(Effect.provide(TestApp({ enableJiraPolling: true }, { jira: { fetch: fake.fetch } })))
+    }).pipe(Effect.provide(TestApp({ enableSourcePolling: true }, { sources: { fetch: fake.fetch } })))
   })
 })
 
