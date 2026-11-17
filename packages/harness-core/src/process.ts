@@ -31,6 +31,14 @@ export interface SpawnOptions {
   readonly stripEnv?: ReadonlyArray<string>
   /** Grace period between SIGTERM and SIGKILL on release. */
   readonly killGraceMs?: number
+  /** Optional sandbox command prefix; `{cwd}` is substituted with the working directory. */
+  readonly sandboxPrefix?: ReadonlyArray<string>
+}
+
+const withSandbox = (opts: SpawnOptions): [string, Array<string>] => {
+  const prefix = (opts.sandboxPrefix ?? []).map((p) => p.replaceAll("{cwd}", opts.cwd))
+  if (prefix.length === 0) return [opts.command, [...opts.args]]
+  return [prefix[0]!, [...prefix.slice(1), opts.command, ...opts.args]]
 }
 
 /** Environment variables never forwarded to agent harnesses. */
@@ -82,7 +90,7 @@ export const spawnManaged = (opts: SpawnOptions): Effect.Effect<ManagedProcess, 
     const child = yield* Effect.acquireRelease(
       Effect.try({
         try: () =>
-          spawn(opts.command, [...opts.args], {
+          spawn(...withSandbox(opts), {
             cwd: opts.cwd,
             env: buildChildEnv(opts.env, opts.stripEnv),
             stdio: ["pipe", "pipe", "pipe"],

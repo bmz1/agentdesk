@@ -1,8 +1,9 @@
-import { rmSync, writeFileSync } from "node:fs"
+import { readFileSync, rmSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import type { AddressInfo } from "node:net"
 import { serve, type ServerType } from "@hono/node-server"
 import { Effect } from "effect"
-import { connectionFilePath, type ConnectionFile, DaemonConfig, type DaemonConfigShape } from "./config"
+import { connectionFilePath, type ConnectionFile, DaemonConfig, type DaemonConfigShape, makeConfig } from "./config"
 import { makeApp, type RouteRegistrar } from "./http/app"
 import { type AppLayerOptions, type AppRuntime, makeRuntime } from "./runtime"
 import { Sessions } from "./services/sessions"
@@ -22,7 +23,35 @@ export interface StartDaemonOptions extends AppLayerOptions {
   readonly bootstrap?: (runtime: AppRuntime) => Promise<void>
 }
 
+const isAlive = (pid: number) => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM"
+  }
+}
+
+/**
+ * One daemon per data directory: two daemons on one SQLite database would
+ * both own agents and reconcile each other's runs.
+ */
+export const acquireInstanceLock = (dataDir: string) => {
+  const file = join(dataDir, "daemon.lock")
+  try {
+    writeFileSync(file, String(process.pid), { flag: "wx", mode: 0o600 })
+  } catch {
+    const pid = Number(readFileSync(file, "utf8").trim())
+    if (pid && pid !== process.pid && isAlive(pid)) {
+      throw new Error(`Another AgentDesk daemon (pid ${pid}) is already using ${dataDir}`)
+    }
+    writeFileSync(file, String(process.pid), { mode: 0o600 })
+  }
+  return () => rmSync(file, { force: true })
+}
+
 export const startDaemon = async (options: StartDaemonOptions = {}): Promise<RunningDaemon> => {
+  const releaseLock = acquireInstanceLock(makeConfig(options.config).dataDir)
   const runtime = makeRuntime(options)
   const config = await runtime.runPromise(
     Effect.gen(function* () {
@@ -66,6 +95,7 @@ export const startDaemon = async (options: StartDaemonOptions = {}): Promise<Run
     })
     await runtime.dispose()
     if (options.writeConnectionFile) rmSync(connFile, { force: true })
+    releaseLock()
   }
   return { url, config: { ...config, port }, runtime, stop }
 }

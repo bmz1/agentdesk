@@ -9,10 +9,14 @@
   "scripts": {
     "dev:daemon": "pnpm --filter @agentdesk/daemon dev",
     "dev:desktop": "pnpm --filter @agentdesk/desktop dev",
-    "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck",
+    "dev:web": "pnpm --filter @agentdesk/desktop dev:web",
+    "seed:demo": "pnpm --filter @agentdesk/daemon seed:demo",
+    "build": "pnpm --filter @agentdesk/daemon build && pnpm --filter @agentdesk/desktop build",
+    "typecheck": "pnpm -r --no-bail typecheck",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:smoke": "AGENTDESK_SMOKE=${AGENTDESK_SMOKE:-claude} vitest run apps/daemon/test/smoke.real-cli.test.ts",
+    "e2e": "pnpm --filter @agentdesk/desktop e2e"
   },
   "devDependencies": {
     "@effect/vitest": "4.1.4",

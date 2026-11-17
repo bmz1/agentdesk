@@ -1,5 +1,6 @@
 import { AgentEvent, type StoredAgentEvent } from "@agentdesk/contracts"
 import { agentEvents } from "@agentdesk/db"
+import { redactDeep } from "@agentdesk/harness-core"
 import { and, asc, desc, eq, gt } from "drizzle-orm"
 import { Context, Effect, Layer, PubSub, Schema, Stream } from "effect"
 import type { DbError } from "../errors"
@@ -41,7 +42,7 @@ export const EventLogLive = Layer.effect(
 
     const append = (sessionId: string, raw: AgentEvent) =>
       Effect.gen(function* () {
-        const event = yield* decodeEvent(raw).pipe(
+        const event = yield* decodeEvent(redactDeep(raw)).pipe(
           Effect.orElseSucceed(
             (): AgentEvent => ({ type: "session.error", message: `Dropped malformed ${String(raw?.type)} event` })
           )

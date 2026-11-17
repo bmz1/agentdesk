@@ -23,6 +23,11 @@ export interface DaemonConfigShape {
   readonly enableJiraPolling: boolean
   readonly workflowsDir: string
   readonly promptsDir: string
+  /** Command prefix confining harness processes; required for "unrestricted" mode. `{cwd}` is substituted. */
+  readonly sandboxPrefix: ReadonlyArray<string> | undefined
+  /** Agent event transcripts of ended sessions older than this are pruned (audit activity is kept). */
+  readonly retentionDays: number
+  readonly logFile: string | undefined
 }
 
 export class DaemonConfig extends Context.Service<DaemonConfig, DaemonConfigShape>()("agentdesk/DaemonConfig") {}
@@ -48,6 +53,13 @@ const loadOrCreateToken = (dataDir: string): string => {
   const token = randomBytes(32).toString("base64url")
   writeFileSync(file, token, { mode: 0o600 })
   return token
+}
+
+/** AGENTDESK_SANDBOX_CMD: a JSON array (preferred) or a whitespace-separated command prefix. */
+export const parseSandbox = (raw: string | undefined): ReadonlyArray<string> | undefined => {
+  if (!raw?.trim()) return undefined
+  if (raw.trim().startsWith("[")) return JSON.parse(raw) as Array<string>
+  return raw.trim().split(/\s+/)
 }
 
 export const makeConfig = (overrides: Partial<DaemonConfigShape> = {}): DaemonConfigShape => {
@@ -84,7 +96,10 @@ export const makeConfig = (overrides: Partial<DaemonConfigShape> = {}): DaemonCo
     maxRunsPerProject: overrides.maxRunsPerProject ?? Number(env.AGENTDESK_MAX_RUNS_PER_PROJECT ?? 2),
     enableJiraPolling: overrides.enableJiraPolling ?? env.AGENTDESK_DISABLE_JIRA_POLLING !== "1",
     workflowsDir: overrides.workflowsDir ?? env.AGENTDESK_WORKFLOWS_DIR ?? fileURLToPath(new URL("../../../workflows", import.meta.url)),
-    promptsDir: overrides.promptsDir ?? env.AGENTDESK_PROMPTS_DIR ?? fileURLToPath(new URL("../../../prompts", import.meta.url))
+    promptsDir: overrides.promptsDir ?? env.AGENTDESK_PROMPTS_DIR ?? fileURLToPath(new URL("../../../prompts", import.meta.url)),
+    sandboxPrefix: overrides.sandboxPrefix ?? parseSandbox(env.AGENTDESK_SANDBOX_CMD),
+    retentionDays: overrides.retentionDays ?? Number(env.AGENTDESK_RETENTION_DAYS ?? 90),
+    logFile: "logFile" in overrides ? overrides.logFile : join(dataDir, "logs", "daemon.log")
   }
 }
 

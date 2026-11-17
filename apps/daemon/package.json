@@ -11,7 +11,9 @@
     "start": "tsx src/main.ts",
     "build": "node build.mjs",
     "typecheck": "tsc -p tsconfig.json",
-    "seed:demo": "tsx scripts/seed-demo.ts"
+    "seed:demo": "tsx scripts/seed-demo.ts",
+    "install-service": "tsx scripts/install-service.ts",
+    "start:dist": "node dist/main.js"
   },
   "dependencies": {
     "@agentdesk/contracts": "workspace:*",

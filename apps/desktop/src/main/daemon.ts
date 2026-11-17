@@ -40,11 +40,24 @@ const daemonCommand = (): { command: string; args: Array<string>; env: NodeJS.Pr
     ? join(process.resourcesPath, "daemon", "main.js")
     : resolve(__dirname, "../../../daemon/dist/main.js")
   if (existsSync(bundled)) {
-    return { command: process.execPath, args: [bundled], env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } }
+    // Prefer the system Node: better-sqlite3 is built for Node's ABI, not Electron's.
+    const node = findNode()
+    return node
+      ? { command: node, args: [bundled], env: process.env }
+      : { command: process.execPath, args: [bundled], env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } }
   }
   const source = resolve(__dirname, "../../../daemon/src/main.ts")
   if (!app.isPackaged && existsSync(source)) {
     return { command: "npx", args: ["tsx", source], env: process.env }
+  }
+  return undefined
+}
+
+const findNode = () => {
+  const dirs = [...(process.env.PATH ?? "").split(":"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
+  for (const d of dirs) {
+    const p = join(d, "node")
+    if (d && existsSync(p)) return p
   }
   return undefined
 }

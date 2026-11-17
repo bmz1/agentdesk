@@ -20,6 +20,8 @@ const main = async () => {
       }
     )
   }
+  process.on("uncaughtException", (e) => console.error("[agentdesk] uncaught exception", e))
+  process.on("unhandledRejection", (e) => console.error("[agentdesk] unhandled rejection", e))
   process.on("SIGINT", () => shutdown("SIGINT"))
   process.on("SIGTERM", () => shutdown("SIGTERM"))
 }

@@ -1,12 +1,14 @@
 import type { HarnessAdapter } from "@agentdesk/harness-core"
 import { Layer, ManagedRuntime } from "effect"
-import { DaemonConfigLive, type DaemonConfigShape } from "./config"
+import { DaemonConfigLive, type DaemonConfigShape, makeConfig } from "./config"
+import { fileLoggerLayer } from "./logging"
 import { ActivityLive } from "./services/activity"
 import { ApprovalsLive } from "./services/approvals"
 import { DatabaseLive } from "./services/database"
 import { CredentialStoreLive } from "./services/credentials"
 import { EventLogLive } from "./services/event-log"
 import { HarnessesLive } from "./services/harnesses"
+import { MaintenanceLive } from "./services/maintenance"
 import { JiraSyncLive, type JiraSyncOptions } from "./services/jira-sync"
 import { NoticesLive } from "./services/notices"
 import { ProjectsLive } from "./services/projects"
@@ -26,7 +28,8 @@ export interface AppLayerOptions {
 
 /** The daemon's explicit dependency graph. */
 export const makeAppLayer = (options: AppLayerOptions = {}) => {
-  const config = DaemonConfigLive(options.config)
+  const resolved = makeConfig(options.config)
+  const config = Layer.merge(DaemonConfigLive(resolved), fileLoggerLayer(resolved.logFile))
   const base = Layer.mergeAll(DatabaseLive, NoticesLive).pipe(Layer.provideMerge(config))
   const infra = Layer.mergeAll(EventLogLive, ActivityLive, CredentialStoreLive(options.credentialStore)).pipe(
     Layer.provideMerge(base)
@@ -37,7 +40,8 @@ export const makeAppLayer = (options: AppLayerOptions = {}) => {
     ApprovalsLive,
     WorkspacesLive,
     HarnessesLive(options.adapters),
-    JiraSyncLive(options.jira)
+    JiraSyncLive(options.jira),
+    MaintenanceLive
   ).pipe(Layer.provideMerge(infra))
   const sessions = SessionsLive.pipe(Layer.provideMerge(domain))
   return WorkflowsLive(options.workflows).pipe(Layer.provideMerge(sessions))

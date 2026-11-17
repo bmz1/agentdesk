@@ -4,6 +4,7 @@ import type {
   AgentSession,
   ApprovalDecision,
   HarnessId,
+  Project,
   SessionState,
   Ticket
 } from "@agentdesk/contracts"
@@ -14,6 +15,7 @@ import { and, desc, eq, inArray } from "drizzle-orm"
 import { Context, Effect, Exit, Layer, Option, Scope, Stream } from "effect"
 import { BadRequest, type Conflict, type DbError, NotFound } from "../errors"
 import { newId, nowIso } from "../util"
+import { DaemonConfig } from "../config"
 import { Activity } from "./activity"
 import { Approvals } from "./approvals"
 import { Database } from "./database"
@@ -90,6 +92,23 @@ interface LiveSession {
   exitCode: number | null | undefined
 }
 
+/**
+ * Build the harness run policy for a project. Unrestricted mode is refused
+ * unless a real sandbox is configured: a git worktree is not a sandbox.
+ */
+export const projectPolicy = (project: Project, sandboxPrefix: ReadonlyArray<string> | undefined) =>
+  project.permissionMode === "unrestricted" && !sandboxPrefix?.length
+    ? Effect.fail(
+        new BadRequest({
+          message:
+            "Unrestricted permission mode requires a sandbox (set AGENTDESK_SANDBOX_CMD). Choose another permission mode or configure a sandbox."
+        })
+      )
+    : Effect.succeed<RunPolicy>({
+        permissionMode: project.permissionMode,
+        ...(project.permissionMode === "unrestricted" && { sandboxPrefix })
+      })
+
 export const buildTicketPrompt = (ticket: Ticket, extra?: string) =>
   [
     `You are working on ticket ${ticket.identifier}: ${ticket.title}`,
@@ -113,6 +132,7 @@ export const SessionsLive = Layer.effect(
     const tickets = yield* Tickets
     const projects = yield* Projects
     const workspaces = yield* Workspaces
+    const config = yield* DaemonConfig
     const layerScope = yield* Effect.scope
     // All session processes and consumer fibers live in this child scope. The shutdown finalizer
     // below is registered on the parent *after* it, so it runs first and can record state.
@@ -313,6 +333,7 @@ export const SessionsLive = Layer.effect(
         }
         const project = yield* projects.get(ticket.projectId)
         const harness = input.harness ?? ticket.harness ?? project.defaultHarness
+        const policy = yield* projectPolicy(project, config.sandboxPrefix)
         const ws = input.useRepoDirectly
           ? undefined
           : yield* workspaces.forTicket({
@@ -327,7 +348,7 @@ export const SessionsLive = Layer.effect(
           harness,
           cwd: ws?.path ?? project.repoPath,
           workspaceId: ws?.id ?? null,
-          policy: { permissionMode: project.permissionMode },
+          policy,
           prompt: buildTicketPrompt(ticket, input.prompt)
         })
       })
@@ -352,7 +373,7 @@ export const SessionsLive = Layer.effect(
         yield* launch(row, {
           prompt: text,
           resume: true,
-          policy: { permissionMode: project.permissionMode },
+          policy: yield* projectPolicy(project, config.sandboxPrefix),
           lockHolder: row.workspaceId && !row.runId ? id : undefined
         })
         yield* activity.record({ kind: "session.resumed", message: "Agent session resumed with a follow-up", ticketId: row.ticketId, actor })

@@ -9,6 +9,11 @@ export interface RunPolicy {
   readonly model?: string
   /** Extra system prompt appended to the harness' default. */
   readonly appendSystemPrompt?: string
+  /**
+   * Command prefix that confines the harness process (e.g. a container or
+   * bubblewrap invocation). Required for unrestricted permission mode.
+   */
+  readonly sandboxPrefix?: ReadonlyArray<string>
 }
 
 export interface StartInput {

@@ -41,7 +41,14 @@ export const makeCodexAdapter = (options: CodexAdapterOptions = {}): HarnessAdap
       if (!binary) {
         return yield* new HarnessError({ harness: "codex", reason: "not_installed", message: "codex CLI not found on PATH" })
       }
-      const proc = yield* spawnManaged({ harness: "codex", command: binary, args: ["app-server"], cwd: input.cwd, env: input.policy.env })
+      const proc = yield* spawnManaged({
+        harness: "codex",
+        command: binary,
+        args: ["app-server"],
+        cwd: input.cwd,
+        env: input.policy.env,
+        sandboxPrefix: input.policy.sandboxPrefix
+      })
       const normalizer = new CodexNormalizer()
       const pending = new Map<string, Deferred.Deferred<unknown, HarnessError>>()
       const approvalKinds = new Map<string, { legacy: boolean; rawId: unknown }>()

@@ -13,6 +13,7 @@ import {
   type BoardStatus,
   type TicketSource
 } from "@agentdesk/contracts"
+import { redactSecrets } from "@agentdesk/harness-core"
 import { type Context, Effect, Stream } from "effect"
 import { Hono } from "hono"
 import { DaemonConfig, type DaemonConfigShape } from "../config"
@@ -152,7 +153,8 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape, extraRou
       Effect.gen(function* () {
         const ws = yield* (yield* Workspaces).latestForTicket(c.req.param("id"))
         if (!ws) return { branch: null, baseCommit: null, headCommit: null, files: [], patch: "", commits: [] }
-        return yield* (yield* Workspaces).diff(ws.id)
+        const diff = yield* (yield* Workspaces).diff(ws.id)
+        return { ...diff, patch: redactSecrets(diff.patch) }
       })
     )
   )

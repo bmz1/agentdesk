@@ -66,6 +66,7 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
       // One server per session, bound to loopback, rooted at the worktree.
       const proc = yield* spawnManaged({
         harness: "opencode",
+        sandboxPrefix: input.policy.sandboxPrefix,
         command: binary,
         args: ["serve", "--port", "0", "--hostname", "127.0.0.1"],
         cwd: input.cwd,

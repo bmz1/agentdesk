@@ -63,6 +63,7 @@ export const makeClaudeAdapter = (options: ClaudeAdapterOptions = {}): HarnessAd
       ]
       const proc = yield* spawnManaged({
         harness: "claude",
+        sandboxPrefix: input.policy.sandboxPrefix,
         command: binary,
         args,
         cwd: input.cwd,
