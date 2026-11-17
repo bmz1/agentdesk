@@ -75,6 +75,7 @@ export const applyNotice = (n: ChangeNotice) => {
       break
     case "approvals":
       inv(["approvals"])
+      inv(["runs"])
       if (n.ticketId) inv(qk.ticketApprovals(n.ticketId))
       inv(["tickets", "list"])
       break
@@ -86,7 +87,7 @@ export const applyNotice = (n: ChangeNotice) => {
       inv(["runs"])
       if (n.runId) inv(qk.run(n.runId))
       if (n.ticketId) inv(qk.ticketRuns(n.ticketId))
-      inv(["tickets", "list"])
+      inv(["tickets"])
       break
     case "workflows":
       inv(qk.workflows)

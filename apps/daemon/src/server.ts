@@ -6,6 +6,7 @@ import { connectionFilePath, type ConnectionFile, DaemonConfig, type DaemonConfi
 import { makeApp, type RouteRegistrar } from "./http/app"
 import { type AppLayerOptions, type AppRuntime, makeRuntime } from "./runtime"
 import { Sessions } from "./services/sessions"
+import { Workflows } from "./services/workflows"
 
 export interface RunningDaemon {
   readonly url: string
@@ -34,6 +35,12 @@ export const startDaemon = async (options: StartDaemonOptions = {}): Promise<Run
     })
   )
   if (reconciled > 0) console.log(`[agentdesk] reconciled ${reconciled} interrupted session(s)`)
+  const runs = await runtime.runPromise(
+    Effect.gen(function* () {
+      return yield* (yield* Workflows).reconcile
+    })
+  )
+  if (runs > 0) console.log(`[agentdesk] marked ${runs} workflow run(s) interrupted`)
   await options.bootstrap?.(runtime)
 
   const app = makeApp(runtime, config, options.extraRoutes)

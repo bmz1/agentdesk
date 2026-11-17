@@ -1,0 +1,17 @@
+{
+  "name": "@agentdesk/workflows",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@agentdesk/contracts": "workspace:*",
+    "effect": "4.1.4",
+    "yaml": "^2.9.1"
+  }
+}

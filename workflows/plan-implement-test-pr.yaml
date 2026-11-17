@@ -1,0 +1,45 @@
+id: plan-implement-test-pr
+version: 1
+name: Plan, implement, verify, draft PR
+description: >
+  The agent proposes a plan, you approve it, the agent implements it in an
+  isolated worktree, tests run (with a bounded fix loop), the agent reviews
+  the diff, and a draft PR is opened only after your approval.
+steps:
+  - id: plan
+    kind: agent
+    harness: claude
+    prompt: plan.md
+    output: artifacts/plan.md
+
+  - id: approve_plan
+    kind: approval
+    title: Approve plan
+    artifact: artifacts/plan.md
+    onFailure:
+      retryStep: plan
+      maxAttempts: 3
+
+  - id: implement
+    kind: agent
+    prompt: implement.md
+    context:
+      - artifacts/plan.md
+
+  - id: test
+    kind: command
+    timeoutSec: 900
+    onFailure:
+      retryStep: implement
+      maxAttempts: 2
+
+  - id: review
+    kind: agent
+    harness: claude
+    prompt: review.md
+    output: artifacts/review.md
+
+  - id: draft_pr
+    kind: pull_request
+    draft: true
+    requiresApproval: true

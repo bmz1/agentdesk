@@ -1,0 +1,13 @@
+id: quick-fix
+version: 1
+name: Implement and verify
+description: Single agent pass followed by the project's test command, retrying the fix once.
+steps:
+  - id: implement
+    kind: agent
+    prompt: implement.md
+  - id: test
+    kind: command
+    onFailure:
+      retryStep: implement
+      maxAttempts: 2

@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto"
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { Context, Effect, Layer } from "effect"
 
 export interface DaemonConfigShape {
@@ -20,7 +21,8 @@ export interface DaemonConfigShape {
   readonly maxConcurrentRuns: number
   readonly maxRunsPerProject: number
   readonly enableJiraPolling: boolean
-  readonly workflowsDir: string | undefined
+  readonly workflowsDir: string
+  readonly promptsDir: string
 }
 
 export class DaemonConfig extends Context.Service<DaemonConfig, DaemonConfigShape>()("agentdesk/DaemonConfig") {}
@@ -81,7 +83,8 @@ export const makeConfig = (overrides: Partial<DaemonConfigShape> = {}): DaemonCo
     maxConcurrentRuns: overrides.maxConcurrentRuns ?? Number(env.AGENTDESK_MAX_RUNS ?? 3),
     maxRunsPerProject: overrides.maxRunsPerProject ?? Number(env.AGENTDESK_MAX_RUNS_PER_PROJECT ?? 2),
     enableJiraPolling: overrides.enableJiraPolling ?? env.AGENTDESK_DISABLE_JIRA_POLLING !== "1",
-    workflowsDir: overrides.workflowsDir ?? env.AGENTDESK_WORKFLOWS_DIR
+    workflowsDir: overrides.workflowsDir ?? env.AGENTDESK_WORKFLOWS_DIR ?? fileURLToPath(new URL("../../../workflows", import.meta.url)),
+    promptsDir: overrides.promptsDir ?? env.AGENTDESK_PROMPTS_DIR ?? fileURLToPath(new URL("../../../prompts", import.meta.url))
   }
 }
 

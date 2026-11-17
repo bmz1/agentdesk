@@ -5,6 +5,8 @@ import {
   CreateProjectBody,
   CreateTicketBody,
   PromptBody,
+  SaveWorkflowBody,
+  StartRunBody,
   StartSessionBody,
   UpdateProjectBody,
   UpdateTicketBody,
@@ -25,6 +27,7 @@ import { Notices } from "../services/notices"
 import { Projects } from "../services/projects"
 import { Sessions } from "../services/sessions"
 import { Tickets } from "../services/tickets"
+import { Workflows } from "../services/workflows"
 import { Workspaces } from "../services/workspaces"
 import { body, makeResponder } from "./respond"
 import { securityMiddleware } from "./security"
@@ -71,7 +74,7 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape, extraRou
           dataDir: cfg.dataDir,
           persistent: cfg.persistent,
           activeSessions: sessions.liveCount(),
-          activeRuns: 0
+          activeRuns: (yield* Workflows).activeCount()
         }
       })
     )
@@ -224,6 +227,29 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape, extraRou
   )
   app.post("/jira/connections/:id/test", (c) => respond(c, withSvc(JiraSync, (j) => j.test(c.req.param("id")))))
 
+  // ---- workflows ---------------------------------------------------------------------
+  app.get("/workflows", (c) => respond(c, withSvc(Workflows, (w) => w.definitions)))
+  app.post("/workflows", async (c) => {
+    const input = await body(c, SaveWorkflowBody)
+    return respond(c, Effect.flatMap(input, (b) => withSvc(Workflows, (w) => w.save(b.yaml))), 201)
+  })
+  app.post("/workflows/validate", async (c) => {
+    const input = await body(c, SaveWorkflowBody)
+    return respond(c, Effect.flatMap(input, (b) => withSvc(Workflows, (w) => w.validate(b.yaml))))
+  })
+  app.get("/workflows/:id", (c) => respond(c, withSvc(Workflows, (w) => w.definition(c.req.param("id")))))
+  app.post("/tickets/:id/start-run", async (c) => {
+    const input = await body(c, StartRunBody)
+    return respond(c, Effect.flatMap(input, (b) => withSvc(Workflows, (w) => w.start(c.req.param("id"), b))), 201)
+  })
+  app.get("/tickets/:id/runs", (c) => respond(c, withSvc(Workflows, (w) => w.list({ ticketId: c.req.param("id") }))))
+  app.get("/runs", (c) => respond(c, withSvc(Workflows, (w) => w.list({ status: c.req.query("status") || undefined }))))
+  app.get("/runs/:id", (c) => respond(c, withSvc(Workflows, (w) => w.get(c.req.param("id")))))
+  app.post("/runs/:id/cancel", (c) => respond(c, withSvc(Workflows, (w) => w.cancel(c.req.param("id")))))
+  app.post("/runs/:id/resume", (c) => respond(c, withSvc(Workflows, (w) => w.resume(c.req.param("id")))))
+  app.post("/runs/:id/retry", (c) => respond(c, withSvc(Workflows, (w) => w.retry(c.req.param("id")))))
+  app.get("/artifacts/:id", (c) => respond(c, withSvc(Workflows, (w) => w.artifact(c.req.param("id")))))
+
   // ---- misc ------------------------------------------------------------------------
   app.get("/harnesses/detect", (c) =>
     respond(c, withSvc(Harnesses, (h) => h.detect(c.req.query("refresh") === "1")))
@@ -240,7 +266,14 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape, extraRou
     return respond(
       c,
       Effect.flatMap(input, (b) =>
-        withSvc(Sessions, (s) => s.resolveApproval(c.req.param("id"), b.decision, "user", b.note))
+        Effect.gen(function* () {
+          const approval = yield* (yield* Approvals).get(c.req.param("id"))
+          // Tool approvals go back to the agent harness; workflow gates resume the run.
+          if (approval.kind === "tool") {
+            return yield* (yield* Sessions).resolveApproval(approval.id, b.decision, "user", b.note)
+          }
+          return yield* (yield* Workflows).resolveApproval(approval.id, b.decision, "user", b.note)
+        })
       )
     )
   })

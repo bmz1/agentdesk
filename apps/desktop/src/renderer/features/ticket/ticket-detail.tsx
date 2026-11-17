@@ -1,7 +1,7 @@
 import type { BoardStatus, HarnessId, Priority, Ticket } from "@agentdesk/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { Bot, ChevronLeft, ExternalLink, FileDiff, FolderGit2, History, Info, Pin, PinOff, Trash2 } from "lucide-react"
+import { Bot, CheckSquare, ChevronLeft, GitBranchPlus, ExternalLink, FileDiff, FolderGit2, History, Info, Pin, PinOff, Trash2 } from "lucide-react"
 import { useEffect, useState } from "react"
 import {
   BOARD_COLUMNS,
@@ -23,18 +23,10 @@ import { DiffViewer } from "../diff/diff-viewer"
 import { RichText } from "../session/rich-text"
 import { AgentPanel } from "../session/agent-panel"
 import { ActivityTimeline } from "./activity-timeline"
+import { ChecksTab, WorkflowTab } from "../workflow/workflow-tab"
 
 export type TicketTab = "overview" | "agent" | "workflow" | "changes" | "checks" | "history"
 
-export interface TicketTabsExtension {
-  readonly id: TicketTab
-  readonly label: string
-  readonly icon: React.ReactNode
-  readonly render: (ticket: Ticket) => React.ReactNode
-}
-
-/** Additional tabs registered by later features (workflow timeline, checks). */
-export const ticketTabExtensions: Array<TicketTabsExtension> = []
 
 export const TicketDetail = ({
   ticketId,
@@ -110,23 +102,15 @@ export const TicketDetail = ({
             <Bot /> Agent
             {t.latestRun?.needsInput && <span className="size-1.5 rounded-full bg-warning" />}
           </TabsTrigger>
-          {ticketTabExtensions
-            .filter((x) => x.id === "workflow")
-            .map((x) => (
-              <TabsTrigger key={x.id} value={x.id}>
-                {x.icon} {x.label}
-              </TabsTrigger>
-            ))}
+          <TabsTrigger value="workflow" data-testid="tab-workflow">
+            <GitBranchPlus /> Workflow
+          </TabsTrigger>
           <TabsTrigger value="changes" data-testid="tab-changes">
             <FileDiff /> Changes
           </TabsTrigger>
-          {ticketTabExtensions
-            .filter((x) => x.id === "checks")
-            .map((x) => (
-              <TabsTrigger key={x.id} value={x.id}>
-                {x.icon} {x.label}
-              </TabsTrigger>
-            ))}
+          <TabsTrigger value="checks">
+            <CheckSquare /> Checks
+          </TabsTrigger>
           <TabsTrigger value="history">
             <History /> History
           </TabsTrigger>
@@ -137,11 +121,12 @@ export const TicketDetail = ({
         <TabsContent value="agent" className="min-h-0 flex-1">
           <AgentPanel ticket={t} sessionId={sessionId} onSelectSession={onSession} />
         </TabsContent>
-        {ticketTabExtensions.map((x) => (
-          <TabsContent key={x.id} value={x.id} className="min-h-0 flex-1 overflow-y-auto">
-            {x.render(t)}
-          </TabsContent>
-        ))}
+        <TabsContent value="workflow" className="min-h-0 flex-1 overflow-y-auto">
+          <WorkflowTab ticket={t} />
+        </TabsContent>
+        <TabsContent value="checks" className="min-h-0 flex-1 overflow-y-auto">
+          <ChecksTab ticket={t} />
+        </TabsContent>
         <TabsContent value="changes" className="min-h-0 flex-1 overflow-y-auto p-4">
           <Changes ticketId={t.id} />
         </TabsContent>

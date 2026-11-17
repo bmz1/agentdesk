@@ -40,7 +40,9 @@ export const SENSITIVE_ENV = [
   "JIRA_API_TOKEN",
   "ATLASSIAN_API_TOKEN",
   "GITLAB_TOKEN",
-  "GL_TOKEN"
+  "GL_TOKEN",
+  "GH_TOKEN",
+  "GITHUB_TOKEN"
 ]
 
 export const buildChildEnv = (

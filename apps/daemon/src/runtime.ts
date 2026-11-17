@@ -12,6 +12,7 @@ import { NoticesLive } from "./services/notices"
 import { ProjectsLive } from "./services/projects"
 import { SessionsLive } from "./services/sessions"
 import { TicketsLive } from "./services/tickets"
+import { WorkflowsLive, type WorkflowsOptions } from "./services/workflows"
 import { WorkspacesLive } from "./services/workspaces"
 
 export interface AppLayerOptions {
@@ -20,6 +21,7 @@ export interface AppLayerOptions {
   readonly jira?: JiraSyncOptions
   /** "memory" keeps secrets in-process only (tests). */
   readonly credentialStore?: "auto" | "memory"
+  readonly workflows?: WorkflowsOptions
 }
 
 /** The daemon's explicit dependency graph. */
@@ -37,7 +39,8 @@ export const makeAppLayer = (options: AppLayerOptions = {}) => {
     HarnessesLive(options.adapters),
     JiraSyncLive(options.jira)
   ).pipe(Layer.provideMerge(infra))
-  return SessionsLive.pipe(Layer.provideMerge(domain))
+  const sessions = SessionsLive.pipe(Layer.provideMerge(domain))
+  return WorkflowsLive(options.workflows).pipe(Layer.provideMerge(sessions))
 }
 
 export type AppLayer = ReturnType<typeof makeAppLayer>
