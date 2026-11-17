@@ -1,4 +1,4 @@
-import type { ChangeNotice } from "@agentdesk/contracts"
+import { type AgentSession, type ChangeNotice, LIVE_SESSION_STATES } from "@agentdesk/contracts"
 import { QueryClient, queryOptions } from "@tanstack/react-query"
 import { api, type TicketQuery } from "./api"
 
@@ -28,7 +28,6 @@ export const qk = {
   ticketRuns: (id: string) => ["tickets", "detail", id, "runs"] as const,
   sessions: (active: boolean) => ["sessions", { active }] as const,
   session: (id: string) => ["sessions", "detail", id] as const,
-  sessionPreview: (id: string) => ["sessions", "detail", id, "preview"] as const,
   approvals: (pending: boolean) => ["approvals", { pending }] as const,
   activity: ["activity"] as const,
   runs: (status?: string) => ["runs", { status }] as const,
@@ -58,7 +57,6 @@ export const q = {
   ticketRuns: (id: string) => queryOptions({ queryKey: qk.ticketRuns(id), queryFn: () => api.ticketRuns(id) }),
   sessions: (active = false) => queryOptions({ queryKey: qk.sessions(active), queryFn: () => api.sessions(active) }),
   session: (id: string) => queryOptions({ queryKey: qk.session(id), queryFn: () => api.session(id) }),
-  sessionPreview: (id: string) => queryOptions({ queryKey: qk.sessionPreview(id), queryFn: () => api.sessionPreview(id), staleTime: 10_000, refetchInterval: 10_000 }),
   approvals: (pending = false) => queryOptions({ queryKey: qk.approvals(pending), queryFn: () => api.approvals(pending) }),
   activity: () => queryOptions({ queryKey: qk.activity, queryFn: () => api.activity(150) }),
   runs: (status?: string) => queryOptions({ queryKey: qk.runs(status), queryFn: () => api.runs(status) }),
@@ -69,7 +67,33 @@ export const q = {
   sourceConnections: () => queryOptions({ queryKey: qk.sourceConnections, queryFn: api.sourceConnections })
 }
 
-/** Map daemon change notices to query invalidations. */
+type Sessions = ReadonlyArray<AgentSession>
+
+/**
+ * Put a pushed session into every cached list it belongs to. Lists are newest first, so a
+ * new session goes on top; a snapshot older than the cached one (fewer events) is ignored.
+ */
+export const upsertSession = (session: AgentSession) => {
+  const live = LIVE_SESSION_STATES.includes(session.state)
+  const merge = (keep: boolean) => (list: Sessions | undefined): Sessions | undefined => {
+    if (!list) return list
+    const i = list.findIndex((s) => s.id === session.id)
+    if (i === -1) return keep ? [session, ...list] : list
+    if (list[i]!.lastEventId > session.lastEventId) return list
+    if (!keep) return list.filter((s) => s.id !== session.id)
+    const next = [...list]
+    next[i] = session
+    return next
+  }
+  queryClient.setQueryData<Sessions>(qk.sessions(false), merge(true))
+  queryClient.setQueryData<Sessions>(qk.sessions(true), merge(live))
+  queryClient.setQueryData<Sessions>(qk.ticketSessions(session.ticketId), merge(true))
+  queryClient.setQueryData<AgentSession>(qk.session(session.id), (old) =>
+    old && old.lastEventId > session.lastEventId ? old : session
+  )
+}
+
+/** Map daemon change notices to cache updates (pushed sessions) or query invalidations. */
 export const applyNotice = (n: ChangeNotice) => {
   const inv = (key: ReadonlyArray<unknown>) => void queryClient.invalidateQueries({ queryKey: key })
   switch (n.topic) {
@@ -83,6 +107,10 @@ export const applyNotice = (n: ChangeNotice) => {
       inv(qk.projects)
       break
     case "sessions":
+      if (n.session) {
+        upsertSession(n.session)
+        break
+      }
       inv(["sessions"])
       if (n.ticketId) inv(qk.ticketSessions(n.ticketId))
       if (n.sessionId) inv(qk.session(n.sessionId))

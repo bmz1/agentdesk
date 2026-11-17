@@ -17,8 +17,17 @@ export const SESSION_LABELS: Record<AgentSession["state"], string> = {
   starting: "Starting", running: "Running", waiting_for_approval: "Needs approval",
   idle: "Awaiting follow-up", completed: "Turn finished", failed: "Failed", interrupted: "Interrupted", closed: "Stopped"
 }
-export const isSessionUnread = (session: AgentSession, seen: Record<string, number>) =>
-  seen[session.id] === -1 || (agentGroup(session.state) !== "working" && session.lastEventId > (seen[session.id] ?? 0))
+/** Key in the read map holding the epoch ms before which sessions never seen count as read. */
+export const READ_BASELINE_KEY = "*"
+
+export const isSessionUnread = (session: AgentSession, seen: Record<string, number>) => {
+  const mark = seen[session.id]
+  if (mark === -1) return true
+  if (agentGroup(session.state) === "working") return false
+  const baseline = seen[READ_BASELINE_KEY]
+  if (mark === undefined && baseline !== undefined && Date.parse(session.updatedAt) <= baseline) return false
+  return session.lastEventId > (mark ?? 0)
+}
 
 /** Prefer the active session; a historical failure must not mask a newer attempt. */
 export const ticketSession = (ticket: Ticket, sessions: ReadonlyArray<AgentSession>) =>
@@ -33,4 +42,25 @@ export const notificationCount = (
 ) => {
   const approvalSessions = new Set(approvals.map((a) => a.sessionId).filter(Boolean))
   return approvals.length + sessions.filter((s) => isSessionUnread(s, seen) && !approvalSessions.has(s.id)).length
+}
+
+/**
+ * Where ⌘J goes: sessions blocked on an approval first, then unread ones (newest first).
+ * Cycles past `currentId`, so repeated presses walk the whole queue.
+ */
+export const nextAttention = (
+  sessions: ReadonlyArray<AgentSession>,
+  seen: Record<string, number>,
+  currentId?: string
+): AgentSession | undefined => {
+  const queue = sessions
+    .filter((s) => s.state === "waiting_for_approval" || isSessionUnread(s, seen))
+    .sort(
+      (a, b) =>
+        Number(b.state === "waiting_for_approval") - Number(a.state === "waiting_for_approval") ||
+        b.updatedAt.localeCompare(a.updatedAt)
+    )
+  if (queue.length === 0) return undefined
+  const i = queue.findIndex((s) => s.id === currentId)
+  return queue[(i + 1) % queue.length]
 }

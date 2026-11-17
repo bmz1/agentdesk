@@ -1,6 +1,7 @@
 import { useEffect } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
+import { shortcutHint } from "@/lib/keymap"
 import {
   Bot,
   ChevronDown,
@@ -77,7 +78,7 @@ export const Sidebar = () => {
           <Button variant="ghost" size="icon" onClick={() => setCommandOpen(true)} aria-label="Search">
             <Search />
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => openCreate(undefined, "thread")} aria-label="New thread (⌘N)" title="New thread (⌘N)" data-testid="new-ticket">
+          <Button variant="ghost" size="icon" onClick={() => openCreate(undefined, "thread")} aria-label={`New thread (${shortcutHint("newThread")})`} title={`New thread (${shortcutHint("newThread")})`} data-testid="new-ticket">
             <Plus />
           </Button>
         </div>
@@ -170,7 +171,7 @@ export const Sidebar = () => {
           <span className={cn("size-1.5 rounded-full", connected ? "bg-success" : "bg-danger")} />
           {connected ? "Daemon connected" : "Daemon offline"}
           <span className="ml-auto">
-            <Kbd>⌘K</Kbd>
+            <Kbd>{shortcutHint("palette")}</Kbd>
           </span>
         </div>
         {info.data && !info.data.persistent && (

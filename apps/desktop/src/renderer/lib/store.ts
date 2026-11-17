@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
+import { READ_BASELINE_KEY } from "./agent-state"
 
 export interface ViewPreferences {
   view?: "board" | "list"
@@ -85,6 +86,14 @@ export const useUi = create<UiState>()(
     }),
     {
       name: "agentdesk.ui",
+      version: 1,
+      // v0 lists reported no event ids, so nothing ever looked unread. Treat everything that
+      // finished before the upgrade as read instead of flagging the whole history at once.
+      migrate: (persisted, version) => {
+        const state = (persisted ?? {}) as Partial<UiState>
+        if (version < 1) state.sessionSeen = { ...state.sessionSeen, [READ_BASELINE_KEY]: Date.now() }
+        return state as UiState
+      },
       partialize: (s) => ({ sidebarCollapsed: s.sidebarCollapsed, collapsedProjects: s.collapsedProjects, theme: s.theme, lastRoute: s.lastRoute, views: s.views, sessionSeen: s.sessionSeen, ticketLayouts: s.ticketLayouts, reviewComments: s.reviewComments })
     }
   )

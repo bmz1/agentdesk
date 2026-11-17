@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupText, InputGroupTextarea } from "@/components/ui/input-group"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { shortcutHint } from "@/lib/keymap"
 
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"]
 const MAX_BYTES = 10 * 1024 * 1024
@@ -185,7 +186,7 @@ export const Composer = ({
           <InputGroupText className="min-w-0 truncate text-xs font-normal text-fg-subtle">{meta}</InputGroupText>
           <div className="ml-auto flex items-center gap-1.5">
             {running && onInterrupt && (
-              <InputGroupButton type="button" size="icon-sm" variant="outline" aria-label="Interrupt the agent" title="Interrupt" onClick={onInterrupt}>
+              <InputGroupButton type="button" size="icon-sm" variant="outline" aria-label="Interrupt the agent" title={`Interrupt (${shortcutHint("interrupt")})`} onClick={onInterrupt}>
                 <Square />
               </InputGroupButton>
             )}

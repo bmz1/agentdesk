@@ -3,6 +3,7 @@ import { createRootRouteWithContext, Outlet, useLocation, useNavigate } from "@t
 import { useEffect, useRef } from "react"
 import { CommandPalette } from "@/features/shell/command-palette"
 import { CreateTicketDialog } from "@/features/shell/create-ticket-dialog"
+import { GlobalShortcuts } from "@/features/shell/global-shortcuts"
 import { Sidebar } from "@/features/shell/sidebar"
 import { useUi } from "@/lib/store"
 
@@ -36,6 +37,7 @@ function RootLayout() {
       <main className="min-w-0 flex-1">
         <Outlet />
       </main>
+      <GlobalShortcuts />
       <CommandPalette />
       <CreateTicketDialog />
     </div>

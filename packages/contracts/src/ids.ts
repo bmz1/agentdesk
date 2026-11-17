@@ -32,6 +32,8 @@ export const SessionState = Schema.Literals([
   "closed"
 ])
 export type SessionState = typeof SessionState.Type
+/** States in which a harness process is (or is about to be) attached to the session. */
+export const LIVE_SESSION_STATES: ReadonlyArray<SessionState> = ["starting", "running", "waiting_for_approval", "idle"]
 
 export const RunStatus = Schema.Literals([
   "queued",

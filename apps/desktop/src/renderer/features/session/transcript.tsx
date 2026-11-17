@@ -22,6 +22,7 @@ import {
   TraceTitle
 } from "@/components/ui/trace"
 import { guessLanguage } from "@/lib/highlight"
+import { shortcutHint } from "@/lib/keymap"
 import { cn } from "@/lib/utils"
 import { AttachmentImage } from "./images"
 import { Code, Markdown } from "./markdown"
@@ -33,6 +34,10 @@ export interface TranscriptProps {
   working?: boolean
   onDecide?: (approvalId: string, decision: "allow" | "deny") => void
   deciding?: string | null
+  /** Older events exist beyond the loaded page. */
+  hasEarlier?: boolean
+  loadingEarlier?: boolean
+  onLoadEarlier?: () => void
 }
 
 type Item<K extends TranscriptItem["kind"]> = Extract<TranscriptItem, { kind: K }>
@@ -68,7 +73,7 @@ const groupBlocks = (items: ReadonlyArray<TranscriptItem>) =>
   }, [])
 
 /** Structured agent session, laid out with the shadcn chat components. */
-export const Transcript = ({ items, working, onDecide, deciding }: TranscriptProps) => {
+export const Transcript = ({ items, working, onDecide, deciding, hasEarlier, loadingEarlier, onLoadEarlier }: TranscriptProps) => {
   const exchanges = groupExchanges(items)
   const pending = items.findLast((i): i is Item<"approval"> => i.kind === "approval" && !i.decision)
   const last = items.at(-1)
@@ -79,6 +84,12 @@ export const Transcript = ({ items, working, onDecide, deciding }: TranscriptPro
       <MessageScroller className="flex-1">
         <MessageScrollerViewport data-testid="transcript">
           <MessageScrollerContent className="mx-auto w-full max-w-3xl gap-6 px-6 py-6">
+            {hasEarlier && onLoadEarlier && (
+              <Button variant="ghost" size="sm" className="self-center text-xs text-muted-foreground" onClick={onLoadEarlier} disabled={loadingEarlier} data-testid="load-earlier">
+                {loadingEarlier ? <LoaderCircle className="animate-spin" /> : null}
+                Load earlier messages
+              </Button>
+            )}
             {exchanges.map((x) => (
               <MessageScrollerItem key={x.key} messageId={x.key} scrollAnchor={x.kind === "user"}>
                 {x.kind === "user" ? <UserMessage item={x.item} /> : <AgentMessage items={x.items} />}
@@ -291,10 +302,10 @@ const PendingApproval = ({
             </div>
           </div>
           <div className="flex shrink-0 gap-2">
-            <Button variant="outline" disabled={deciding} onClick={() => onDecide?.(item.approvalId, "deny")}>
+            <Button variant="outline" disabled={deciding} onClick={() => onDecide?.(item.approvalId, "deny")} title={`Deny (${shortcutHint("deny")})`}>
               <X /> Deny
             </Button>
-            <Button disabled={deciding} onClick={() => onDecide?.(item.approvalId, "allow")}>
+            <Button disabled={deciding} onClick={() => onDecide?.(item.approvalId, "allow")} title={`Allow (${shortcutHint("approve")})`}>
               {deciding ? <LoaderCircle className="animate-spin" /> : <CircleCheck />} Allow
             </Button>
           </div>

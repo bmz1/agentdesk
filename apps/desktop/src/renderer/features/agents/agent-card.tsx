@@ -1,16 +1,13 @@
 import type { AgentSession, Ticket } from "@agentdesk/contracts"
-import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { HarnessIcon, HARNESS_LABELS, SessionStateBadge } from "@/components/status"
 import { agentGroup, isSessionUnread } from "@/lib/agent-state"
-import { q } from "@/lib/queries"
 import { useUi } from "@/lib/store"
 import { cn, relativeTime } from "@/lib/utils"
 
 export const AgentCard = ({ session, ticket, projectName, list = false }: {
   session: AgentSession; ticket?: Ticket; projectName?: string; list?: boolean
 }) => {
-  const preview = useQuery(q.sessionPreview(session.id))
   const seen = useUi((s) => s.sessionSeen)
   const markRead = useUi((s) => s.markSessionRead)
   const markUnread = useUi((s) => s.markSessionUnread)
@@ -29,8 +26,13 @@ export const AgentCard = ({ session, ticket, projectName, list = false }: {
             <SessionStateBadge state={session.state} />
             <span>{HARNESS_LABELS[session.harness]}</span>
           </div>
+          {session.statusDetail && (
+            <p className="truncate font-mono text-[11px] text-fg-muted" title={session.statusDetail} data-testid="agent-status-detail">
+              {session.statusDetail}
+            </p>
+          )}
         </div>
-        <p className="line-clamp-3 text-xs whitespace-pre-wrap text-fg-muted" data-testid="agent-preview">{preview.data || ticket?.description || "No message yet."}</p>
+        <p className="line-clamp-3 text-xs whitespace-pre-wrap text-fg-muted" data-testid="agent-preview">{session.preview || ticket?.description || "No message yet."}</p>
       </Link>
       <div className="flex items-center gap-2 border-t px-3 py-1.5 text-[11px] text-fg-subtle">
         <span className="min-w-0 flex-1 truncate">{projectName} {ticket?.identifier && `· ${ticket.identifier}`}</span>

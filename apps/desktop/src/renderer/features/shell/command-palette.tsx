@@ -1,40 +1,25 @@
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Command } from "cmdk"
-import { Bot, FolderGit2, Inbox, LayoutGrid, MessageSquarePlus, Plus, Settings, Workflow } from "lucide-react"
+import { BellRing, Bot, FolderGit2, Inbox, LayoutGrid, MessageSquarePlus, PanelLeft, Plus, Settings, Workflow } from "lucide-react"
 import { Dialog as D } from "radix-ui"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { StatusIcon } from "@/components/status"
+import { type ShortcutId, shortcutHint } from "@/lib/keymap"
 import { q } from "@/lib/queries"
 import { useUi } from "@/lib/store"
+import { useJumpToAttention } from "./global-shortcuts"
 
 export const CommandPalette = () => {
   const open = useUi((s) => s.commandOpen)
   const setOpen = useUi((s) => s.setCommandOpen)
   const openCreate = useUi((s) => s.openCreateTicket)
   const navigate = useNavigate()
+  const jump = useJumpToAttention()
   const [search, setSearch] = useState("")
   const tickets = useQuery({ ...q.tickets({ q: search.trim() || undefined }), enabled: open })
   const projects = useQuery({ ...q.projects(), enabled: open })
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault()
-        setOpen(!useUi.getState().commandOpen)
-      }
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "n") {
-        e.preventDefault()
-        openCreate(undefined, "thread")
-      }
-      if (e.key === "c" && !e.metaKey && !e.ctrlKey && !isTyping(e)) {
-        e.preventDefault()
-        openCreate()
-      }
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [setOpen, openCreate])
 
   const go = (fn: () => void) => {
     setOpen(false)
@@ -60,26 +45,35 @@ export const CommandPalette = () => {
               <Command.Empty className="px-3 py-6 text-center text-xs text-fg-subtle">No results</Command.Empty>
               {!search && (
                 <Command.Group heading="Actions">
-                  <Item onSelect={() => go(() => openCreate(undefined, "thread"))} icon={<MessageSquarePlus />}>
+                  <Item onSelect={() => go(() => openCreate(undefined, "thread"))} icon={<MessageSquarePlus />} shortcut="newThread">
                     New thread
                   </Item>
-                  <Item onSelect={() => go(() => openCreate())} icon={<Plus />}>
+                  <Item onSelect={() => go(() => openCreate())} icon={<Plus />} shortcut="newTicket">
                     Create local ticket
                   </Item>
-                  <Item onSelect={() => go(() => navigate({ to: "/inbox" }))} icon={<Inbox />}>
+                  <Item onSelect={() => go(() => void jump())} icon={<BellRing />} shortcut="nextAttention">
+                    Next agent that needs you
+                  </Item>
+                  <Item onSelect={() => go(() => navigate({ to: "/inbox" }))} icon={<Inbox />} shortcut="goInbox">
                     Go to Inbox
                   </Item>
-                  <Item onSelect={() => go(() => navigate({ to: "/issues" }))} icon={<LayoutGrid />}>
+                  <Item onSelect={() => go(() => navigate({ to: "/issues" }))} icon={<LayoutGrid />} shortcut="goIssues">
                     Go to All issues
                   </Item>
-                  <Item onSelect={() => go(() => navigate({ to: "/agents" }))} icon={<Bot />}>
+                  <Item onSelect={() => go(() => navigate({ to: "/agents" }))} icon={<Bot />} shortcut="goAgents">
                     Go to My agents' work
                   </Item>
-                  <Item onSelect={() => go(() => navigate({ to: "/workflows" }))} icon={<Workflow />}>
+                  <Item onSelect={() => go(() => navigate({ to: "/workflows" }))} icon={<Workflow />} shortcut="goWorkflows">
                     Go to Workflows
                   </Item>
-                  <Item onSelect={() => go(() => navigate({ to: "/settings" }))} icon={<Settings />}>
+                  <Item onSelect={() => go(() => navigate({ to: "/projects" }))} icon={<FolderGit2 />} shortcut="goProjects">
+                    Go to Projects
+                  </Item>
+                  <Item onSelect={() => go(() => navigate({ to: "/settings" }))} icon={<Settings />} shortcut="goSettings">
                     Go to Settings
+                  </Item>
+                  <Item onSelect={() => go(() => useUi.getState().toggleSidebar())} icon={<PanelLeft />} shortcut="toggleSidebar">
+                    Toggle sidebar
                   </Item>
                 </Command.Group>
               )}
@@ -120,7 +114,13 @@ export const CommandPalette = () => {
   )
 }
 
-const Item = ({ children, icon, onSelect, value }: { children: React.ReactNode; icon: React.ReactNode; onSelect: () => void; value?: string }) => (
+const Item = ({ children, icon, onSelect, value, shortcut }: {
+  children: React.ReactNode
+  icon: React.ReactNode
+  onSelect: () => void
+  value?: string
+  shortcut?: ShortcutId
+}) => (
   <Command.Item
     value={value ?? String(children)}
     onSelect={onSelect}
@@ -128,10 +128,6 @@ const Item = ({ children, icon, onSelect, value }: { children: React.ReactNode; 
   >
     {icon}
     {children}
+    {shortcut && <kbd className="ml-auto font-sans text-[11px] text-fg-subtle">{shortcutHint(shortcut)}</kbd>}
   </Command.Item>
 )
-
-const isTyping = (e: KeyboardEvent) => {
-  const t = e.target as HTMLElement | null
-  return !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)
-}

@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { HarnessDefaults } from "./models"
+import { AgentSession, HarnessDefaults } from "./models"
 import { ApprovalDecision, BoardStatus, GitProvider, HarnessId, PermissionMode, Priority, WorkspaceMode } from "./ids"
 
 /** Request bodies validated at the HTTP boundary. */
@@ -164,12 +164,16 @@ export const ApiErrorBody = Schema.Struct({
 })
 export type ApiErrorBody = typeof ApiErrorBody.Type
 
-/** Live board/run invalidation notifications sent over `GET /events`. */
+/**
+ * Live change notifications sent over `GET /events`. Most are coarse invalidations; a
+ * `sessions` notice carries the updated session itself so clients can apply it without a refetch.
+ */
 export const ChangeNotice = Schema.Struct({
   topic: Schema.Literals(["tickets", "projects", "runs", "sessions", "approvals", "activity", "sources", "workflows", "settings"]),
   ticketId: Schema.optional(Schema.String),
   runId: Schema.optional(Schema.String),
-  sessionId: Schema.optional(Schema.String)
+  sessionId: Schema.optional(Schema.String),
+  session: Schema.optional(AgentSession)
 })
 export type ChangeNotice = typeof ChangeNotice.Type
 

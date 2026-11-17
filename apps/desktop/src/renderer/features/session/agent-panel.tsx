@@ -14,6 +14,7 @@ import { Composer } from "./composer"
 import { ComposerModelPicker } from "./model-picker"
 import { Transcript } from "./transcript"
 import { useSessionEvents } from "./use-session-events"
+import { useShortcut } from "@/lib/keymap"
 
 export const AgentPanel = ({
   ticket,
@@ -108,7 +109,7 @@ const SessionHeader = ({
 }
 
 const SessionView = ({ session, ticket }: { session: AgentSession; ticket: Ticket }) => {
-  const { items, connected, lastId } = useSessionEvents(session.id)
+  const { items, connected, lastId, hasEarlier, loadingEarlier, loadEarlier } = useSessionEvents(session.id)
   const project = useQuery(q.project(ticket.projectId))
   // The ticket's model applies when the session runs the ticket's own harness; otherwise the harness default
   // until switched here. `picked` is a switch not yet sent.
@@ -143,6 +144,11 @@ const SessionView = ({ session, ticket }: { session: AgentSession; ticket: Ticke
       void qc.invalidateQueries({ queryKey: ["approvals"] })
     }
   }
+  const pendingApproval = items.findLast((i) => i.kind === "approval" && !i.decision)
+  const pendingId = pendingApproval?.kind === "approval" ? pendingApproval.approvalId : undefined
+  useShortcut("approve", () => pendingId && void decide(pendingId, "allow"), !!pendingId && !deciding)
+  useShortcut("deny", () => pendingId && void decide(pendingId, "deny"), !!pendingId && !deciding)
+  useShortcut("interrupt", () => void api.interrupt(session.id), session.state === "running")
   const live = ["starting", "running", "waiting_for_approval", "idle"].includes(session.state)
   const resumable = !live && !!session.providerSessionId
   return (
@@ -160,7 +166,15 @@ const SessionView = ({ session, ticket }: { session: AgentSession; ticket: Ticke
             <span className="shimmer">{live ? "Starting the agent…" : "No events recorded for this session."}</span>
           </div>
         ) : (
-          <Transcript items={items} working={session.state === "running" || session.state === "starting"} onDecide={decide} deciding={deciding} />
+          <Transcript
+            items={items}
+            working={session.state === "running" || session.state === "starting"}
+            onDecide={decide}
+            deciding={deciding}
+            hasEarlier={hasEarlier}
+            loadingEarlier={loadingEarlier}
+            onLoadEarlier={() => void loadEarlier()}
+          />
         )}
       </div>
       <Composer

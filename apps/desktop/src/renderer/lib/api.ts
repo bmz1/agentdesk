@@ -154,8 +154,10 @@ export const api = {
 
   sessions: (active = false) => request<ReadonlyArray<AgentSession>>("GET", `/sessions${qs({ active: active ? 1 : undefined })}`),
   session: (id: string) => request<AgentSession>("GET", `/sessions/${id}`),
-  sessionPreview: (id: string) => request<string | null>("GET", `/sessions/${id}/preview`),
   sessionHistory: (id: string, after = 0) => request<ReadonlyArray<StoredAgentEvent>>("GET", `/sessions/${id}/history${qs({ after })}`),
+  /** The newest `tail` events (before `before`, when given), ascending. */
+  sessionTail: (id: string, tail: number, before?: number) =>
+    request<ReadonlyArray<StoredAgentEvent>>("GET", `/sessions/${id}/history${qs({ tail, before })}`),
   /** `switches` change the session's model/effort from this message on (null: default); omitted keys stay. */
   prompt: (id: string, text: string, images?: ReadonlyArray<string>, switches: { model?: string | null; effort?: string | null } = {}) =>
     request<void>("POST", `/sessions/${id}/prompt`, { text, ...(images?.length && { images }), ...switches }),

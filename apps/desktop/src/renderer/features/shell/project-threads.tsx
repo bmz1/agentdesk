@@ -67,7 +67,7 @@ export const ProjectThreads = ({ threads }: { threads: ReadonlyArray<Thread> }) 
               "group flex h-7 items-center gap-2 rounded-md pr-1 pl-5 text-[12.5px] text-fg-muted hover:bg-bg-muted hover:text-fg",
               active && "bg-bg-muted text-fg"
             )}
-            title={`${ticket.identifier} · ${ticket.title}`}
+            title={`${ticket.identifier} · ${ticket.title}${session.statusDetail ? `\n${session.statusDetail}` : ""}`}
             data-testid="sidebar-thread"
           >
             <HarnessIcon harness={session.harness} />
