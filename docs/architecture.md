@@ -72,7 +72,11 @@ native protocol → adapter normalizer → AgentEvent
   → SSE GET /sessions/:id/events?after=<id>
 ```
 
-A subscription registers on the PubSub *before* it reads history, then drops live events whose ids are at or below the last replayed id. That gives replay with no gaps and no duplicates. The client dedupes by id and reconnects from the last id it saw. Coarse change notices go out on `GET /events` and drive TanStack Query invalidation.
+A subscription registers on the PubSub *before* it reads history, then drops live events whose ids are at or below the last replayed id. That gives replay with no gaps and no duplicates. The client dedupes by id and reconnects from the last id it saw. Change notices go out on `GET /events`. Most are coarse and drive TanStack Query invalidation; a `sessions` notice carries the whole updated session (state, `lastEventId`, `statusDetail`, `preview`), which the renderer writes into every cached list in place (`upsertSession`), so state changes reach the screen without a refetch. The daemon publishes one per state change, status-line change or preview change; streamed tokens only count when they change the line, so streaming stays quiet. After a reconnect the renderer invalidates everything once, because notices sent while disconnected are lost.
+
+Transcripts open end first: the renderer fetches the newest page (`GET /sessions/:id/history?tail=2000`), draws it, then attaches the live stream after its last id. Older pages come from `?tail=2000&before=<id>` and are folded in by rebuilding the transcript from the full event list.
+
+A turn's end is ordered: post-turn work (worktree adoption, ready-for-review), then the `turn.completed` event, then the `idle` state, under a per-session lock shared with live prompts. Whoever sees `idle` has already seen the turn end, and a prompt sent in reaction cannot interleave with it.
 
 ## Sessions
 

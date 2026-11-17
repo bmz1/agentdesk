@@ -11,11 +11,12 @@ import type {
   SessionState,
   Ticket
 } from "@agentdesk/contracts"
+import { LIVE_SESSION_STATES } from "@agentdesk/contracts"
 import { agentSessions } from "@agentdesk/db"
 import * as Git from "@agentdesk/git"
 import { type HarnessError, type HarnessSession, type PromptImage, type RunPolicy, runCommand } from "@agentdesk/harness-core"
 import { and, desc, eq, inArray } from "drizzle-orm"
-import { Context, Effect, Exit, FiberMap, Layer, Option, Scope, Stream } from "effect"
+import { Context, Effect, Exit, FiberMap, Layer, Option, Scope, Semaphore, Stream } from "effect"
 import { ChildProcessSpawner } from "effect/process"
 import { BadRequest, type Conflict, type DbError, NotFound } from "../errors"
 import { newId, nowIso } from "../util"
@@ -24,7 +25,7 @@ import { Activity } from "./activity"
 import { Approvals } from "./approvals"
 import { Attachments } from "./attachments"
 import { Database } from "./database"
-import { EventLog } from "./event-log"
+import { EventLog, previewText } from "./event-log"
 import { HarnessSettings } from "./harness-settings"
 import { Harnesses } from "./harnesses"
 import { Notices } from "./notices"
@@ -50,7 +51,54 @@ const canonicalPathOf = (p: string): string => {
 
 const relativeTo = (root: string, p: string) => relative(root, p) || "."
 
-export const LIVE_STATES: ReadonlyArray<SessionState> = ["starting", "running", "waiting_for_approval", "idle"]
+export const LIVE_STATES = LIVE_SESSION_STATES
+
+const oneLine = (text: string, max = 96) => {
+  const line = text.replace(/\s+/g, " ").trim()
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line
+}
+
+/** The most telling argument of a tool call: the command, path, pattern or query it acts on. */
+const toolArgument = (input: unknown): string | undefined => {
+  if (typeof input === "string") return input
+  if (!input || typeof input !== "object") return undefined
+  const record = input as Record<string, unknown>
+  for (const key of ["command", "cmd", "file_path", "filePath", "path", "pattern", "url", "query", "description", "prompt"]) {
+    const value = record[key]
+    if (typeof value === "string" && value.trim()) return value
+    if (Array.isArray(value) && value.every((v) => typeof v === "string")) return value.join(" ")
+  }
+  return undefined
+}
+
+/**
+ * One line on what a live session is doing, derived from the event it just produced
+ * (the equivalent of a terminal's program-status line). `undefined` leaves the line unchanged.
+ */
+export const describeEvent = (event: AgentEvent): string | undefined => {
+  switch (event.type) {
+    case "user.prompt":
+      return "Reading the prompt"
+    case "reasoning":
+      return "Thinking"
+    case "message.delta":
+      return "Writing a reply"
+    case "tool.started": {
+      const arg = toolArgument(event.input)
+      return oneLine(arg ? `${event.name}: ${arg}` : event.name)
+    }
+    case "approval.requested":
+      return oneLine(`Needs approval: ${event.summary}`)
+    case "approval.resolved":
+      return event.decision === "allow" ? "Approved, continuing" : "Denied, continuing"
+    case "turn.completed":
+      return event.status === "error" ? "Turn failed" : event.status === "interrupted" ? "Turn interrupted" : "Turn finished"
+    case "session.error":
+      return oneLine(event.message)
+    default:
+      return undefined
+  }
+}
 
 export interface StartSessionInput {
   readonly ticketId: string
@@ -228,6 +276,20 @@ export const SessionsLive = Layer.effect(
     const consumers = yield* FiberMap.make<string>().pipe(Scope.provide(rootScope))
     const withProcesses = Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, yield* ChildProcessSpawner.ChildProcessSpawner)
     const live = new Map<string, LiveSession>()
+    /** Status line of live sessions; dropped when the process ends. */
+    const details = new Map<string, string>()
+    /** Latest preview text per session. The daemon is the only writer, so this cache stays exact. */
+    const previews = new Map<string, string | null>()
+    /**
+     * Serializes a turn's end with the next prompt, so a client that saw the session go idle
+     * (or saw `turn.completed`) and prompts at once can't interleave with the end of that turn.
+     */
+    const turnLocks = new Map<string, Semaphore.Semaphore>()
+    const turnLock = (id: string) => {
+      let lock = turnLocks.get(id)
+      if (!lock) turnLocks.set(id, (lock = Semaphore.makeUnsafe(1)))
+      return lock
+    }
     /** Live read-only sessions, keyed by session id. */
     const readOnly = new Map<string, ReadOnlyContext>()
     let shuttingDown = false
@@ -257,7 +319,7 @@ export const SessionsLive = Layer.effect(
         const message =
           "This thread is read-only in the main checkout. Create a git worktree on a new branch (git worktree add <path> -b <branch>) and make the change there."
         yield* l.handle.respondToApproval(raw.providerRequestId ?? raw.approvalId, "deny", message)
-        yield* events.append(sessionId, {
+        yield* record(sessionId, {
           type: "session.status",
           state: "edit_blocked",
           detail: `Refused edit in the main checkout: ${blocked.map((p) => relativeTo(repo, p)).join(", ")}`
@@ -293,7 +355,7 @@ export const SessionsLive = Layer.effect(
         if (!worktree) return
         const project = yield* projects.get(ctx.projectId)
         const ws = yield* workspaces.adopt({ project, ticketId: ctx.ticketId, worktree })
-        yield* events.append(sessionId, {
+        yield* record(sessionId, {
           type: "session.status",
           state: "worktree_adopted",
           detail: `Tracking the agent's worktree ${ws.branch} at ${ws.path}`
@@ -301,7 +363,7 @@ export const SessionsLive = Layer.effect(
         yield* notices.publish({ topic: "tickets", ticketId: ctx.ticketId })
       }).pipe(Effect.catch((e) => Effect.logWarning("worktree adoption failed", e)))
 
-    const toSession = (r: Row, lastEventId = 0): AgentSession => ({
+    const toSession = (r: Row, lastEventId = 0, preview: string | null = null): AgentSession => ({
       id: r.id,
       ticketId: r.ticketId,
       runId: r.runId,
@@ -312,6 +374,8 @@ export const SessionsLive = Layer.effect(
       cwd: r.cwd,
       pid: r.pid,
       lastEventId,
+      statusDetail: (LIVE_STATES.includes(r.state as SessionState) && details.get(r.id)) || null,
+      preview,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt
     })
@@ -321,25 +385,57 @@ export const SessionsLive = Layer.effect(
         Effect.flatMap((r) => (r ? Effect.succeed(r) : Effect.fail(new NotFound({ entity: "session", id }))))
       )
 
-    const get = (id: string) =>
+    const previewOf = (id: string) =>
+      previews.has(id)
+        ? Effect.succeed(previews.get(id) ?? null)
+        : events.preview(id).pipe(Effect.tap((p) => Effect.sync(() => previews.set(id, p))))
+
+    const snapshot = (r: Row) =>
       Effect.gen(function* () {
-        const r = yield* getRow(id)
-        return toSession(r, yield* events.lastEventId(id))
+        return toSession(r, yield* events.lastEventId(r.id), yield* previewOf(r.id))
       })
 
-    const setState = (id: string, state: SessionState, extra: Partial<Row> = {}) =>
+    const get = (id: string) => getRow(id).pipe(Effect.flatMap(snapshot))
+
+    /** Push the whole session with the notice: clients apply it in place instead of refetching. */
+    const publishRow = (r: Row) =>
+      snapshot(r).pipe(
+        Effect.flatMap((session) => notices.publish({ topic: "sessions", sessionId: r.id, ticketId: r.ticketId, session }))
+      )
+
+    const setState = (id: string, state: SessionState, extra: Partial<Row> = {}, opts: { notify?: boolean } = {}) =>
       Effect.gen(function* () {
         const updatedAt = yield* nowIso
+        if (!LIVE_STATES.includes(state)) details.delete(id)
         const row = yield* use((db) =>
-          db
-            .update(agentSessions)
-            .set({ state, updatedAt, ...extra })
-            .where(eq(agentSessions.id, id))
-            .returning({ ticketId: agentSessions.ticketId, runId: agentSessions.runId })
-            .get()
+          db.update(agentSessions).set({ state, updatedAt, ...extra }).where(eq(agentSessions.id, id)).returning().get()
         )
-        yield* notices.publish({ topic: "sessions", sessionId: id, ticketId: row?.ticketId })
-        if (row) yield* notices.publish({ topic: "tickets", ticketId: row.ticketId })
+        if (!row) return
+        if (opts.notify !== false) yield* publishRow(row)
+        yield* notices.publish({ topic: "tickets", ticketId: row.ticketId })
+      })
+
+    /**
+     * Append an event and keep the session's status line and preview current. Publishes one
+     * session notice when either changed (or `force`): token deltas only count when they change
+     * the line ("Writing a reply"), so streaming stays quiet. Works on the stored, redacted event.
+     */
+    const record = (sessionId: string, event: AgentEvent, force = false) =>
+      Effect.gen(function* () {
+        const stored = yield* events.append(sessionId, event)
+        let changed = force
+        const detail = describeEvent(stored.event)
+        if (detail !== undefined && details.get(sessionId) !== detail) {
+          details.set(sessionId, detail)
+          changed = true
+        }
+        const preview = previewText(stored.event)
+        if (preview !== null) {
+          previews.set(sessionId, preview)
+          changed = true
+        }
+        if (changed) yield* getRow(sessionId).pipe(Effect.flatMap(publishRow), Effect.catchTag("NotFound", () => Effect.void))
+        return stored
       })
 
     /**
@@ -401,7 +497,7 @@ export const SessionsLive = Layer.effect(
               providerRequestId: raw.providerRequestId ?? raw.approvalId
             })
             event = { ...raw, approvalId: approval.id }
-            yield* setState(sessionId, "waiting_for_approval")
+            yield* setState(sessionId, "waiting_for_approval", {}, { notify: false })
             break
           }
           case "turn.completed":
@@ -410,23 +506,30 @@ export const SessionsLive = Layer.effect(
                 db.update(agentSessions).set({ providerSessionId: raw.providerSessionId }).where(eq(agentSessions.id, sessionId)).run()
               )
             }
-            yield* setState(sessionId, "idle")
-            if (readOnly.has(sessionId)) yield* adoptCreatedWorktree(sessionId)
-            // Ad-hoc work that produced changes is ready for review; workflows manage their own status.
-            if (!runId && (raw.status ?? "success") === "success") yield* readyForReview(sessionId, ticketId)
-            break
+            // Post-turn work, then the event, then the state: whoever sees "idle" or the turn's end
+            // also sees its effects, and a prompt sent in reaction can't interleave (see turnLock).
+            yield* Effect.gen(function* () {
+              if (readOnly.has(sessionId)) yield* adoptCreatedWorktree(sessionId)
+              // Ad-hoc work that produced changes is ready for review; workflows manage their own status.
+              if (!runId && (raw.status ?? "success") === "success") yield* readyForReview(sessionId, ticketId)
+              yield* record(sessionId, raw)
+              yield* setState(sessionId, "idle")
+            }).pipe(Semaphore.withPermit(turnLock(sessionId)))
+            return
           case "session.exited": {
             const l = live.get(sessionId)
             if (l) l.exitCode = raw.code ?? null
             break
           }
         }
-        yield* events.append(sessionId, event)
+        // approval.requested changed the state quietly above: always notify.
+        yield* record(sessionId, event, event.type === "approval.requested")
       })
 
     const finish = (sessionId: string, ticketId: string, l: LiveSession) =>
       Effect.gen(function* () {
         live.delete(sessionId)
+        turnLocks.delete(sessionId)
         yield* Scope.close(l.scope, Exit.void)
         // A worktree created in the turn the process ended in still belongs to the thread.
         if (readOnly.has(sessionId) && !shuttingDown) yield* adoptCreatedWorktree(sessionId)
@@ -481,7 +584,9 @@ export const SessionsLive = Layer.effect(
           })
         }
         const scope = yield* Scope.fork(rootScope)
-        const startInput = { cwd: row.cwd, policy: opts.policy, prompt: opts.prompt, images: opts.images }
+        // The agent learns which session it is; `agentdesk` refuses approval decisions from inside one.
+        const policy = { ...opts.policy, env: { ...opts.policy.env, AGENTDESK_SESSION_ID: row.id } }
+        const startInput = { cwd: row.cwd, policy, prompt: opts.prompt, images: opts.images }
         const handle = yield* (opts.resume && row.providerSessionId && adapter.resume
           ? adapter.resume({ ...startInput, providerSessionId: row.providerSessionId })
           : adapter.start(startInput)
@@ -505,7 +610,7 @@ export const SessionsLive = Layer.effect(
         yield* setState(row.id, "running", { pid: handle.pid ?? null })
         yield* handle.events.pipe(
           Stream.runForEach((e) => onEvent(row.id, row.ticketId, row.runId, row.stepRunId, e)),
-          Effect.catchTag("HarnessError", (e) => events.append(row.id, { type: "session.error", message: e.message })),
+          Effect.catchTag("HarnessError", (e) => record(row.id, { type: "session.error", message: e.message })),
           Effect.ensuring(finish(row.id, row.ticketId, l)),
           // A long-lived span covering the whole process lifetime of this agent session.
           Effect.withSpan("AgentSession", {
@@ -542,7 +647,7 @@ export const SessionsLive = Layer.effect(
         if (lockHolder && input.workspaceId) yield* workspaces.lock(input.workspaceId, lockHolder)
         yield* use((db) => db.insert(agentSessions).values(row).run())
         const images = yield* loadImages(input.images)
-        if (input.prompt) yield* events.append(id, { type: "user.prompt", text: input.prompt, ...(images.refs.length && { images: images.refs }) })
+        if (input.prompt) yield* record(id, { type: "user.prompt", text: input.prompt, ...(images.refs.length && { images: images.refs }) })
         const readOnlyTarget = input.readOnly
           ? yield* tickets.get(input.ticketId).pipe(
               Effect.flatMap((t) => projects.get(t.projectId)),
@@ -559,7 +664,7 @@ export const SessionsLive = Layer.effect(
         }).pipe(
           Effect.tapError((e) =>
             Effect.gen(function* () {
-              yield* events.append(id, { type: "session.error", message: e.message })
+              yield* record(id, { type: "session.error", message: e.message })
               yield* setState(id, "failed")
               if (lockHolder && input.workspaceId) yield* workspaces.unlock(input.workspaceId, lockHolder)
             })
@@ -623,10 +728,10 @@ export const SessionsLive = Layer.effect(
         }
         if (own && Object.keys(update).length > 0) yield* tickets.update(ticket.id, update, "user")
         if (switches.model !== undefined) {
-          yield* events.append(row.id, { type: "session.status", state: "model_changed", detail: switches.model ?? "harness default" })
+          yield* record(row.id, { type: "session.status", state: "model_changed", detail: switches.model ?? "harness default" })
         }
         if (switches.effort !== undefined) {
-          yield* events.append(row.id, { type: "session.status", state: "effort_changed", detail: switches.effort ?? "model default" })
+          yield* record(row.id, { type: "session.status", state: "effort_changed", detail: switches.effort ?? "model default" })
         }
       })
 
@@ -666,16 +771,19 @@ export const SessionsLive = Layer.effect(
           l = live.get(id)
         }
         if (l) {
-          yield* events.append(id, promptEvent)
-          yield* setState(id, "running")
+          const handle = l.handle
           // "Default" on a live process means the configured harness default, if there is one.
           const harnessDefaults = (yield* defaults.get).harnesses[l.harness]
           const liveModel = switches.model === null ? harnessDefaults?.model : switches.model
           const liveEffort = switches.effort ?? undefined
-          yield* l.handle.prompt(text, images.prompt, {
-            ...(liveModel && { model: liveModel }),
-            ...(liveEffort && { effort: liveEffort })
-          })
+          yield* Effect.gen(function* () {
+            yield* record(id, promptEvent)
+            yield* setState(id, "running")
+            yield* handle.prompt(text, images.prompt, {
+              ...(liveModel && { model: liveModel }),
+              ...(liveEffort && { effort: liveEffort })
+            })
+          }).pipe(Semaphore.withPermit(turnLock(id)))
           return
         }
         const row = yield* getRow(id)
@@ -685,8 +793,8 @@ export const SessionsLive = Layer.effect(
         if (row.workspaceId && !row.runId) yield* workspaces.lock(row.workspaceId, id)
         const ticket = yield* tickets.get(row.ticketId)
         const project = yield* projects.get(ticket.projectId)
-        yield* events.append(id, promptEvent)
-        yield* events.append(id, { type: "session.status", state: "resuming", detail: "Resuming provider conversation in a new process" })
+        yield* record(id, promptEvent)
+        yield* record(id, { type: "session.status", state: "resuming", detail: "Resuming provider conversation in a new process" })
         const harness = row.harness as HarnessId
         const basePolicy = yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, harness), (yield* defaults.get).harnesses[harness], ticketEffort(ticket, project, harness))
         const resumeReadOnly = isReadOnlySession(row, ticket, project)
@@ -718,7 +826,7 @@ export const SessionsLive = Layer.effect(
     const interrupt = (id: string) =>
       requireLive(id).pipe(
         Effect.flatMap((l) => l.handle.interrupt),
-        Effect.andThen(events.append(id, { type: "session.status", state: "interrupt_requested" })),
+        Effect.andThen(record(id, { type: "session.status", state: "interrupt_requested" })),
         Effect.asVoid,
         Effect.withSpan("Sessions.interrupt", { attributes: { sessionId: id } })
       )
@@ -732,7 +840,7 @@ export const SessionsLive = Layer.effect(
           return
         }
         l.stopping = true
-        yield* events.append(id, { type: "session.status", state: "stopping", detail: "Stopped by user" })
+        yield* record(id, { type: "session.status", state: "stopping", detail: "Stopped by user" })
         yield* Scope.close(l.scope, Exit.void)
       })
 
@@ -750,7 +858,7 @@ export const SessionsLive = Layer.effect(
           yield* l.handle.respondToApproval(approval.providerRequestId, decision, note)
           yield* setState(approval.sessionId, "running")
         }
-        yield* events.append(approval.sessionId, { type: "approval.resolved", approvalId, decision })
+        yield* record(approval.sessionId, { type: "approval.resolved", approvalId, decision })
         yield* activity.record({
           kind: "approval.decided",
           message: `${decision === "allow" ? "Approved" : "Denied"}: ${approval.title}`,
@@ -809,7 +917,7 @@ export const SessionsLive = Layer.effect(
         )
         if (s.workspaceId) yield* workspaces.unlock(s.workspaceId, s.id)
         yield* approvals.expireForSession(s.id)
-        yield* events.append(s.id, {
+        yield* record(s.id, {
           type: "session.status",
           state: "interrupted",
           detail: s.providerSessionId
@@ -843,21 +951,26 @@ export const SessionsLive = Layer.effect(
       startForTicket,
       get,
       list: ({ ticketId, active, limit }) =>
-        use((db) =>
-          db
-            .select()
-            .from(agentSessions)
-            .where(
-              and(
-                ticketId ? eq(agentSessions.ticketId, ticketId) : undefined,
-                active ? inArray(agentSessions.state, [...LIVE_STATES]) : undefined
+        Effect.gen(function* () {
+          const rows = yield* use((db) =>
+            db
+              .select()
+              .from(agentSessions)
+              .where(
+                and(
+                  ticketId ? eq(agentSessions.ticketId, ticketId) : undefined,
+                  active ? inArray(agentSessions.state, [...LIVE_STATES]) : undefined
+                )
               )
-            )
-            .orderBy(desc(agentSessions.createdAt))
-            .limit(limit ?? 200)
-            .all()
-            .map((r) => toSession(r))
-        ),
+              .orderBy(desc(agentSessions.createdAt))
+              .limit(limit ?? 200)
+              .all()
+          )
+          const lastIds = yield* events.lastEventIds(rows.map((r) => r.id))
+          return yield* Effect.forEach(rows, (r) =>
+            previewOf(r.id).pipe(Effect.map((preview) => toSession(r, lastIds.get(r.id) ?? 0, preview)))
+          )
+        }),
       prompt,
       interrupt,
       stop,

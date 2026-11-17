@@ -167,9 +167,21 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
   app.get("/sessions", (c) => respond(c, Sessions.use((s) => s.list({ active: c.req.query("active") === "1", limit: 100 }))))
   app.get("/sessions/:id", (c) => respond(c, Sessions.use((s) => s.get(id(c)))))
   app.get("/sessions/:id/preview", (c) => respond(c, EventLog.use((e) => e.preview(id(c)))))
-  app.get("/sessions/:id/history", (c) =>
-    respond(c, EventLog.use((e) => e.history(id(c), { after: Number(c.req.query("after") ?? 0) || 0, limit: 5000 })))
-  )
+  // `?tail=N` returns the newest N events (ascending); `?before=<id>` pages further back.
+  app.get("/sessions/:id/history", (c) => {
+    const tail = Number(c.req.query("tail") ?? 0) || 0
+    const before = Number(c.req.query("before") ?? 0) || 0
+    return respond(
+      c,
+      EventLog.use((e) =>
+        e.history(id(c), {
+          after: Number(c.req.query("after") ?? 0) || 0,
+          ...(before > 0 && { before }),
+          ...(tail > 0 ? { tail: true, limit: Math.min(tail, 5000) } : { limit: 5000 })
+        })
+      )
+    )
+  })
   app.get("/sessions/:id/events", (c) => {
     const after = Number(c.req.query("after") ?? c.req.header("last-event-id") ?? 0) || 0
     const sessionId = id(c)

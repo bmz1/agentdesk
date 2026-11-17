@@ -98,6 +98,13 @@ export const AgentSession = Schema.Struct({
   cwd: Schema.String,
   pid: Schema.NullOr(Schema.Number),
   lastEventId: Schema.Number,
+  /**
+   * One line on what a live session is doing right now ("Bash: pnpm test", "Approve Write: src/a.ts").
+   * Null once the process has ended. Pushed with every session notice, so lists never poll for it.
+   */
+  statusDetail: NullableString,
+  /** The latest prompt, reply, approval or error text (trimmed), for cards and lists. */
+  preview: NullableString,
   createdAt: Schema.String,
   updatedAt: Schema.String
 })
