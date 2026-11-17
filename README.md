@@ -28,6 +28,14 @@ pnpm dev:desktop           # terminal 2: Electron app (or `pnpm dev:web` for a b
 
 When you run `pnpm dev:web`, open `http://localhost:5173/?daemon=http://127.0.0.1:4317&token=$(cat ~/.agentdesk/token)` once. Electron discovers the daemon automatically through `~/.agentdesk/daemon.json`, and starts it if needed.
 
+## Managing agent work
+
+- Use the project’s **+** to create a local ticket with any supported harness. **Create & start** launches it immediately; a failed start keeps the ticket available for retry. Closing the dialog preserves the draft until creation succeeds.
+- **Agents** offers board and list layouts, grouped into Needs you, Working, Awaiting follow-up, and Recent. Cards show the latest meaningful message and open the exact session. A finished turn does not mark the ticket Done.
+- Project and issue views remember their layout and filters. Explicit URL filters take precedence over saved preferences.
+- **Chat + changes** opens a resizable split, remembered per ticket. Add feedback with the **+** beside a diff line, then send unresolved comments together to an idle/resumable session or a new installed harness. Stop the current agent before starting another. Comments retain their original code and line context, and stay available for verification and resolution after sending.
+- **Inbox** includes unread agent updates alongside pending approvals. Opening a focused conversation marks its streamed events read; Mark unread keeps an update available for later. Read state, view preferences, split layouts, and saved review comments stay local to this app installation.
+
 ## Repository layout
 
 | Path | Purpose |
@@ -50,6 +58,7 @@ When you run `pnpm dev:web`, open `http://localhost:5173/?daemon=http://127.0.0.
 pnpm typecheck
 pnpm test                                    # unit, protocol fixtures, daemon integration, crash recovery
 AGENTDESK_SMOKE=claude,codex,opencode pnpm test:smoke   # real CLIs (each must be logged in)
+pnpm --filter @agentdesk/desktop exec playwright install chromium  # once, for browser tests
 pnpm e2e                                     # Playwright: renderer + real daemon, full ticket → PR flow
 ```
 

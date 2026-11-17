@@ -1,10 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { Check, Hand, Inbox as InboxIcon, X } from "lucide-react"
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { EmptyState, Spinner } from "@/components/ui/misc"
+import { AgentCard } from "@/features/agents/agent-card"
+import { agentGroup, isSessionUnread } from "@/lib/agent-state"
+import { useUi } from "@/lib/store"
 import { ActivityTimeline } from "@/features/ticket/activity-timeline"
 import { api } from "@/lib/api"
 import { q } from "@/lib/queries"
@@ -21,6 +24,13 @@ function Inbox() {
   const pending = useQuery(q.approvals(true))
   const tickets = useQuery(q.tickets())
   const activity = useQuery(q.activity())
+  const sessions = useQuery(q.sessions(false))
+  const projects = useQuery(q.projects())
+  const seen = useUi((s) => s.sessionSeen)
+  const markRead = useUi((s) => s.markSessionRead)
+  const [unreadOnly, setUnreadOnly] = useState(true)
+  const updates = (sessions.data ?? []).filter((s) => (agentGroup(s.state) !== "working" || isSessionUnread(s, seen)) && (!unreadOnly || isSessionUnread(s, seen)))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   const qc = useQueryClient()
   const byId = useMemo(() => new Map((tickets.data ?? []).map((t) => [t.id, t])), [tickets.data])
   const decide = useMutation({
@@ -72,10 +82,10 @@ function Inbox() {
                           · {a.kind.replace("_", " ")} · {relativeTime(a.createdAt)}
                         </div>
                       </div>
-                      <Button size="sm" variant="secondary" onClick={() => decide.mutate({ id: a.id, decision: "deny" })}>
+                      <Button size="sm" disabled={decide.isPending} variant="secondary" onClick={() => decide.mutate({ id: a.id, decision: "deny" })}>
                         <X /> Deny
                       </Button>
-                      <Button size="sm" variant="success" onClick={() => decide.mutate({ id: a.id, decision: "allow" })}>
+                      <Button size="sm" disabled={decide.isPending} variant="success" onClick={() => decide.mutate({ id: a.id, decision: "allow" })}>
                         <Check /> Approve
                       </Button>
                     </div>
@@ -84,6 +94,17 @@ function Inbox() {
               </div>
             )}
             {decide.error && <p className="mt-2 text-xs text-danger">{(decide.error as Error).message}</p>}
+          </section>
+          <section>
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              <h2 className="mr-auto text-xs font-semibold uppercase tracking-wide text-fg-muted">Agent updates · {updates.length}</h2>
+              <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={unreadOnly} onChange={(e) => setUnreadOnly(e.target.checked)} /> Unread only</label>
+              <Button size="sm" variant="ghost" onClick={() => updates.forEach((s) => markRead(s.id, s.lastEventId))}>Mark all read</Button>
+            </div>
+            <div className="space-y-2" data-testid="inbox-agent-updates">
+              {updates.map((s) => <AgentCard key={s.id} session={s} ticket={byId.get(s.ticketId)} projectName={projects.data?.find((p) => p.id === byId.get(s.ticketId)?.projectId)?.name} list />)}
+              {!sessions.isPending && updates.length === 0 && <p className="text-xs text-fg-subtle">{unreadOnly ? "No unread agent updates." : "No agent updates yet."}</p>}
+            </div>
           </section>
           <section>
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-fg-muted">Recent updates</h2>

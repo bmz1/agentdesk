@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd, Tooltip } from "@/components/ui/misc"
+import { isSessionUnread } from "@/lib/agent-state"
 import { q } from "@/lib/queries"
 import { useUi } from "@/lib/store"
 import { cn } from "@/lib/utils"
@@ -37,6 +38,10 @@ export const Sidebar = () => {
   const connected = useUi((s) => s.daemonConnected)
   const info = useQuery(q.info())
   const threads = useProjectThreads()
+  const seen = useUi((s) => s.sessionSeen)
+  const unreadSessions = [...threads.values()].flat().filter((t) => isSessionUnread(t.session, seen)).length
+  const unreadWithApproval = [...threads.values()].flat().filter((t) => isSessionUnread(t.session, seen) && pending.data?.some((a) => a.sessionId === t.session.id)).length
+  const inboxCount = (pending.data?.length ?? 0) + unreadSessions - unreadWithApproval
   const collapsedProjects = useUi((s) => s.collapsedProjects)
   const toggleProject = useUi((s) => s.toggleProject)
 
@@ -75,15 +80,15 @@ export const Sidebar = () => {
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2">
         <Link to="/inbox" className={navItem} activeProps={active}>
           <Inbox /> Inbox
-          {(pending.data?.length ?? 0) > 0 && (
-            <span className="ml-auto rounded bg-warning/20 px-1.5 text-[11px] font-medium text-warning">{pending.data!.length}</span>
+          {inboxCount > 0 && (
+            <span className="ml-auto rounded bg-warning/20 px-1.5 text-[11px] font-medium text-warning">{inboxCount}</span>
           )}
         </Link>
         <Link to="/my-issues" className={navItem} activeProps={active}>
           <Target /> My issues
         </Link>
         <Link to="/agents" className={navItem} activeProps={active}>
-          <Bot /> My agents' work
+          <Bot /> Agents
           {(activeSessions.data?.length ?? 0) > 0 && (
             <span className="ml-auto rounded bg-accent/20 px-1.5 text-[11px] font-medium text-accent">{activeSessions.data!.length}</span>
           )}
@@ -103,22 +108,33 @@ export const Sidebar = () => {
           const folded = !!collapsedProjects[p.id]
           return (
             <div key={p.id}>
-              <div className="group relative">
+              <div className="group flex items-center">
                 <Link
                   to="/projects/$projectId"
                   params={{ projectId: p.id }}
-                  className={navItem}
+                  className={cn(navItem, "min-w-0 flex-1")}
                   activeProps={active}
                   data-testid="sidebar-project"
                 >
                   <FolderGit2 />
                   <span className="truncate">{p.name}</span>
-                  <span className={cn("ml-auto font-mono text-[10px] text-fg-subtle", projectThreads.length > 0 && "group-hover:invisible")}>{p.key}</span>
+                  <span className="ml-auto font-mono text-[10px] text-fg-subtle">{p.key}</span>
                 </Link>
+                <button
+                  type="button"
+                  onClick={() => openCreate(p.id)}
+                  className="flex size-7 shrink-0 items-center justify-center rounded-md text-fg-subtle hover:bg-bg-muted hover:text-fg"
+                  aria-label={`New thread in ${p.name}`}
+                  title="New thread / ticket"
+                  data-testid="project-new-thread"
+                >
+                  <Plus className="size-3.5" />
+                </button>
                 {projectThreads.length > 0 && (
                   <button
+                    type="button"
                     onClick={() => toggleProject(p.id)}
-                    className="absolute top-1/2 right-1.5 hidden -translate-y-1/2 rounded p-0.5 text-fg-subtle group-hover:block hover:bg-bg-elevated hover:text-fg"
+                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-fg-subtle hover:bg-bg-muted hover:text-fg"
                     aria-label={folded ? `Show ${p.name} threads` : `Hide ${p.name} threads`}
                     title={folded ? "Show threads" : "Hide threads"}
                   >

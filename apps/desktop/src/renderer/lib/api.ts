@@ -40,7 +40,10 @@ export class ApiError extends Error {
   }
 }
 
-let connection: Connection | null = null
+// React Fast Refresh can replace this module without remounting DaemonGate.
+// Keep the already resolved connection across that replacement.
+let connection: Connection | null = import.meta.hot?.data.connection ?? null
+if (import.meta.hot) import.meta.hot.dispose((data) => { data.connection = connection })
 export const setConnection = (c: Connection | null) => {
   connection = c
 }
@@ -133,6 +136,7 @@ export const api = {
 
   sessions: (active = false) => request<ReadonlyArray<AgentSession>>("GET", `/sessions${qs({ active: active ? 1 : undefined })}`),
   session: (id: string) => request<AgentSession>("GET", `/sessions/${id}`),
+  sessionPreview: (id: string) => request<string | null>("GET", `/sessions/${id}/preview`),
   sessionHistory: (id: string, after = 0) => request<ReadonlyArray<StoredAgentEvent>>("GET", `/sessions/${id}/history${qs({ after })}`),
   prompt: (id: string, text: string, images?: ReadonlyArray<string>) =>
     request<void>("POST", `/sessions/${id}/prompt`, { text, ...(images?.length && { images }) }),

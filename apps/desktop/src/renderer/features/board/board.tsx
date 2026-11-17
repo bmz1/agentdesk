@@ -1,4 +1,4 @@
-import type { BoardStatus, Ticket } from "@agentdesk/contracts"
+import type { AgentSession, BoardStatus, Ticket } from "@agentdesk/contracts"
 import {
   closestCorners,
   DndContext,
@@ -19,6 +19,7 @@ import { useMemo, useState } from "react"
 import { BOARD_COLUMNS, StatusIcon } from "@/components/status"
 import { Button } from "@/components/ui/button"
 import { api, type TicketQuery } from "@/lib/api"
+import { ticketSession } from "@/lib/agent-state"
 import { qk } from "@/lib/queries"
 import { useUi } from "@/lib/store"
 import { cn } from "@/lib/utils"
@@ -43,9 +44,11 @@ export const Board = ({
   tickets,
   query,
   projectNames,
-  defaultProjectId
+  defaultProjectId,
+  sessions = []
 }: {
   tickets: ReadonlyArray<Ticket>
+  sessions?: ReadonlyArray<AgentSession>
   query: TicketQuery
   projectNames?: Map<string, string>
   defaultProjectId?: string
@@ -120,11 +123,12 @@ export const Board = ({
             tickets={groups.get(col.id) ?? []}
             projectNames={projectNames}
             defaultProjectId={defaultProjectId}
+            sessions={sessions}
           />
         ))}
       </div>
       <DragOverlay>
-        {active ? <TicketCard ticket={active} dragging projectName={projectNames?.get(active.projectId)} /> : null}
+        {active ? <TicketCard ticket={active} session={ticketSession(active, sessions)} dragging projectName={projectNames?.get(active.projectId)} /> : null}
       </DragOverlay>
     </DndContext>
   )
@@ -143,8 +147,10 @@ const Column = ({
   label,
   tickets,
   projectNames,
-  defaultProjectId
+  defaultProjectId,
+  sessions
 }: {
+  sessions: ReadonlyArray<AgentSession>
   id: BoardStatus
   label: string
   tickets: Array<Ticket>
@@ -172,7 +178,7 @@ const Column = ({
       >
         <SortableContext items={tickets.map((t) => t.id)} strategy={verticalListSortingStrategy}>
           {tickets.map((t) => (
-            <SortableCard key={t.id} ticket={t} projectName={projectNames?.get(t.projectId)} />
+            <SortableCard key={t.id} ticket={t} session={ticketSession(t, sessions)} projectName={projectNames?.get(t.projectId)} />
           ))}
         </SortableContext>
       </div>
@@ -180,7 +186,7 @@ const Column = ({
   )
 }
 
-const SortableCard = ({ ticket, projectName }: { ticket: Ticket; projectName?: string }) => {
+const SortableCard = ({ ticket, projectName, session }: { ticket: Ticket; projectName?: string; session?: AgentSession }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: ticket.id })
   return (
     <div
@@ -190,7 +196,7 @@ const SortableCard = ({ ticket, projectName }: { ticket: Ticket; projectName?: s
       {...attributes}
       {...listeners}
     >
-      <TicketCard ticket={ticket} projectName={projectName} />
+      <TicketCard ticket={ticket} session={session} projectName={projectName} />
     </div>
   )
 }

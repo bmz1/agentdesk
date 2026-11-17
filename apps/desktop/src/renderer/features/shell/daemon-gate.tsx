@@ -31,6 +31,7 @@ export const DaemonGate = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     if (!conn) return
+    setConnection(conn)
     return subscribeSse(
       () => "/events",
       (m) => {
@@ -38,7 +39,7 @@ export const DaemonGate = ({ children }: { children: React.ReactNode }) => {
       },
       { onStatus: setDaemonConnected }
     )
-  }, [conn, setDaemonConnected])
+  }, [conn, setDaemonConnected, setConnection])
 
   if (conn === undefined) {
     return (

@@ -1,14 +1,16 @@
 import type { BoardStatus, Ticket } from "@agentdesk/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { Bot, CheckSquare, ChevronLeft, FileDiff, FolderGit2, FolderTree, GitBranchPlus, History, Info, Pin, PinOff } from "lucide-react"
+import { Bot, CheckSquare, ChevronLeft, FileDiff, FolderGit2, FolderTree, GitBranchPlus, History, Info, Pin, PinOff, Columns2 } from "lucide-react"
 import { BOARD_COLUMNS, RunStatusBadge, SourceBadge } from "@/components/status"
 import { Button } from "@/components/ui/button"
 import { Select } from "@/components/ui/input"
 import { EmptyState, Spinner, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/misc"
 import { api } from "@/lib/api"
 import { q, qk } from "@/lib/queries"
-import { DiffViewer } from "../diff/diff-viewer"
+import { ReviewChanges } from "../diff/review-changes"
+import { AgentWorkspace } from "../session/agent-workspace"
+import { useUi } from "@/lib/store"
 import { FileBrowser } from "../files/file-browser"
 import { AgentPanel } from "../session/agent-panel"
 import { ChecksTab, WorkflowTab } from "../workflow/workflow-tab"
@@ -32,6 +34,8 @@ export const TicketDetail = ({
   onSession: (id: string | undefined) => void
 }) => {
   const ticket = useQuery(q.ticket(ticketId))
+  const layout = useUi((s) => s.ticketLayouts[ticketId])
+  const setLayout = useUi((s) => s.setTicketLayout)
   const qc = useQueryClient()
   const update = useMutation({
     mutationFn: (b: Parameters<typeof api.updateTicket>[1]) => api.updateTicket(ticketId, b),
@@ -54,6 +58,7 @@ export const TicketDetail = ({
   }
   if (!ticket.data) return <EmptyState title="Ticket not found" />
   const t = ticket.data
+  const split = !!layout?.split
 
   return (
     <div className="flex h-full min-w-0 flex-col">
@@ -67,6 +72,10 @@ export const TicketDetail = ({
         <h1 className="min-w-0 flex-1 truncate text-sm font-semibold" data-testid="ticket-heading">
           {t.title}
         </h1>
+        <Button size="sm" variant={split ? "secondary" : "ghost"} aria-pressed={split} onClick={() => {
+          setLayout(ticketId, { split: !split, width: layout?.width ?? 50 })
+          if (tab !== "agent" && tab !== "changes") onTab("agent")
+        }} data-testid="toggle-agent-split"><Columns2 /> Chat + changes</Button>
         <Select
           value={t.status}
           onChange={(e) => update.mutate({ status: e.target.value as BoardStatus })}
@@ -112,7 +121,8 @@ export const TicketDetail = ({
           <Overview ticket={t} onUpdate={(b) => update.mutate(b)} onTab={onTab} />
         </TabsContent>
         <TabsContent value="agent" className="min-h-0 flex-1">
-          <AgentPanel ticket={t} sessionId={sessionId} onSelectSession={onSession} />
+          {split ? <AgentWorkspace key={t.id} ticket={t} sessionId={sessionId} onSelectSession={onSession} /> :
+            <AgentPanel key={t.id} ticket={t} sessionId={sessionId} onSelectSession={onSession} />}
         </TabsContent>
         <TabsContent value="workflow" className="min-h-0 flex-1 overflow-y-auto">
           <WorkflowTab ticket={t} />
@@ -120,8 +130,9 @@ export const TicketDetail = ({
         <TabsContent value="checks" className="min-h-0 flex-1 overflow-y-auto">
           <ChecksTab ticket={t} />
         </TabsContent>
-        <TabsContent value="changes" className="min-h-0 flex-1 overflow-y-auto p-4">
-          <Changes ticketId={t.id} />
+        <TabsContent value="changes" className="min-h-0 flex-1 overflow-y-auto">
+          {split ? <AgentWorkspace key={t.id} ticket={t} sessionId={sessionId} onSelectSession={onSession} /> :
+            <Changes ticket={t} onSelectSession={onSession} />}
         </TabsContent>
         <TabsContent value="files" className="min-h-0 flex-1">
           <FileBrowser ticketId={t.id} onShowChanges={() => onTab("changes")} />
@@ -134,18 +145,16 @@ export const TicketDetail = ({
   )
 }
 
-const Changes = ({ ticketId }: { ticketId: string }) => {
-  const diff = useQuery({ ...q.ticketDiff(ticketId), refetchInterval: 5_000 })
+const Changes = ({ ticket, onSelectSession }: { ticket: Ticket; onSelectSession: (id: string) => void }) => {
+  const ticketId = ticket.id
   const workspace = useQuery(q.ticketWorkspace(ticketId))
   const qc = useQueryClient()
   const cleanup = useMutation({
     mutationFn: (force: boolean) => api.cleanupWorkspace(workspace.data!.id, force),
     onSettled: () => qc.invalidateQueries({ queryKey: qk.ticketWorkspace(ticketId) })
   })
-  if (diff.isLoading) return <Spinner />
-  if (diff.error) return <p className="text-xs text-danger">{(diff.error as Error).message}</p>
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 p-4">
       {workspace.data && (
         <div className="flex items-center gap-2 text-xs text-fg-muted">
           <FolderGit2 className="size-3.5" />
@@ -164,7 +173,7 @@ const Changes = ({ ticketId }: { ticketId: string }) => {
           </Button>
         </div>
       )}
-      {diff.data && <DiffViewer diff={diff.data} />}
+      <ReviewChanges ticket={ticket} onSelectSession={onSelectSession} />
     </div>
   )
 }

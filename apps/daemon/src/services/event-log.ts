@@ -1,7 +1,7 @@
 import { AgentEvent, type StoredAgentEvent } from "@agentdesk/contracts"
 import { agentEvents } from "@agentdesk/db"
 import { redactDeep } from "@agentdesk/harness-core"
-import { and, asc, desc, eq, gt } from "drizzle-orm"
+import { and, asc, desc, eq, gt, inArray } from "drizzle-orm"
 import { Context, Effect, Layer, PubSub, Schema, Stream } from "effect"
 import type { DbError } from "../errors"
 import { nowIso } from "../util"
@@ -14,6 +14,7 @@ export interface EventLogShape {
     sessionId: string,
     options?: { after?: number; limit?: number }
   ) => Effect.Effect<ReadonlyArray<StoredAgentEvent>, DbError>
+  readonly preview: (sessionId: string) => Effect.Effect<string | null, DbError>
   readonly lastEventId: (sessionId: string) => Effect.Effect<number, DbError>
   /**
    * Replays persisted events after `after`, then streams live ones with no gap
@@ -67,6 +68,19 @@ export class EventLog extends Context.Service<EventLog, EventLogShape>()("agentd
             .map(toStored)
         ).pipe(Effect.withSpan("EventLog.history", { attributes: { sessionId, after: options.after ?? 0 } }))
 
+      // Fetch one meaningful event rather than downloading a transcript per dashboard card.
+      const preview = (sessionId: string) => use((db) => {
+        const row = db.select().from(agentEvents)
+          .where(and(eq(agentEvents.sessionId, sessionId), inArray(agentEvents.type, ["message.completed", "user.prompt", "approval.requested", "session.error"])))
+          .orderBy(desc(agentEvents.id)).limit(1).get()
+        const event = row?.payload as AgentEvent | undefined
+        if (!event) return null
+        const text = event.type === "message.completed" || event.type === "user.prompt" ? event.text
+          : event.type === "approval.requested" ? event.summary
+          : event.type === "session.error" ? event.message : ""
+        return text.slice(0, 500)
+      })
+
       const lastEventId = (sessionId: string) =>
         use(
           (db) =>
@@ -92,7 +106,7 @@ export class EventLog extends Context.Service<EventLog, EventLogShape>()("agentd
           })
         )
 
-      return EventLog.of({ append, history, lastEventId, subscribe })
+      return EventLog.of({ append, history, preview, lastEventId, subscribe })
     })
   )
 }

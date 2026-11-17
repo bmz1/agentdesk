@@ -20,6 +20,7 @@ import {
   XCircle
 } from "lucide-react"
 import { Badge } from "./ui/badge"
+import { SESSION_LABELS } from "@/lib/agent-state"
 import { cn } from "@/lib/utils"
 
 export const BOARD_COLUMNS: ReadonlyArray<{ id: BoardStatus; label: string }> = [
@@ -149,12 +150,19 @@ const sessionTone: Record<SessionState, "neutral" | "accent" | "success" | "warn
   closed: "neutral"
 }
 
-export const SessionStateBadge = ({ state }: { state: SessionState }) => (
+export const SessionStateBadge = ({ state, compact = false }: { state: SessionState; compact?: boolean }) => compact ? (
+  <span title={SESSION_LABELS[state]} aria-label={SESSION_LABELS[state]} className={cn("flex size-4 shrink-0 items-center justify-center", state === "waiting_for_approval" ? "text-warning" : state === "failed" || state === "interrupted" ? "text-danger" : "text-fg-subtle")}>
+    {state === "starting" || state === "running" ? <Loader2 className="size-3 animate-spin text-accent" /> :
+      state === "waiting_for_approval" ? <Hand className="size-3" /> :
+      state === "failed" || state === "interrupted" ? <XCircle className="size-3" /> :
+      state === "idle" ? <CircleDot className="size-3" /> : <CheckCircle2 className="size-3" />}
+  </span>
+) : (
   <Badge tone={sessionTone[state]}>
     {state === "running" || state === "starting" ? <Loader2 className="animate-spin" /> : null}
     {state === "waiting_for_approval" ? <Hand /> : null}
     {state === "interrupted" ? <PauseCircle /> : null}
-    {state === "idle" ? "awaiting follow-up" : state.replace(/_/g, " ")}
+    {SESSION_LABELS[state]}
   </Badge>
 )
 

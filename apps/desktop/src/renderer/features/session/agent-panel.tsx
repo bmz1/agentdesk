@@ -8,6 +8,7 @@ import { Select, Textarea } from "@/components/ui/input"
 import { EmptyState, Spinner, Tooltip } from "@/components/ui/misc"
 import { api } from "@/lib/api"
 import { q, qk } from "@/lib/queries"
+import { useUi } from "@/lib/store"
 import { relativeTime } from "@/lib/utils"
 import { Composer } from "./composer"
 import { Transcript } from "./transcript"
@@ -39,7 +40,7 @@ export const AgentPanel = ({
   return (
     <div className="flex h-full flex-col">
       <SessionHeader sessions={list} selected={selected} onSelect={onSelectSession} ticket={ticket} />
-      <SessionView session={selected} />
+      <SessionView key={selected.id} session={selected} />
     </div>
   )
 }
@@ -106,7 +107,17 @@ const SessionHeader = ({
 }
 
 const SessionView = ({ session }: { session: AgentSession }) => {
-  const { items, connected } = useSessionEvents(session.id)
+  const { items, connected, lastId } = useSessionEvents(session.id)
+  const markRead = useUi((s) => s.markSessionRead)
+  useEffect(() => {
+    const read = () => {
+      if (document.visibilityState === "visible" && document.hasFocus() && lastId > 0) markRead(session.id, lastId)
+    }
+    read()
+    window.addEventListener("focus", read)
+    document.addEventListener("visibilitychange", read)
+    return () => { window.removeEventListener("focus", read); document.removeEventListener("visibilitychange", read) }
+  }, [session.id, lastId, markRead])
   const qc = useQueryClient()
   const [deciding, setDeciding] = useState<string | null>(null)
   const decide = async (approvalId: string, decision: "allow" | "deny") => {

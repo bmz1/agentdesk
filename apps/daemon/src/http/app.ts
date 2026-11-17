@@ -158,6 +158,7 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
   // ---- sessions --------------------------------------------------------------------
   app.get("/sessions", (c) => respond(c, Sessions.use((s) => s.list({ active: c.req.query("active") === "1", limit: 100 }))))
   app.get("/sessions/:id", (c) => respond(c, Sessions.use((s) => s.get(id(c)))))
+  app.get("/sessions/:id/preview", (c) => respond(c, EventLog.use((e) => e.preview(id(c)))))
   app.get("/sessions/:id/history", (c) =>
     respond(c, EventLog.use((e) => e.history(id(c), { after: Number(c.req.query("after") ?? 0) || 0, limit: 5000 })))
   )

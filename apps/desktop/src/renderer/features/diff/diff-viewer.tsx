@@ -1,6 +1,9 @@
 import type { Diff } from "@agentdesk/contracts"
-import { ChevronRight, FileCode2, GitCommit } from "lucide-react"
+import { ChevronRight, FileCode2, GitCommit, Plus } from "lucide-react"
 import { useMemo, useState } from "react"
+import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/input"
+import type { ReviewComment } from "@/lib/store"
 import { Badge } from "@/components/ui/badge"
 import { EmptyState } from "@/components/ui/misc"
 import { cn } from "@/lib/utils"
@@ -43,7 +46,10 @@ export const parsePatch = (patch: string): Array<FilePatch> => {
   return files
 }
 
-export const DiffViewer = ({ diff }: { diff: Diff }) => {
+type CommentAnchor = Pick<ReviewComment, "path" | "side" | "line" | "code">
+export const DiffViewer = ({ diff, onComment }: { diff: Diff; onComment?: (anchor: CommentAnchor, text: string) => void }) => {
+  const [anchor, setAnchor] = useState<CommentAnchor | null>(null)
+  const [draft, setDraft] = useState("")
   const files = useMemo(() => parsePatch(diff.patch), [diff.patch])
   const stats = new Map(diff.files.map((f) => [f.path, f]))
   if (files.length === 0 && diff.commits.length === 0) {
@@ -77,14 +83,25 @@ export const DiffViewer = ({ diff }: { diff: Diff }) => {
           ))}
         </div>
       )}
+      {anchor && (
+        <form className="sticky top-0 z-20 space-y-2 rounded-md border bg-bg-elevated p-3 shadow-lg" onSubmit={(e) => {
+          e.preventDefault()
+          if (draft.trim()) { onComment?.(anchor, draft.trim()); setAnchor(null); setDraft("") }
+        }}>
+          <p className="text-xs">Comment on {anchor.path} · {anchor.side} line {anchor.line}</p>
+          <Textarea autoFocus aria-label="Review comment" value={draft} onChange={(e) => setDraft(e.target.value)} data-testid="review-comment-input" />
+          <div className="flex gap-2"><Button size="sm" type="submit" disabled={!draft.trim()} data-testid="review-comment-save">Save comment</Button>
+            <Button size="sm" type="button" variant="ghost" onClick={() => setAnchor(null)}>Cancel</Button></div>
+        </form>
+      )}
       {files.map((f) => (
-        <FileBlock key={f.path} file={f} stat={stats.get(f.path)} />
+        <FileBlock key={f.path} file={f} stat={stats.get(f.path)} onComment={onComment ? (value) => { setAnchor(value); setDraft("") } : undefined} />
       ))}
     </div>
   )
 }
 
-const FileBlock = ({ file, stat }: { file: FilePatch; stat?: Diff["files"][number] }) => {
+const FileBlock = ({ file, stat, onComment }: { file: FilePatch; stat?: Diff["files"][number]; onComment?: (anchor: CommentAnchor) => void }) => {
   const [open, setOpen] = useState(true)
   return (
     <div className="overflow-hidden rounded-md border" data-testid="diff-file">
@@ -113,6 +130,12 @@ const FileBlock = ({ file, stat }: { file: FilePatch; stat?: Diff["files"][numbe
                 l.kind === "meta" && "text-fg-subtle"
               )}
             >
+              {onComment && <span className="w-6 shrink-0">
+                {(l.oldNo !== undefined || l.newNo !== undefined) && <button type="button" className="flex size-5 items-center justify-center text-fg-subtle hover:bg-accent/20 hover:text-accent"
+                  aria-label={`Comment on ${file.path} ${l.kind === "del" ? "old" : "new"} line ${l.kind === "del" ? l.oldNo : l.newNo}`}
+                  data-testid="diff-comment-line"
+                  onClick={() => onComment({ path: file.path, side: l.kind === "del" ? "old" : "new", line: (l.kind === "del" ? l.oldNo : l.newNo)!, code: l.text })}><Plus className="size-3" /></button>}
+              </span>}
               <span className="w-10 shrink-0 select-none pr-2 text-right text-fg-subtle">{l.oldNo ?? ""}</span>
               <span className="w-10 shrink-0 select-none pr-2 text-right text-fg-subtle">{l.newNo ?? ""}</span>
               <span className={cn("w-4 shrink-0 select-none", l.kind === "add" ? "text-success" : l.kind === "del" ? "text-danger" : "")}>
