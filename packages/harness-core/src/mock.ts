@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import type { AgentEvent, ApprovalDecision } from "@agentdesk/contracts"
-import { Cause, Deferred, Effect, Queue, Ref, Stream } from "effect"
+import { type Cause, Deferred, Effect, FiberHandle, Queue, Ref, Stream } from "effect"
 import { HarnessError } from "./errors"
 import type { HarnessAdapter, HarnessSession, StartInput } from "./types"
 
@@ -22,12 +22,12 @@ export interface MockOptions {
 export const makeMockAdapter = (options: MockOptions = {}): HarnessAdapter => {
   const start = (input: StartInput & { providerSessionId?: string }) =>
     Effect.gen(function* () {
-      const scope = yield* Effect.scope
       const events = yield* Queue.unbounded<AgentEvent, HarnessError | Cause.Done>()
       const providerSessionId = input.providerSessionId ?? `mock-${randomUUID()}`
       const pendingApprovals = new Map<string, Deferred.Deferred<ApprovalDecision>>()
       const turnCounter = yield* Ref.make(0)
-      let interrupted = false
+      // The in-flight turn; interrupting the session interrupts this fiber.
+      const turnFiber = yield* FiberHandle.make<void, HarnessError>()
       const emit = (e: AgentEvent) => Queue.offer(events, e)
 
       yield* Effect.addFinalizer(() => Queue.end(events))
@@ -35,7 +35,6 @@ export const makeMockAdapter = (options: MockOptions = {}): HarnessAdapter => {
 
       const runTurn = (text: string) =>
         Effect.gen(function* () {
-          interrupted = false
           const turn = yield* Ref.updateAndGet(turnCounter, (n) => n + 1)
           const base = options.delayMs ?? 15
           const delay = text.includes("[slow]") ? base * 10 : base
@@ -45,16 +44,11 @@ export const makeMockAdapter = (options: MockOptions = {}): HarnessAdapter => {
             : `Working on it. Turn ${turn}: I analysed the request "${text.slice(0, 80)}" and will make a focused change.`
           let acc = ""
           for (const word of reply.split(/(?<= )/)) {
-            if (interrupted) break
             acc += word
             yield* emit({ type: "message.delta", messageId, text: word })
             yield* Effect.sleep(delay)
           }
           yield* emit({ type: "message.completed", messageId, text: acc })
-          if (interrupted) {
-            yield* emit({ type: "turn.completed", providerSessionId, status: "interrupted" })
-            return
-          }
           if (text.includes("[fail]")) {
             yield* emit({ type: "session.error", message: "Mock failure requested", recoverable: true })
             yield* emit({ type: "turn.completed", providerSessionId, status: "error" })
@@ -101,7 +95,15 @@ export const makeMockAdapter = (options: MockOptions = {}): HarnessAdapter => {
         })
 
       // The daemon records `user.prompt` itself, uniformly for every harness.
-      const prompt = (text: string) => Effect.forkIn(runTurn(text), scope).pipe(Effect.asVoid)
+      const prompt = (text: string) =>
+        FiberHandle.run(
+          turnFiber,
+          runTurn(text).pipe(
+            Effect.onInterrupt(() => emit({ type: "turn.completed", providerSessionId, status: "interrupted" })),
+            Effect.withSpan("mock.turn")
+          ),
+          { onlyIfMissing: true }
+        ).pipe(Effect.asVoid)
 
       if (input.prompt) yield* prompt(input.prompt)
 
@@ -119,9 +121,7 @@ export const makeMockAdapter = (options: MockOptions = {}): HarnessAdapter => {
             }
             yield* Deferred.succeed(d, decision)
           }),
-        interrupt: Effect.sync(() => {
-          interrupted = true
-        })
+        interrupt: FiberHandle.clear(turnFiber)
       } satisfies HarnessSession
     })
 

@@ -1,21 +1,21 @@
-import { Data, Duration, Effect, Schedule, Schema } from "effect"
+import { Clock, Duration, Effect, Redacted, Schedule, Schema } from "effect"
 import { adfToText } from "./adf"
 
 export type JiraDeployment = "cloud" | "datacenter"
 
-export class JiraError extends Data.TaggedError("JiraError")<{
-  readonly kind: "auth" | "rate_limited" | "http" | "network" | "invalid_response" | "config"
-  readonly message: string
-  readonly status?: number
-  readonly retryAfterMs?: number
-}> {}
+export class JiraError extends Schema.TaggedError<JiraError>()("JiraError", {
+  kind: Schema.Literals(["auth", "rate_limited", "http", "network", "invalid_response", "config"]),
+  message: Schema.String,
+  status: Schema.optional(Schema.Number),
+  retryAfterMs: Schema.optional(Schema.Number)
+}) {}
 
 export interface JiraClientConfig {
   readonly deployment: JiraDeployment
   readonly baseUrl: string
   /** Email (Cloud basic auth) or username (DC; unused with PAT bearer). */
   readonly principal: string
-  readonly token: string
+  readonly token: Redacted.Redacted<string>
   readonly fetch?: typeof globalThis.fetch
   readonly pageSize?: number
   readonly maxRetries?: number
@@ -101,12 +101,12 @@ export const normalizeIssue = (baseUrl: string, raw: JiraIssuePayload): JiraIssu
   }
 }
 
-const parseRetryAfter = (h: string | null): number | undefined => {
+const parseRetryAfter = (h: string | null, nowMs: number): number | undefined => {
   if (!h) return undefined
   const s = Number(h)
   if (Number.isFinite(s)) return s * 1000
   const d = Date.parse(h)
-  return Number.isFinite(d) ? Math.max(0, d - Date.now()) : undefined
+  return Number.isFinite(d) ? Math.max(0, d - nowMs) : undefined
 }
 
 export interface JiraClient {
@@ -125,8 +125,8 @@ export const makeJiraClient = (config: JiraClientConfig): JiraClient => {
   const api = config.deployment === "cloud" ? "/rest/api/3" : "/rest/api/2"
   const authHeader =
     config.deployment === "cloud"
-      ? `Basic ${Buffer.from(`${config.principal}:${config.token}`).toString("base64")}`
-      : `Bearer ${config.token}`
+      ? `Basic ${Buffer.from(`${config.principal}:${Redacted.value(config.token)}`).toString("base64")}`
+      : `Bearer ${Redacted.value(config.token)}`
 
   const request = (method: "GET" | "POST", path: string, body?: unknown) =>
     Effect.gen(function* () {
@@ -152,7 +152,7 @@ export const makeJiraClient = (config: JiraClientConfig): JiraClient => {
           kind: "rate_limited",
           status: 429,
           message: "Jira rate limit hit",
-          retryAfterMs: parseRetryAfter(res.headers.get("retry-after"))
+          retryAfterMs: parseRetryAfter(res.headers.get("retry-after"), yield* Clock.currentTimeMillis)
         })
       }
       if (!res.ok) {
@@ -185,6 +185,11 @@ export const makeJiraClient = (config: JiraClientConfig): JiraClient => {
     ) as Effect.Effect<S["Type"], JiraError>
 
   const searchPage = (jql: string, cursor?: string): Effect.Effect<JiraPage, JiraError> =>
+    searchPageUntraced(jql, cursor).pipe(
+      Effect.withSpan("JiraClient.searchPage", { attributes: { deployment: config.deployment, page: cursor ?? "first" } })
+    )
+
+  const searchPageUntraced = (jql: string, cursor?: string): Effect.Effect<JiraPage, JiraError> =>
     config.deployment === "cloud"
       ? withRetry(
           request("POST", `${api}/search/jql`, {

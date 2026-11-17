@@ -1,12 +1,13 @@
 import type { HarnessDetection, HarnessId } from "@agentdesk/contracts"
 import { Effect } from "effect"
+import type { ChildProcessSpawner } from "effect/process"
 import { HarnessError } from "./errors"
 import type { HarnessAdapter } from "./types"
 
 export interface HarnessRegistryShape {
   readonly list: ReadonlyArray<HarnessAdapter>
   readonly get: (id: HarnessId) => Effect.Effect<HarnessAdapter, HarnessError>
-  readonly detectAll: Effect.Effect<ReadonlyArray<HarnessDetection>>
+  readonly detectAll: Effect.Effect<ReadonlyArray<HarnessDetection>, never, ChildProcessSpawner.ChildProcessSpawner>
 }
 
 export const makeRegistry = (adapters: ReadonlyArray<HarnessAdapter>): HarnessRegistryShape => {

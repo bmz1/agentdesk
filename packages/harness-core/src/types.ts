@@ -1,5 +1,6 @@
 import type { AgentEvent, ApprovalDecision, HarnessDetection, HarnessId, PermissionMode } from "@agentdesk/contracts"
 import type { Effect, Scope, Stream } from "effect"
+import type { ChildProcessSpawner } from "effect/process"
 import type { HarnessError } from "./errors"
 
 export interface RunPolicy {
@@ -49,10 +50,13 @@ export interface HarnessSession {
   readonly interrupt: Effect.Effect<void, HarnessError>
 }
 
+/** Services a harness may use: its owning scope and the platform process spawner. */
+export type HarnessRequirements = Scope.Scope | ChildProcessSpawner.ChildProcessSpawner
+
 export interface HarnessAdapter {
   readonly id: HarnessId
   readonly displayName: string
-  readonly detect: Effect.Effect<HarnessDetection>
-  readonly start: (input: StartInput) => Effect.Effect<HarnessSession, HarnessError, Scope.Scope>
-  readonly resume?: (input: ResumeInput) => Effect.Effect<HarnessSession, HarnessError, Scope.Scope>
+  readonly detect: Effect.Effect<HarnessDetection, never, ChildProcessSpawner.ChildProcessSpawner>
+  readonly start: (input: StartInput) => Effect.Effect<HarnessSession, HarnessError, HarnessRequirements>
+  readonly resume?: (input: ResumeInput) => Effect.Effect<HarnessSession, HarnessError, HarnessRequirements>
 }

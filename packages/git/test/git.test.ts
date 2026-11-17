@@ -2,8 +2,9 @@ import { execSync } from "node:child_process"
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { NodeProcessLayer } from "@agentdesk/harness-core"
+import { expect, layer } from "@effect/vitest"
 import { Effect } from "effect"
-import { describe, expect, it } from "vitest"
 import * as Git from "../src"
 
 const makeRepo = () => {
@@ -14,33 +15,35 @@ const makeRepo = () => {
   return dir
 }
 
-describe("git", () => {
-  it("creates a worktree, diffs changes including untracked files, commits and removes", async () => {
-    const repo = makeRepo()
-    const wt = join(mkdtempSync(join(tmpdir(), "wt-")), "w")
-    const result = await Effect.runPromise(
-      Effect.gen(function* () {
-        const base = yield* Git.revParse(repo, "main")
-        yield* Git.worktreeAdd(repo, wt, "agentdesk/t-1", base)
-        writeFileSync(join(wt, "README.md"), "hello\nworld\n")
-        writeFileSync(join(wt, "new.txt"), "new\n")
-        const diff = yield* Git.diffAgainst(wt, base)
-        const sha = yield* Git.commitAll(wt, "agent changes")
-        const after = yield* Git.diffAgainst(wt, base)
-        const clean = yield* Git.isClean(wt)
-        yield* Git.worktreeRemove(repo, wt)
-        return { diff, sha, after, clean, branch: after.branch }
-      })
-    )
-    expect(result.diff.files.map((f) => f.path).sort()).toEqual(["README.md", "new.txt"])
-    expect(result.diff.files.find((f) => f.path === "new.txt")?.status).toBe("added")
-    expect(result.diff.patch).toContain("+world")
-    expect(result.sha).toMatch(/^[0-9a-f]{40}$/)
-    expect(result.after.commits).toHaveLength(1)
-    expect(result.clean).toBe(true)
-    expect(result.branch).toBe("agentdesk/t-1")
-    expect(existsSync(wt)).toBe(false)
-  })
+layer(NodeProcessLayer, { excludeTestServices: true })("git", (it) => {
+  it.effect("creates a worktree, diffs changes including untracked files, commits and removes", () =>
+    Effect.gen(function* () {
+      const repo = makeRepo()
+      const wt = join(mkdtempSync(join(tmpdir(), "wt-")), "w")
+      const base = yield* Git.revParse(repo, "main")
+      yield* Git.worktreeAdd(repo, wt, "agentdesk/t-1", base)
+      writeFileSync(join(wt, "README.md"), "hello\nworld\n")
+      writeFileSync(join(wt, "new.txt"), "new\n")
+      const diff = yield* Git.diffAgainst(wt, base)
+      expect(diff.files.map((f) => f.path).sort()).toEqual(["README.md", "new.txt"])
+      expect(diff.files.find((f) => f.path === "new.txt")?.status).toBe("added")
+      expect(diff.patch).toContain("+world")
+      expect(yield* Git.commitAll(wt, "agent changes")).toMatch(/^[0-9a-f]{40}$/)
+      const after = yield* Git.diffAgainst(wt, base)
+      expect(after.commits).toHaveLength(1)
+      expect(after.branch).toBe("agentdesk/t-1")
+      expect(yield* Git.isClean(wt)).toBe(true)
+      yield* Git.worktreeRemove(repo, wt)
+      expect(existsSync(wt)).toBe(false)
+    })
+  )
+
+  it.effect("fails with a typed GitError", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(Git.revParse(makeRepo(), "does-not-exist"))
+      expect(error._tag).toBe("GitError")
+    })
+  )
 
   it("detects providers and slugifies", () => {
     expect(Git.detectProvider("git@github.com:a/b.git")).toBe("github")

@@ -1,8 +1,11 @@
 import type { GitProvider } from "@agentdesk/contracts"
 import { findExecutable, runCommand } from "@agentdesk/harness-core"
-import { Data, Effect } from "effect"
+import { Effect, Schema } from "effect"
+import type { ChildProcessSpawner } from "effect/process"
 
-export class PullRequestError extends Data.TaggedError("PullRequestError")<{ readonly message: string }> {}
+export class PullRequestError extends Schema.TaggedError<PullRequestError>()("PullRequestError", {
+  message: Schema.String
+}) {}
 
 export interface PullRequestInput {
   readonly cwd: string
@@ -26,8 +29,11 @@ export interface PullRequestRef {
  */
 export interface PullRequestProvider {
   readonly id: GitProvider
-  readonly findOpen: (cwd: string, branch: string) => Effect.Effect<PullRequestRef | undefined, PullRequestError>
-  readonly create: (input: PullRequestInput) => Effect.Effect<PullRequestRef, PullRequestError>
+  readonly findOpen: (
+    cwd: string,
+    branch: string
+  ) => Effect.Effect<PullRequestRef | undefined, PullRequestError, ChildProcessSpawner.ChildProcessSpawner>
+  readonly create: (input: PullRequestInput) => Effect.Effect<PullRequestRef, PullRequestError, ChildProcessSpawner.ChildProcessSpawner>
 }
 
 /** Tokens are stripped from agent processes; provider CLIs get them back explicitly. */

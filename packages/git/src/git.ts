@@ -1,13 +1,14 @@
 import { existsSync } from "node:fs"
 import type { Diff, GitProvider } from "@agentdesk/contracts"
 import { runCommand } from "@agentdesk/harness-core"
-import { Data, Effect } from "effect"
+import { Effect, Schema } from "effect"
+import type { ChildProcessSpawner } from "effect/process"
 
-export class GitError extends Data.TaggedError("GitError")<{
-  readonly command: string
-  readonly message: string
-  readonly code?: number | null
-}> {}
+export class GitError extends Schema.TaggedError<GitError>()("GitError", {
+  command: Schema.String,
+  message: Schema.String,
+  code: Schema.optional(Schema.NullOr(Schema.Number))
+}) {}
 
 const GIT_ENV = { GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" }
 
@@ -113,7 +114,10 @@ const STATUS_NAMES: Record<string, string> = { A: "added", M: "modified", D: "de
  * Diff of a worktree against its base commit, including uncommitted and
  * untracked changes (via `git add -N` style intent: we diff the working tree).
  */
-export const diffAgainst = (cwd: string, baseCommit: string): Effect.Effect<Diff, GitError> =>
+export const diffAgainst = (
+  cwd: string,
+  baseCommit: string
+): Effect.Effect<Diff, GitError, ChildProcessSpawner.ChildProcessSpawner> =>
   Effect.gen(function* () {
     // Mark untracked files as intent-to-add so they show up in the diff without staging content.
     const untracked = (yield* git(cwd, ["ls-files", "--others", "--exclude-standard"])).split("\n").filter(Boolean)

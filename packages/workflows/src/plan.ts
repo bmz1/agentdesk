@@ -32,10 +32,11 @@ export interface ExecutionPlan {
   readonly steps: ReadonlyArray<PlanStep>
 }
 
-export class WorkflowValidationError extends Error {
-  readonly _tag = "WorkflowValidationError"
-  constructor(readonly errors: ReadonlyArray<string>) {
-    super(errors.join("; "))
+export class WorkflowValidationError extends Schema.TaggedError<WorkflowValidationError>()("WorkflowValidationError", {
+  errors: Schema.Array(Schema.String)
+}) {
+  override get message() {
+    return this.errors.join("; ")
   }
 }
 
@@ -64,10 +65,10 @@ export const compileWorkflow = (yaml: string, options: CompileOptions = {}): Eff
     try {
       raw = parseYaml(yaml)
     } catch (e) {
-      return yield* Effect.fail(new WorkflowValidationError([`Invalid YAML: ${(e as Error).message}`]))
+      return yield* Effect.fail(new WorkflowValidationError({ errors: [`Invalid YAML: ${(e as Error).message}`] }))
     }
     const def = yield* Schema.decodeUnknownEffect(WorkflowDefinition)(raw).pipe(
-      Effect.mapError((e) => new WorkflowValidationError([e.message]))
+      Effect.mapError((e) => new WorkflowValidationError({ errors: [e.message] }))
     )
     const errors: Array<string> = []
     const index = new Map<string, number>()
@@ -116,6 +117,6 @@ export const compileWorkflow = (yaml: string, options: CompileOptions = {}): Eff
         timeoutSec: s.timeoutSec
       }
     })
-    if (errors.length > 0) return yield* Effect.fail(new WorkflowValidationError(errors))
+    if (errors.length > 0) return yield* Effect.fail(new WorkflowValidationError({ errors }))
     return { id: def.id, version: def.version, name: def.name, description: def.description, steps }
   })

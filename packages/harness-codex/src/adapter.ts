@@ -12,7 +12,7 @@ import {
   str,
   wireLineProcess
 } from "@agentdesk/harness-core"
-import { Deferred, Effect } from "effect"
+import { Deferred, Effect, Queue } from "effect"
 import { APPROVAL_METHODS, CodexNormalizer } from "./normalizer"
 
 export interface CodexAdapterOptions {
@@ -53,6 +53,8 @@ export const makeCodexAdapter = (options: CodexAdapterOptions = {}): HarnessAdap
       const pending = new Map<string, Deferred.Deferred<unknown, HarnessError>>()
       const approvalKinds = new Map<string, { legacy: boolean; rawId: unknown }>()
       let nextId = 1
+      // Completion signal of the turn currently in flight (replaced per turn).
+      let turnDone = yield* Deferred.make<void>()
       const send = (msg: Record<string, unknown>) => proc.write(JSON.stringify(msg) + "\n")
 
       const request = (method: string, params: unknown) =>
@@ -91,8 +93,9 @@ export const makeCodexAdapter = (options: CodexAdapterOptions = {}): HarnessAdap
               }
               return true
             }
-            // Server→client request we cannot service: reject so the agent doesn't hang.
             const method = str(msg.method)
+            if (method === "turn/completed") yield* Deferred.succeed(turnDone, undefined)
+            // Server→client request we cannot service: reject so the agent doesn't hang.
             if (msg.id !== undefined && method) {
               const spec = APPROVAL_METHODS[method]
               if (spec) {
@@ -125,8 +128,19 @@ export const makeCodexAdapter = (options: CodexAdapterOptions = {}): HarnessAdap
         yield* emit({ type: "session.started", providerSessionId: threadId, model: str(thread.model), cwd: input.cwd })
       }
 
-      // Codex accepts one turn at a time; follow-ups sent mid-turn are queued until it completes.
-      const queue: Array<string> = []
+      // Codex accepts one turn at a time. Prompts go through a queue drained by a
+      // single scoped fiber that starts a turn and waits for its completion.
+      const prompts = yield* Queue.unbounded<string>()
+      yield* Effect.gen(function* () {
+        const text = yield* Queue.take(prompts)
+        const done = yield* Deferred.make<void>()
+        turnDone = done
+        yield* startTurn(text).pipe(
+          Effect.catch((e) => Effect.andThen(emit({ type: "session.error", message: e.message }), Deferred.succeed(done, undefined)))
+        )
+        yield* Deferred.await(done)
+      }).pipe(Effect.forever, Effect.forkScoped)
+
       const startTurn = (text: string) =>
         request("turn/start", { threadId, input: [{ type: "text", text, text_elements: [] }] }).pipe(
           Effect.tap((r) =>
@@ -135,23 +149,12 @@ export const makeCodexAdapter = (options: CodexAdapterOptions = {}): HarnessAdap
               normalizer.activeTurnId = str(turn?.id) ?? normalizer.activeTurnId ?? "pending"
             })
           ),
-          Effect.asVoid
+          Effect.asVoid,
+          Effect.withSpan("codex.turn.start", { attributes: { threadId } })
         )
-      const prompt = (text: string) =>
-        normalizer.activeTurnId ? Effect.sync(() => void queue.push(text)) : startTurn(text)
+      const prompt = (text: string) => Queue.offer(prompts, text).pipe(Effect.asVoid)
 
-      // Drain the queue whenever a turn completes.
-      const originalPush = normalizer.push.bind(normalizer)
-      normalizer.push = (m) => {
-        const out = originalPush(m)
-        if (out.some((e) => e.type === "turn.completed") && queue.length > 0) {
-          const next = queue.shift()!
-          Effect.runFork(startTurn(next).pipe(Effect.ignore))
-        }
-        return out
-      }
-
-      if (input.prompt) yield* startTurn(input.prompt)
+      if (input.prompt) yield* prompt(input.prompt)
 
       const respondToApproval = (requestId: string, decision: ApprovalDecision) => {
         const kind = approvalKinds.get(requestId)
@@ -167,10 +170,10 @@ export const makeCodexAdapter = (options: CodexAdapterOptions = {}): HarnessAdap
         events: eventsStream(events),
         prompt,
         respondToApproval,
-        interrupt: Effect.suspend(() => {
-          queue.length = 0
+        interrupt: Effect.gen(function* () {
+          yield* Queue.clear(prompts)
           const turnId = normalizer.activeTurnId
-          return turnId && turnId !== "pending" ? request("turn/interrupt", { threadId, turnId }).pipe(Effect.asVoid) : Effect.void
+          if (turnId && turnId !== "pending") yield* request("turn/interrupt", { threadId, turnId })
         })
       } satisfies HarnessSession
     })

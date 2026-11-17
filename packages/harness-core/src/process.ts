@@ -1,8 +1,7 @@
-import { spawn, type ChildProcess } from "node:child_process"
 import { accessSync, constants } from "node:fs"
 import { delimiter, join } from "node:path"
-import { createInterface } from "node:readline"
-import { Deferred, Effect, Queue, Scope, Stream } from "effect"
+import { type Cause, Deferred, Duration, Effect, Queue, type Scope, Stream } from "effect"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { HarnessError } from "./errors"
 
 export interface ProcessExit {
@@ -17,8 +16,7 @@ export interface ManagedProcess {
   readonly stderrTail: () => string
   readonly write: (data: string) => Effect.Effect<void, HarnessError>
   readonly exited: Effect.Effect<ProcessExit>
-  readonly isRunning: () => boolean
-  readonly kill: (signal?: NodeJS.Signals) => Effect.Effect<void>
+  readonly kill: (signal?: ChildProcess.Signal) => Effect.Effect<void>
 }
 
 export interface SpawnOptions {
@@ -33,12 +31,6 @@ export interface SpawnOptions {
   readonly killGraceMs?: number
   /** Optional sandbox command prefix; `{cwd}` is substituted with the working directory. */
   readonly sandboxPrefix?: ReadonlyArray<string>
-}
-
-const withSandbox = (opts: SpawnOptions): [string, Array<string>] => {
-  const prefix = (opts.sandboxPrefix ?? []).map((p) => p.replaceAll("{cwd}", opts.cwd))
-  if (prefix.length === 0) return [opts.command, [...opts.args]]
-  return [prefix[0]!, [...prefix.slice(1), opts.command, ...opts.args]]
 }
 
 /** Environment variables never forwarded to agent harnesses. */
@@ -56,137 +48,97 @@ export const SENSITIVE_ENV = [
 export const buildChildEnv = (
   extra: Readonly<Record<string, string>> = {},
   strip: ReadonlyArray<string> = []
-): NodeJS.ProcessEnv => {
-  const env: NodeJS.ProcessEnv = { ...process.env }
+): Record<string, string> => {
+  const env: Record<string, string> = {}
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   for (const k of [...SENSITIVE_ENV, ...strip]) delete env[k]
   return { ...env, ...extra }
 }
 
-const killTree = (child: ChildProcess, signal: NodeJS.Signals) => {
-  if (child.pid === undefined) return
-  try {
-    // Negative pid targets the process group created by `detached: true`.
-    process.kill(-child.pid, signal)
-  } catch {
-    try {
-      child.kill(signal)
-    } catch {
-      /* already gone */
-    }
-  }
+const toHarnessError = (harness: string, command: string) => (e: unknown) => {
+  const tag = (e as { reason?: { _tag?: string } }).reason?._tag
+  return new HarnessError({
+    harness,
+    reason: tag === "NotFound" ? "not_installed" : "spawn_failed",
+    message: `Failed to start ${command}: ${(e as { message?: string }).message ?? String(e)}`
+  })
 }
 
 /**
- * Spawns a child process bound to the current Scope. Closing the scope sends
- * SIGTERM to the whole process group and escalates to SIGKILL after a grace period.
+ * Builds an `effect/process` command. The process runs detached in its own
+ * process group, so closing the owning Scope terminates the whole tree
+ * (SIGTERM, then SIGKILL after `killGraceMs`). Credentials are stripped from
+ * the inherited environment. An optional sandbox prefix wraps the command.
  */
-export const spawnManaged = (opts: SpawnOptions): Effect.Effect<ManagedProcess, HarnessError, Scope.Scope> =>
-  Effect.gen(function* () {
-    const lineQueue = yield* Queue.unbounded<string, import("effect").Cause.Done>()
-    const exitDeferred = yield* Deferred.make<ProcessExit>()
-    let stderr = ""
-    let running = true
+export const buildCommand = (opts: SpawnOptions) => {
+  const command = ChildProcess.make(opts.command, [...opts.args], {
+    cwd: opts.cwd,
+    env: buildChildEnv(opts.env, opts.stripEnv),
+    extendEnv: false,
+    detached: true,
+    killSignal: "SIGTERM",
+    forceKillAfter: Duration.millis(opts.killGraceMs ?? 3000)
+  })
+  const prefix = (opts.sandboxPrefix ?? []).map((p) => p.replaceAll("{cwd}", opts.cwd))
+  return prefix.length > 0 ? ChildProcess.prefix(command, prefix[0]!, prefix.slice(1)) : command
+}
 
-    const child = yield* Effect.acquireRelease(
-      Effect.try({
-        try: () =>
-          spawn(...withSandbox(opts), {
-            cwd: opts.cwd,
-            env: buildChildEnv(opts.env, opts.stripEnv),
-            stdio: ["pipe", "pipe", "pipe"],
-            detached: true
-          }),
-        catch: (cause) =>
-          new HarnessError({
-            harness: opts.harness,
-            reason: "spawn_failed",
-            message: `Failed to spawn ${opts.command}: ${String(cause)}`,
-            cause
-          })
-      }),
-      (child) =>
-        Effect.gen(function* () {
-          if (!running) return
-          killTree(child, "SIGTERM")
-          const exited = yield* Deferred.await(exitDeferred).pipe(
-            Effect.timeoutOption(opts.killGraceMs ?? 3000)
-          )
-          if (exited._tag === "None") killTree(child, "SIGKILL")
+/**
+ * Spawns a long-lived harness process bound to the current Scope via
+ * `effect/process`. Stdin is fed from a queue so writes are ordered and
+ * non-blocking; stdout is exposed as a line stream; stderr keeps a tail.
+ */
+export const spawnManaged = (
+  opts: SpawnOptions
+): Effect.Effect<ManagedProcess, HarnessError, Scope.Scope | ChildProcessSpawner.ChildProcessSpawner> =>
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+    const handle = yield* spawner.spawn(buildCommand(opts)).pipe(Effect.mapError(toHarnessError(opts.harness, opts.command)))
+    const exited = yield* Deferred.make<ProcessExit>()
+    const stdin = yield* Queue.unbounded<string, Cause.Done>()
+    let stderr = ""
+    const encoder = new TextEncoder()
+
+    yield* Stream.fromQueue(stdin).pipe(
+      Stream.map((s) => encoder.encode(s)),
+      Stream.run(handle.stdin),
+      Effect.ignore,
+      Effect.forkScoped
+    )
+    yield* handle.stderr.pipe(
+      Stream.decodeText(),
+      Stream.runForEach((chunk) =>
+        Effect.sync(() => {
+          stderr = (stderr + chunk).slice(-8000)
         })
+      ),
+      Effect.ignore,
+      Effect.forkScoped
+    )
+    // The exit watcher must outlive the scope: closing the scope terminates the
+    // process, and `exited` has to observe that. Its lifetime is bounded by the
+    // child process, which the scope always kills.
+    yield* handle.exitCode.pipe(
+      Effect.map((code): ProcessExit => ({ code: Number(code), signal: null })),
+      Effect.orElseSucceed((): ProcessExit => ({ code: null, signal: "SIGTERM" })),
+      Effect.flatMap((exit) => Deferred.succeed(exited, exit)),
+      Effect.andThen(Queue.end(stdin)),
+      Effect.forkDetach
     )
 
-    yield* Effect.callback<void, HarnessError>((resume) => {
-      const onSpawn = () => {
-        cleanup()
-        resume(Effect.void)
-      }
-      const onError = (cause: Error) => {
-        cleanup()
-        running = false
-        resume(
-          Effect.fail(
-            new HarnessError({
-              harness: opts.harness,
-              reason: (cause as NodeJS.ErrnoException).code === "ENOENT" ? "not_installed" : "spawn_failed",
-              message: `Failed to start ${opts.command}: ${cause.message}`,
-              cause
-            })
-          )
-        )
-      }
-      const cleanup = () => {
-        child.off("spawn", onSpawn)
-        child.off("error", onError)
-      }
-      child.once("spawn", onSpawn)
-      child.once("error", onError)
-    })
-
-    child.on("error", () => {
-      /* post-spawn errors surface via exit */
-    })
-    child.stdin?.on("error", () => {
-      /* EPIPE when the child exits first; surfaced via exit */
-    })
-    child.stderr?.setEncoding("utf8")
-    child.stderr?.on("data", (chunk: string) => {
-      stderr = (stderr + chunk).slice(-8000)
-    })
-    const rl = createInterface({ input: child.stdout!, crlfDelay: Infinity })
-    rl.on("line", (line) => {
-      Queue.offerUnsafe(lineQueue, line)
-    })
-    rl.on("close", () => {
-      Queue.endUnsafe(lineQueue)
-    })
-    child.on("exit", (code, signal) => {
-      running = false
-      Deferred.doneUnsafe(exitDeferred, Effect.succeed({ code, signal }))
-    })
-
-    const write = (data: string) =>
-      Effect.callback<void, HarnessError>((resume) => {
-        if (!running || !child.stdin || child.stdin.destroyed) {
-          resume(
-            Effect.fail(new HarnessError({ harness: opts.harness, reason: "closed", message: "Process is not running" }))
-          )
-          return
-        }
-        child.stdin.write(data, (err) => {
-          if (err) {
-            resume(Effect.fail(new HarnessError({ harness: opts.harness, reason: "io", message: err.message, cause: err })))
-          } else resume(Effect.void)
-        })
-      })
-
     return {
-      pid: child.pid,
-      lines: Stream.fromQueue(lineQueue),
+      pid: Number(handle.pid),
+      lines: handle.stdout.pipe(Stream.decodeText(), Stream.splitLines, Stream.catch(() => Stream.empty)),
       stderrTail: () => stderr,
-      write,
-      exited: Deferred.await(exitDeferred),
-      isRunning: () => running,
-      kill: (signal: NodeJS.Signals = "SIGTERM") => Effect.sync(() => killTree(child, signal))
+      write: (data) =>
+        Effect.gen(function* () {
+          if (yield* Deferred.isDone(exited)) {
+            return yield* new HarnessError({ harness: opts.harness, reason: "closed", message: "Process is not running" })
+          }
+          yield* Queue.offer(stdin, data)
+        }),
+      exited: Deferred.await(exited),
+      kill: (signal = "SIGTERM") => handle.kill({ killSignal: signal }).pipe(Effect.ignore)
     } satisfies ManagedProcess
   })
 
@@ -220,41 +172,46 @@ export interface CommandResult {
   readonly stderr: string
 }
 
-/** Run a short-lived command and collect its output. Never fails; inspect `code`. */
+const collect = (s: Stream.Stream<Uint8Array, unknown>) =>
+  s.pipe(Stream.decodeText(), Stream.mkString, Effect.orElseSucceed(() => ""))
+
+/**
+ * Run a short-lived command and collect its output. Never fails: a spawn
+ * error or timeout is reported as code -1 / null. The process is scoped, so
+ * a timeout or interruption kills it.
+ */
 export const runCommand = (
   command: string,
   args: ReadonlyArray<string>,
   options: { cwd?: string; timeoutMs?: number; env?: Readonly<Record<string, string>>; input?: string } = {}
-): Effect.Effect<CommandResult> =>
-  Effect.callback<CommandResult>((resume) => {
-    let stdout = ""
-    let stderr = ""
-    let child: ChildProcess
-    try {
-      child = spawn(command, [...args], {
-        cwd: options.cwd,
-        env: buildChildEnv(options.env),
-        stdio: ["pipe", "pipe", "pipe"]
-      })
-    } catch (e) {
-      resume(Effect.succeed({ code: -1, stdout: "", stderr: String(e) }))
-      return
-    }
-    const timer = setTimeout(() => child.kill("SIGKILL"), options.timeoutMs ?? 30_000)
-    child.stdout?.on("data", (d) => (stdout += d))
-    child.stderr?.on("data", (d) => (stderr += d))
-    child.on("error", (e) => {
-      clearTimeout(timer)
-      resume(Effect.succeed({ code: -1, stdout, stderr: stderr + String(e) }))
+): Effect.Effect<CommandResult, never, ChildProcessSpawner.ChildProcessSpawner> =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const handle = yield* spawner.spawn(
+        ChildProcess.make(command, [...args], {
+          ...(options.cwd && { cwd: options.cwd }),
+          env: buildChildEnv(options.env),
+          extendEnv: false,
+          detached: true,
+          forceKillAfter: Duration.seconds(2)
+        })
+      )
+      const input = options.input ?? ""
+      yield* Stream.make(new TextEncoder().encode(input)).pipe(Stream.run(handle.stdin), Effect.ignore, Effect.forkScoped)
+      const [stdout, stderr, code] = yield* Effect.all(
+        [collect(handle.stdout), collect(handle.stderr), handle.exitCode.pipe(Effect.map(Number), Effect.orElseSucceed(() => -1))],
+        { concurrency: "unbounded" }
+      )
+      return { code, stdout, stderr } satisfies CommandResult
     })
-    child.on("close", (code) => {
-      clearTimeout(timer)
-      resume(Effect.succeed({ code, stdout, stderr }))
-    })
-    if (options.input !== undefined) child.stdin?.end(options.input)
-    else child.stdin?.end()
-    return Effect.sync(() => {
-      clearTimeout(timer)
-      child.kill("SIGKILL")
-    })
-  })
+  ).pipe(
+    Effect.timeoutOrElse({
+      duration: Duration.millis(options.timeoutMs ?? 30_000),
+      orElse: () => Effect.succeed<CommandResult>({ code: null, stdout: "", stderr: `Timed out after ${options.timeoutMs ?? 30_000}ms` })
+    }),
+    Effect.catch((e) => Effect.succeed<CommandResult>({ code: -1, stdout: "", stderr: String((e as { message?: string }).message ?? e) }))
+  )
+
+/** Node implementation of the process services, for tests and composition roots. */
+export { layer as NodeProcessLayer } from "@effect/platform-node/NodeServices"

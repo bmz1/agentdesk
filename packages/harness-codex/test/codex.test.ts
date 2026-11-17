@@ -2,9 +2,9 @@ import { readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { AgentEvent } from "@agentdesk/contracts"
-import { type HarnessSession, parseJsonLine } from "@agentdesk/harness-core"
+import { type HarnessSession, NodeProcessLayer, parseJsonLine } from "@agentdesk/harness-core"
 import { Effect, Stream } from "effect"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, layer } from "@effect/vitest"
 import { CodexNormalizer, makeCodexAdapter } from "../src"
 
 describe("CodexNormalizer", () => {
@@ -39,57 +39,54 @@ describe("CodexNormalizer", () => {
   })
 })
 
-describe("Codex adapter (fake app-server)", () => {
+layer(NodeProcessLayer, { excludeTestServices: true })("Codex adapter (fake app-server)", (it) => {
   const adapter = makeCodexAdapter({ binary: join(__dirname, "fake-codex.mjs"), requestTimeoutMs: 5000 })
 
   const collect = (prompt: string, onEvent: (e: AgentEvent, s: HarnessSession) => Effect.Effect<void, unknown>, turns: number) =>
-    Effect.runPromise(
-      Effect.scoped(
-        Effect.gen(function* () {
-          const session = yield* adapter.start({ cwd: tmpdir(), policy: { permissionMode: "ask" }, prompt })
-          const seen: Array<AgentEvent> = []
-          let done = 0
-          yield* session.events.pipe(
-            Stream.tap((e) => {
-              seen.push(e)
-              if (e.type === "turn.completed") done++
-              return onEvent(e, session)
-            }),
-            Stream.takeUntil(() => done >= turns),
-            Stream.runDrain
-          )
-          return { seen, threadId: yield* session.providerSessionId }
-        })
-      )
-    )
-
-  it("round-trips approvals and queues follow-ups", async () => {
-    let sentFollowUp = false
-    const { seen, threadId } = await collect(
-      "run cmd",
-      (e, s) =>
-        Effect.gen(function* () {
-          if (e.type === "approval.requested") {
-            yield* s.respondToApproval(e.providerRequestId!, "allow")
-          }
-          if (e.type === "tool.started" && !sentFollowUp) {
-            sentFollowUp = true
-            yield* s.prompt("follow up") // queued until the first turn ends
-          }
+    Effect.gen(function* () {
+      const session = yield* adapter.start({ cwd: tmpdir(), policy: { permissionMode: "ask" }, prompt })
+      const seen: Array<AgentEvent> = []
+      let done = 0
+      yield* session.events.pipe(
+        Stream.tap((e) => {
+          seen.push(e)
+          if (e.type === "turn.completed") done++
+          return onEvent(e, session)
         }),
-      2
-    )
-    expect(threadId).toBe("thr_fake")
-    expect(seen.find((e) => e.type === "tool.completed")).toMatchObject({ isError: false, result: "file" })
-    expect(seen.filter((e) => e.type === "message.completed").map((e: any) => e.text)).toEqual(["echo run cmd", "echo follow up"])
-  })
+        Stream.takeUntil(() => done >= turns),
+        Stream.runDrain
+      )
+      return { seen, threadId: yield* session.providerSessionId }
+    })
 
-  it("interrupts the active turn", async () => {
-    const { seen } = await collect(
-      "hang",
-      (e, s) => (e.type === "message.completed" ? s.interrupt : Effect.void),
-      1
-    )
-    expect(seen.at(-1)).toMatchObject({ type: "turn.completed", status: "interrupted" })
-  })
+  it.effect("round-trips approvals and queues follow-ups through the scoped turn loop", () =>
+    Effect.gen(function* () {
+      let sentFollowUp = false
+      const { seen, threadId } = yield* collect(
+        "run cmd",
+        (e, s) =>
+          Effect.gen(function* () {
+            if (e.type === "approval.requested") yield* s.respondToApproval(e.providerRequestId!, "allow")
+            if (e.type === "tool.started" && !sentFollowUp) {
+              sentFollowUp = true
+              yield* s.prompt("follow up") // queued until the first turn completes
+            }
+          }),
+        2
+      )
+      expect(threadId).toBe("thr_fake")
+      expect(seen.find((e) => e.type === "tool.completed")).toMatchObject({ isError: false, result: "file" })
+      expect(seen.filter((e) => e.type === "message.completed").map((e) => (e as { text: string }).text)).toEqual([
+        "echo run cmd",
+        "echo follow up"
+      ])
+    })
+  )
+
+  it.effect("interrupts the active turn", () =>
+    Effect.gen(function* () {
+      const { seen } = yield* collect("hang", (e, s) => (e.type === "message.completed" ? s.interrupt : Effect.void), 1)
+      expect(seen.at(-1)).toMatchObject({ type: "turn.completed", status: "interrupted" })
+    })
+  )
 })
