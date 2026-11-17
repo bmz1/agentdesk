@@ -32,11 +32,27 @@ When you run `pnpm dev:web`, open `http://localhost:5173/?daemon=http://127.0.0.
 
 - **Threads** are for brainstorming and back-and-forth work. Start one with **⌘N** (or the sidebar **+**): write a message, pick a project, go. Threads stay off the board, show up in the sidebar and **Agents**, and become board tickets with **Track on board**. By default a thread is read-only in the main checkout: edits there are refused automatically. When the agent needs to change code, it creates its own git worktree, and AgentDesk infers it from the worktrees that appeared during the session and the agent's tool calls, then adopts it for diff, review and PRs. Tick **Start in a new worktree** to isolate a thread from the first message.
 - Use the project’s **+** to create a local ticket with any supported harness. **Create & start** launches it immediately; a failed start keeps the ticket available for retry. Closing the dialog preserves the draft until creation succeeds.
-- **Agents** offers board and list layouts, grouped into Needs you, Working, Awaiting follow-up, and Recent. Cards show the latest meaningful message and open the exact session. A finished turn does not mark the ticket Done.
+- **Agents** offers board and list layouts, grouped into Needs you, Working, Awaiting follow-up, and Recent. Cards show the latest meaningful message plus a one-line status of what a live agent is doing right now (`Bash: pnpm test`, `Needs approval: Write: src/a.ts`), and open the exact session. A finished turn does not mark the ticket Done.
+- **Keyboard**: ⌘K palette (every command shows its shortcut), ⌘N new thread, ⌘J next agent that needs you (approvals first, then unread), ⌘1–5 Inbox/Issues/Agents/Workflows/Projects, ⌘, Settings, ⌘B sidebar; in a conversation ⌘⇧A / ⌘⇧D allow or deny the pending tool call and ⌘. interrupts. Ctrl replaces ⌘ off macOS. Bindings live in one table (`apps/desktop/src/renderer/lib/keymap.ts`).
+- **Long conversations** open at the end: the newest events are drawn first and **Load earlier messages** pages back.
 - Project and issue views remember their layout and filters. Explicit URL filters take precedence over saved preferences.
 - **Chat + changes** opens a resizable split, remembered per ticket. Add feedback with the **+** beside a diff line, then send unresolved comments together to an idle/resumable session or a new installed harness. Stop the current agent before starting another. Comments retain their original code and line context, and stay available for verification and resolution after sending.
 - **Settings → Agent harness defaults** configures the harness for new projects plus each harness’s model, permissions, and extra instructions. New projects inherit harness permissions; existing projects keep their explicit policy until changed to **Use harness default**. Ticket models override harness models. Defaults apply to future launches and resumes, including workflow steps.
 - **Inbox** includes unread agent updates alongside pending approvals. Opening a focused conversation marks its streamed events read; Mark unread keeps an update available for later. Read state, view preferences, split layouts, and saved review comments stay local to this app installation. The native macOS Dock badge mirrors approvals and unread updates, deduplicating sessions with pending approvals; it continues polling while the desktop app is running with its window closed.
+
+## Command line
+
+`agentdesk` drives the same daemon from a shell, a script or another agent. Build it with `pnpm --filter @agentdesk/cli build` and put `apps/cli/dist/main.js` on your `PATH` as `agentdesk`, or run `pnpm agentdesk <command>` from the checkout.
+
+```sh
+agentdesk new "Add a /health endpoint" --wait   # thread in the project containing $PWD; prints the reply
+agentdesk ls --attention                        # sessions blocked on you
+agentdesk send AD-12 "also add a test" --wait   # ticket identifiers address their current session
+agentdesk events --json                         # NDJSON change stream
+agentdesk skill setup                           # teach Claude Code to delegate through agentdesk
+```
+
+Most commands take `--json`. Exit codes are stable: `0` ok, `1` failed, `2` bad command line, `3` target missing or ambiguous (nothing changed), `4` daemon unreachable, `5` the agent is waiting for an approval, `130` interrupted. The installed skill only says to run `agentdesk skill`, so its instructions always match the installed version. Approval decisions are refused from inside an AgentDesk agent session.
 
 ## Repository layout
 
@@ -44,6 +60,7 @@ When you run `pnpm dev:web`, open `http://localhost:5173/?daemon=http://127.0.0.
 | --- | --- |
 | `apps/daemon` | Effect v4 services behind a thin Hono API. Owns SQLite, agents, workflows and Jira sync |
 | `apps/desktop` | Electron main/preload plus the Vite React renderer (`src/renderer/routes` = file-based routes) |
+| `apps/cli` | `agentdesk` command line client (no runtime dependencies) |
 | `packages/contracts` | Effect Schema contracts shared by the daemon and the UI (canonical agent events, models, request bodies) |
 | `packages/db` | Drizzle schema and embedded migrations |
 | `packages/harness-core` | `HarnessAdapter`/`HarnessSession` contract, process supervision, mock harness, redaction |

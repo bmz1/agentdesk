@@ -7,6 +7,7 @@ AgentDesk is a pnpm workspace with an Electron desktop and an independent Node.j
 - `apps/desktop/src/main` and `src/preload`: Electron lifecycle and IPC bridge.
 - `apps/desktop/src/renderer`: React routes, feature components, and client state; desktop assets live in `apps/desktop/resources`.
 - `apps/daemon/src`: Hono HTTP/SSE transport, Effect services, and runtime layers.
+- `apps/cli/src`: the `agentdesk` command line client (plain TypeScript, no runtime dependencies; stable exit codes).
 - `packages/`: shared contracts, SQLite schema/migrations, harness adapters, Git operations, workflow engine, and Jira/Linear task sources.
 - `workflows/`, `prompts/`, and `docs/`: workflow definitions, agent prompts, and architecture/operations documentation.
 - Tests live in each package’s `test/` directory; browser and native desktop journeys live in `apps/desktop/e2e/`.

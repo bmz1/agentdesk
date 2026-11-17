@@ -50,7 +50,8 @@ const preview = spawn("npx", ["vite", "preview", "--config", "vite.renderer.conf
 procs.push(preview)
 await waitFor(async () => fetch("http://localhost:5173").then((r) => r.ok).catch(() => false))
 
-const browser = await chromium.launch()
+// AGENTDESK_E2E_CHROMIUM points at an already installed Chromium when the pinned build is missing.
+const browser = await chromium.launch(process.env.AGENTDESK_E2E_CHROMIUM ? { executablePath: process.env.AGENTDESK_E2E_CHROMIUM } : {})
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
 const assertDropdowns = async () => {
   const problems = await page.locator("select:visible").evaluateAll((selects) => selects.flatMap((select) => {
@@ -64,6 +65,23 @@ const assertDropdowns = async () => {
 }
 const errors = []
 page.on("pageerror", (e) => errors.push(String(e)))
+// Interaction budgets. Generous enough for a loaded CI machine; they catch regressions such as
+// a refetch round trip creeping back between a daemon event and the screen.
+const timings = {}
+const budget = async (name, ms, act, until) => {
+  const start = performance.now()
+  await act()
+  await until()
+  const elapsed = Math.round(performance.now() - start)
+  timings[name] = elapsed
+  if (elapsed > ms) fail(`${name} took ${elapsed}ms (budget ${ms}ms)`)
+}
+// Session state arrives with the change notice; list refetches mean the push path regressed.
+let sessionListFetches = []
+page.on("request", (r) => {
+  const url = new URL(r.url())
+  if (r.method() === "GET" && /^\/(sessions|tickets\/[^/]+\/sessions)$/.test(url.pathname)) sessionListFetches.push(url.pathname + url.search)
+})
 try {
   await page.goto(`http://localhost:5173/?daemon=${encodeURIComponent(conn.url)}&token=${conn.token}#/projects`)
   // Configure daemon-owned harness defaults before creating a project.
@@ -123,9 +141,20 @@ try {
   await page.locator('[data-testid="agents-attention"] [data-testid="agent-session-row"]').waitFor()
   await page.locator('[data-testid="agent-preview"]').filter({ hasText: "AGENTDESK_NOTES" }).waitFor()
   await page.screenshot({ path: join(home, "agents-board.png") })
-  await page.getByRole("link", { name: /Write release notes/ }).last().click()
-  await page.click('[data-testid="approval-card"] button:has-text("Allow")', { timeout: 20_000 })
+  await budget("open session with pending approval", 1500,
+    () => page.getByRole("link", { name: /Write release notes/ }).last().click(),
+    () => page.locator('[data-testid="approval-card"]').waitFor())
+  sessionListFetches = []
+  await budget("allow → approval card gone", 1000,
+    () => page.click('[data-testid="approval-card"] button:has-text("Allow")'),
+    () => page.locator('[data-testid="approval-card"]').waitFor({ state: "detached" }))
   await page.waitForSelector("text=Done with turn 1", { timeout: 20_000 })
+  if (sessionListFetches.length) fail(`session state changes refetched session lists: ${sessionListFetches.join(", ")}`)
+  await budget("command palette open", 400,
+    () => page.keyboard.press("ControlOrMeta+k"),
+    () => page.getByPlaceholder("Search tickets or type a command…").waitFor())
+  if (!(await page.locator("[cmdk-item]").filter({ hasText: "Next agent that needs you" }).innerText()).match(/(⌘|Ctrl\+)J/)) fail("palette does not show shortcut hints")
+  await page.keyboard.press("Escape")
   await page.fill('[data-testid="composer-input"]', "Also mention breaking changes [noop]")
   await page.click('[data-testid="composer-send"]')
   await page.waitForSelector("text=Done with turn 2", { timeout: 20_000 })
@@ -172,6 +201,13 @@ try {
   await page.getByRole("button", { name: "Mark all read", exact: true }).click()
   await page.getByText("No unread agent updates.", { exact: true }).waitFor()
 
+  // ⌘J jumps to the agent that needs attention.
+  await page.getByRole("link", { name: /^Agents/ }).click()
+  await page.getByRole("button", { name: "Mark unread", exact: true }).first().click()
+  await budget("⌘J to the agent that needs you", 1000,
+    () => page.keyboard.press("ControlOrMeta+j"),
+    () => page.waitForURL((u) => u.hash.includes(`session=${started.id}`)))
+
   // Project list and filters are restored when returning through the sidebar.
   await page.locator('[data-testid="sidebar-project"]').click()
   await page.getByRole("button", { name: "List view", exact: true }).click()
@@ -214,6 +250,7 @@ try {
   await page.waitForSelector('[data-testid="ticket-status"]')
   if (!(await get(`/tickets/${thread.id}`)).tracked) fail("tracking the thread did not put it on the board")
   if (errors.length) fail(`page errors: ${errors.join("\n")}`)
+  console.log(`E2E timings (ms): ${JSON.stringify(timings)}`)
   console.log(`E2E PASSED (screenshots: ${home})`)
 } catch (e) {
   await page.screenshot({ path: join(home, "e2e-failure.png") })

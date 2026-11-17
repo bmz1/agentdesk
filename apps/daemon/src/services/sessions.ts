@@ -16,7 +16,7 @@ import { agentSessions } from "@agentdesk/db"
 import * as Git from "@agentdesk/git"
 import { type HarnessError, type HarnessSession, type PromptImage, type RunPolicy, runCommand } from "@agentdesk/harness-core"
 import { and, desc, eq, inArray } from "drizzle-orm"
-import { Context, Effect, Exit, FiberMap, Layer, Option, Scope, Stream } from "effect"
+import { Context, Effect, Exit, FiberMap, Layer, Option, Scope, Semaphore, Stream } from "effect"
 import { ChildProcessSpawner } from "effect/process"
 import { BadRequest, type Conflict, type DbError, NotFound } from "../errors"
 import { newId, nowIso } from "../util"
@@ -280,6 +280,16 @@ export const SessionsLive = Layer.effect(
     const details = new Map<string, string>()
     /** Latest preview text per session. The daemon is the only writer, so this cache stays exact. */
     const previews = new Map<string, string | null>()
+    /**
+     * Serializes a turn's end with the next prompt, so a client that saw the session go idle
+     * (or saw `turn.completed`) and prompts at once can't interleave with the end of that turn.
+     */
+    const turnLocks = new Map<string, Semaphore.Semaphore>()
+    const turnLock = (id: string) => {
+      let lock = turnLocks.get(id)
+      if (!lock) turnLocks.set(id, (lock = Semaphore.makeUnsafe(1)))
+      return lock
+    }
     /** Live read-only sessions, keyed by session id. */
     const readOnly = new Map<string, ReadOnlyContext>()
     let shuttingDown = false
@@ -496,24 +506,30 @@ export const SessionsLive = Layer.effect(
                 db.update(agentSessions).set({ providerSessionId: raw.providerSessionId }).where(eq(agentSessions.id, sessionId)).run()
               )
             }
-            yield* setState(sessionId, "idle", {}, { notify: false })
-            if (readOnly.has(sessionId)) yield* adoptCreatedWorktree(sessionId)
-            // Ad-hoc work that produced changes is ready for review; workflows manage their own status.
-            if (!runId && (raw.status ?? "success") === "success") yield* readyForReview(sessionId, ticketId)
-            break
+            // Post-turn work, then the event, then the state: whoever sees "idle" or the turn's end
+            // also sees its effects, and a prompt sent in reaction can't interleave (see turnLock).
+            yield* Effect.gen(function* () {
+              if (readOnly.has(sessionId)) yield* adoptCreatedWorktree(sessionId)
+              // Ad-hoc work that produced changes is ready for review; workflows manage their own status.
+              if (!runId && (raw.status ?? "success") === "success") yield* readyForReview(sessionId, ticketId)
+              yield* record(sessionId, raw)
+              yield* setState(sessionId, "idle")
+            }).pipe(Semaphore.withPermit(turnLock(sessionId)))
+            return
           case "session.exited": {
             const l = live.get(sessionId)
             if (l) l.exitCode = raw.code ?? null
             break
           }
         }
-        // approval.requested and turn.completed changed the state quietly above: always notify.
-        yield* record(sessionId, event, event.type === "approval.requested" || event.type === "turn.completed")
+        // approval.requested changed the state quietly above: always notify.
+        yield* record(sessionId, event, event.type === "approval.requested")
       })
 
     const finish = (sessionId: string, ticketId: string, l: LiveSession) =>
       Effect.gen(function* () {
         live.delete(sessionId)
+        turnLocks.delete(sessionId)
         yield* Scope.close(l.scope, Exit.void)
         // A worktree created in the turn the process ended in still belongs to the thread.
         if (readOnly.has(sessionId) && !shuttingDown) yield* adoptCreatedWorktree(sessionId)
@@ -568,7 +584,9 @@ export const SessionsLive = Layer.effect(
           })
         }
         const scope = yield* Scope.fork(rootScope)
-        const startInput = { cwd: row.cwd, policy: opts.policy, prompt: opts.prompt, images: opts.images }
+        // The agent learns which session it is; `agentdesk` refuses approval decisions from inside one.
+        const policy = { ...opts.policy, env: { ...opts.policy.env, AGENTDESK_SESSION_ID: row.id } }
+        const startInput = { cwd: row.cwd, policy, prompt: opts.prompt, images: opts.images }
         const handle = yield* (opts.resume && row.providerSessionId && adapter.resume
           ? adapter.resume({ ...startInput, providerSessionId: row.providerSessionId })
           : adapter.start(startInput)
@@ -753,16 +771,19 @@ export const SessionsLive = Layer.effect(
           l = live.get(id)
         }
         if (l) {
-          yield* record(id, promptEvent)
-          yield* setState(id, "running")
+          const handle = l.handle
           // "Default" on a live process means the configured harness default, if there is one.
           const harnessDefaults = (yield* defaults.get).harnesses[l.harness]
           const liveModel = switches.model === null ? harnessDefaults?.model : switches.model
           const liveEffort = switches.effort ?? undefined
-          yield* l.handle.prompt(text, images.prompt, {
-            ...(liveModel && { model: liveModel }),
-            ...(liveEffort && { effort: liveEffort })
-          })
+          yield* Effect.gen(function* () {
+            yield* record(id, promptEvent)
+            yield* setState(id, "running")
+            yield* handle.prompt(text, images.prompt, {
+              ...(liveModel && { model: liveModel }),
+              ...(liveEffort && { effort: liveEffort })
+            })
+          }).pipe(Semaphore.withPermit(turnLock(id)))
           return
         }
         const row = yield* getRow(id)

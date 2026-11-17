@@ -115,3 +115,17 @@ describe("pushed session notices", () => {
     expect(queryClient.getQueryState(qk.sessions(false))?.isInvalidated).toBe(false)
   })
 })
+
+describe("ticket notices", () => {
+  afterEach(() => queryClient.clear())
+
+  it("leave a ticket's session, approval and activity queries alone", () => {
+    for (const key of [qk.ticket("t"), qk.ticketDiff("t"), qk.ticketSessions("t"), qk.ticketActivity("t"), qk.ticketApprovals("t"), qk.tickets({})]) {
+      queryClient.setQueryData(key, [])
+    }
+    applyNotice({ topic: "tickets", ticketId: "t" })
+    const stale = (key: ReadonlyArray<unknown>) => queryClient.getQueryState(key)?.isInvalidated
+    expect([qk.ticket("t"), qk.ticketDiff("t"), qk.tickets({})].map(stale)).toEqual([true, true, true])
+    expect([qk.ticketSessions("t"), qk.ticketActivity("t"), qk.ticketApprovals("t")].map(stale)).toEqual([false, false, false])
+  })
+})

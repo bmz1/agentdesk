@@ -26,7 +26,7 @@ export const AgentCard = ({ session, ticket, projectName, list = false }: {
             <SessionStateBadge state={session.state} />
             <span>{HARNESS_LABELS[session.harness]}</span>
           </div>
-          {session.statusDetail && (
+          {session.statusDetail && !(session.preview && session.statusDetail.endsWith(session.preview)) && (
             <p className="truncate font-mono text-[11px] text-fg-muted" title={session.statusDetail} data-testid="agent-status-detail">
               {session.statusDetail}
             </p>

@@ -101,7 +101,18 @@ export const applyNotice = (n: ChangeNotice) => {
       inv(qk.harnessSettings)
       break
     case "tickets":
-      inv(["tickets"])
+      if (!n.ticketId) {
+        inv(["tickets"])
+        break
+      }
+      // A ticket change touches lists, the ticket and its worktree. Its sessions, approvals,
+      // activity and runs have their own notices: invalidating the whole ["tickets"] prefix
+      // would refetch them on every session state change.
+      inv(["tickets", "list"])
+      void queryClient.invalidateQueries({ queryKey: qk.ticket(n.ticketId), exact: true })
+      inv(qk.ticketDiff(n.ticketId))
+      inv(qk.ticketWorkspace(n.ticketId))
+      inv(qk.ticketFiles(n.ticketId))
       break
     case "projects":
       inv(qk.projects)

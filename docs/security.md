@@ -4,6 +4,7 @@
 - Binds to `127.0.0.1` only. Every request needs `Authorization: Bearer <token>`, a 32-byte secret stored in `~/.agentdesk/token` with mode 0600 and compared in constant time.
 - `Host` must be a loopback name, which defeats DNS rebinding. A request with an `Origin` header must use an allow-listed origin (dev server, `file://`); configure more with `AGENTDESK_ALLOWED_ORIGINS`.
 - SSE uses fetch with the Authorization header instead of tokens in URLs.
+- The `agentdesk` CLI reads the same token from `~/.agentdesk/daemon.json` (or `AGENTDESK_URL` + `AGENTDESK_TOKEN`). Agent processes get `AGENTDESK_SESSION_ID`, and the CLI refuses `approve`/`deny` when it is set, so a delegating agent is not handed an easy way to approve its own tool calls. This is a guard rail, not a boundary: an agent can read anything your user account can, including the token file (see *Agent execution*).
 
 ## Desktop
 - `contextIsolation`, `sandbox`, no `nodeIntegration`, strict CSP (`connect-src` limited to loopback), blocked navigation and `window.open`, and permission requests denied.
