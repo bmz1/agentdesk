@@ -1,4 +1,4 @@
-import type { HarnessId, PermissionMode, Project } from "@agentdesk/contracts"
+import type { HarnessCapabilities, HarnessId, PermissionMode, Project } from "@agentdesk/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { FolderOpen } from "lucide-react"
 import { useState } from "react"
@@ -9,6 +9,13 @@ import { Spinner } from "@/components/ui/misc"
 import { api } from "@/lib/api"
 import { bridge } from "@/lib/connection"
 import { q } from "@/lib/queries"
+
+/** How a harness actually enforces a mode, when it differs from the mode's description. */
+export const modeCaveat = (mode: PermissionMode, capabilities: HarnessCapabilities | undefined) => {
+  if (mode === "plan" && capabilities?.planMode === "read_only") return "This harness has no plan mode AgentDesk can turn on: plan runs it in a read-only sandbox."
+  if (mode === "accept_edits" && capabilities?.acceptEdits === "auto_approved") return "This harness has no accept-edits mode: AgentDesk approves its edit requests for you."
+  return undefined
+}
 
 export const PERMISSION_MODES: ReadonlyArray<{ id: PermissionMode; label: string; hint: string }> = [
   { id: "ask", label: "Ask for risky tools", hint: "Agent tool calls that need permission show approval cards (recommended)." },

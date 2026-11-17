@@ -1,5 +1,6 @@
-import type { AgentEvent, ApprovalDecision, PermissionMode } from "@agentdesk/contracts"
+import type { AgentEvent, HarnessCapabilities, HarnessModel, PermissionMode } from "@agentdesk/contracts"
 import {
+  type ApprovalResponse,
   findExecutable,
   HarnessError,
   type HarnessAdapter,
@@ -33,6 +34,55 @@ export const openCodePermissions = (mode: PermissionMode) => {
     case "unrestricted":
       return [rule("*", "allow")]
   }
+}
+
+export const OPENCODE_CAPABILITIES: HarnessCapabilities = {
+  planMode: "native",
+  acceptEdits: "native",
+  liveEffort: true,
+  allowForSession: true,
+  questions: true,
+  cost: true,
+  rateLimits: false
+}
+
+/**
+ * `opencode models --verbose` prints each `provider/model` id followed by its JSON. A model's
+ * `variants` (e.g. low/high/max reasoning) are the effort levels AgentDesk offers for it.
+ */
+export const parseVerboseModels = (stdout: string): Array<HarnessModel> => {
+  const models: Array<HarnessModel> = []
+  let id: string | undefined
+  let json: Array<string> = []
+  const flush = () => {
+    const m = openCodeModel(id)
+    if (!id || !m) return
+    let variants: Array<string> = []
+    try {
+      const info = JSON.parse(json.join("\n")) as { variants?: Record<string, unknown>; name?: string }
+      variants = Object.keys(info.variants ?? {})
+    } catch {
+      // Keep the model without efforts.
+    }
+    models.push({ id, label: m.modelID, provider: m.providerID, ...(variants.length && { efforts: variants }) })
+  }
+  for (const line of stdout.split("\n")) {
+    if (/^[^\s{}"]+\/\S+$/.test(line.trim()) && !line.startsWith(" ")) {
+      flush()
+      id = line.trim()
+      json = []
+    } else json.push(line)
+  }
+  flush()
+  return models
+}
+
+/** The body answering a question: one list of answers per question, in order (ids are indexes). */
+export const openCodeAnswers = (answers: Readonly<Record<string, ReadonlyArray<string>>> | undefined) => {
+  const entries = Object.entries(answers ?? {}).filter(([k]) => /^\d+$/.test(k))
+  const out: Array<Array<string>> = []
+  for (const [k, v] of entries) out[Number(k)] = [...v]
+  return { answers: Array.from(out, (a) => a ?? []) }
 }
 
 const LISTENING = /listening on (https?:\/\/[^\s]+)/
@@ -124,17 +174,23 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
         return yield* new HarnessError({ harness: "opencode", reason: "protocol", message: `opencode /event returned ${eventRes.status}` })
       }
 
+      const rules = openCodePermissions(input.policy.permissionMode)
       const session = input.providerSessionId
         ? yield* http("GET", `/session/${encodeURIComponent(input.providerSessionId)}`)
-        : yield* http("POST", "/session", { title: "AgentDesk", permission: openCodePermissions(input.policy.permissionMode) })
+        : yield* http("POST", "/session", { title: "AgentDesk", permission: rules })
       const sessionId = isRecord(session) ? str(session.id) : undefined
       if (!sessionId) return yield* new HarnessError({ harness: "opencode", reason: "protocol", message: "opencode returned no session id" })
+      // A resumed session keeps the rules it was created with: apply the current permission mode.
+      if (input.providerSessionId) yield* http("PATCH", `/session/${sessionId}`, { permission: rules }).pipe(Effect.ignore)
 
       let model = openCodeModel(input.policy.model)
+      // Effort is a model "variant" (low/high/max …), sent with every prompt.
+      let effort = input.policy.effort
+      const agent = input.policy.permissionMode === "plan" ? "plan" : undefined
       const normalizer = new OpenCodeNormalizer(sessionId)
       const events = yield* Queue.unbounded<AgentEvent, HarnessError | Cause.Done>()
       const emit = (e: AgentEvent) => Queue.offer(events, e).pipe(Effect.asVoid)
-      yield* emit({ type: "session.started", providerSessionId: sessionId, cwd: input.cwd })
+      yield* emit({ type: "session.started", providerSessionId: sessionId, cwd: input.cwd, ...(input.policy.model && { model: input.policy.model }) })
 
       yield* sseJson(eventRes.body).pipe(
         Stream.runForEach((m) => Effect.forEach(normalizer.push(m), emit, { discard: true })),
@@ -142,7 +198,13 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
         Effect.forkScoped
       )
       yield* proc.exited.pipe(
-        Effect.flatMap((exit) => emit({ type: "session.exited", code: exit.code, signal: exit.signal })),
+        Effect.flatMap((exit) =>
+          Effect.gen(function* () {
+            const stderr = proc.stderrTail().trim()
+            if (exit.code && stderr) yield* emit({ type: "session.error", message: stderr.split("\n").slice(-5).join("\n") })
+            yield* emit({ type: "session.exited", code: exit.code, signal: exit.signal })
+          })
+        ),
         Effect.ensuring(Queue.end(events)),
         Effect.forkScoped
       )
@@ -151,6 +213,7 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
       const prompt = (text: string, images: ReadonlyArray<PromptImage> = [], options?: PromptOptions) =>
         Effect.sync(() => {
           if (options?.model) model = openCodeModel(options.model) ?? model
+          if (options?.effort) effort = options.effort
           normalizer.markBusy()
         }).pipe(
           Effect.andThen(
@@ -160,15 +223,26 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
                 ...images.map((i) => ({ type: "file", mime: i.mimeType, url: `data:${i.mimeType};base64,${i.data}`, filename: i.path.split("/").at(-1) }))
               ],
               ...(model && { model }),
+              ...(effort && { variant: effort }),
+              ...(agent && { agent }),
               ...(input.policy.appendSystemPrompt && { system: input.policy.appendSystemPrompt })
             })
           ),
           Effect.asVoid
         )
 
-      const respondToApproval = (requestId: string, decision: ApprovalDecision) => {
-        const reply = decision === "allow" ? "once" : "reject"
-        return http("POST", `/permission/${encodeURIComponent(requestId)}/reply`, { reply }).pipe(
+      const respondToApproval = (requestId: string, response: ApprovalResponse) => {
+        const id = encodeURIComponent(requestId)
+        if (normalizer.questionIds.has(requestId)) {
+          normalizer.questionIds.delete(requestId)
+          return (
+            response.decision === "allow"
+              ? http("POST", `/question/${id}/reply`, openCodeAnswers(response.answers))
+              : http("POST", `/question/${id}/reject`)
+          ).pipe(Effect.asVoid)
+        }
+        const reply = response.decision === "deny" ? "reject" : response.scope === "session" ? "always" : "once"
+        return http("POST", `/permission/${id}/reply`, { reply, ...(reply === "reject" && response.note && { message: response.note }) }).pipe(
           // Older servers only expose the session-scoped endpoint.
           Effect.catch(() =>
             http("POST", `/session/${sessionId}/permissions/${encodeURIComponent(requestId)}`, { response: reply })
@@ -193,24 +267,21 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
   return {
     id: "opencode",
     displayName: "OpenCode",
+    capabilities: OPENCODE_CAPABILITIES,
     detect: Effect.gen(function* () {
       const binary = resolveBinary()
       if (!binary) return { id: "opencode" as const, installed: false, detail: "opencode CLI not found on PATH" }
       const r = yield* runCommand(binary, ["--version"], { timeoutMs: 15_000 })
-      const list = r.code === 0 ? yield* runCommand(binary, ["models"], { timeoutMs: 20_000 }) : undefined
-      const models = (list?.code === 0 ? list.stdout.split("\n") : [])
-        .map((l) => l.trim())
-        .flatMap((id) => {
-          const m = openCodeModel(id)
-          return m ? [{ id, label: m.modelID, provider: m.providerID }] : []
-        })
+      const list = r.code === 0 ? yield* runCommand(binary, ["models", "--verbose"], { timeoutMs: 30_000 }) : undefined
+      const models = list?.code === 0 ? parseVerboseModels(list.stdout) : []
       return {
         models,
         id: "opencode" as const,
         installed: r.code === 0,
         binary,
         version: r.stdout.trim().split(/\s+/).at(-1),
-        detail: r.code === 0 ? "Runs `opencode serve` per session on 127.0.0.1." : r.stderr.trim()
+        detail: r.code === 0 ? "Runs `opencode serve` per session on 127.0.0.1." : r.stderr.trim(),
+        capabilities: OPENCODE_CAPABILITIES
       }
     }),
     start: (input) => launch(input),

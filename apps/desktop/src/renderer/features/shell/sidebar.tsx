@@ -23,6 +23,7 @@ import { q } from "@/lib/queries"
 import { useUi } from "@/lib/store"
 import { cn } from "@/lib/utils"
 import { ProjectThreads, useProjectThreads } from "./project-threads"
+import { UsageLimits } from "./usage-limits"
 
 const isMac = window.agentdesk?.platform === "darwin"
 
@@ -167,6 +168,7 @@ export const Sidebar = () => {
         </Link>
       </nav>
       <div className="border-t px-3 py-2 text-[11px] text-fg-subtle">
+        <UsageLimits />
         <div className="flex items-center gap-1.5">
           <span className={cn("size-1.5 rounded-full", connected ? "bg-success" : "bg-danger")} />
           {connected ? "Daemon connected" : "Daemon offline"}

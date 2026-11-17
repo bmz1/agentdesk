@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { QuestionAnswers, RateLimitWindow } from "./agent-events"
 import { AgentSession, HarnessDefaults } from "./models"
 import { ApprovalDecision, BoardStatus, GitProvider, HarnessId, PermissionMode, Priority } from "./ids"
 
@@ -103,7 +104,11 @@ export type PromptBody = typeof PromptBody.Type
 
 export const ApprovalDecisionBody = Schema.Struct({
   decision: ApprovalDecision,
-  note: Schema.optional(Schema.String)
+  note: Schema.optional(Schema.String),
+  /** "session": also allow matching requests for the rest of the agent's session (tool approvals only). */
+  scope: Schema.optional(Schema.Literals(["once", "session"])),
+  /** Answers to a question approval, keyed by question id. */
+  answers: Schema.optional(QuestionAnswers)
 })
 export type ApprovalDecisionBody = typeof ApprovalDecisionBody.Type
 
@@ -168,13 +173,24 @@ export type ApiErrorBody = typeof ApiErrorBody.Type
  * `sessions` notice carries the updated session itself so clients can apply it without a refetch.
  */
 export const ChangeNotice = Schema.Struct({
-  topic: Schema.Literals(["tickets", "projects", "runs", "sessions", "approvals", "activity", "sources", "workflows", "settings"]),
+  topic: Schema.Literals(["tickets", "projects", "runs", "sessions", "approvals", "activity", "sources", "workflows", "settings", "limits"]),
   ticketId: Schema.optional(Schema.String),
   runId: Schema.optional(Schema.String),
   sessionId: Schema.optional(Schema.String),
-  session: Schema.optional(AgentSession)
+  session: Schema.optional(AgentSession),
+  /** With a `limits` notice: the harness' latest rate limits. */
+  limits: Schema.optional(Schema.suspend(() => HarnessRateLimits))
 })
 export type ChangeNotice = typeof ChangeNotice.Type
+
+/** The latest subscription rate limits a harness reported (`GET /limits`). */
+export const HarnessRateLimits = Schema.Struct({
+  harness: HarnessId,
+  windows: Schema.Array(RateLimitWindow),
+  limited: Schema.Boolean,
+  updatedAt: Schema.String
+})
+export type HarnessRateLimits = typeof HarnessRateLimits.Type
 
 export const UpdateHarnessSettingsBody = Schema.Struct({
   defaultHarness: Schema.optional(HarnessId),

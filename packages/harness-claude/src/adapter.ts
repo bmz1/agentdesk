@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
-import type { PermissionMode } from "@agentdesk/contracts"
+import type { HarnessCapabilities, PermissionMode } from "@agentdesk/contracts"
 import {
+  type ApprovalResponse,
   eventsStream,
   findExecutable,
   HarnessError,
@@ -16,7 +17,7 @@ import {
   wireLineProcess
 } from "@agentdesk/harness-core"
 import { Effect } from "effect"
-import { ClaudeNormalizer } from "./normalizer"
+import { ClaudeNormalizer, QUESTION_TOOL } from "./normalizer"
 
 export interface ClaudeAdapterOptions {
   readonly binary?: string
@@ -58,6 +59,43 @@ export const CLAUDE_MODELS = [
 /** `claude --effort` levels. */
 export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 
+export const CLAUDE_CAPABILITIES: HarnessCapabilities = {
+  planMode: "native",
+  acceptEdits: "native",
+  liveEffort: false,
+  allowForSession: true,
+  questions: true,
+  cost: true,
+  rateLimits: true
+}
+
+interface PendingRequest {
+  readonly toolName: string | undefined
+  readonly input: unknown
+  /** Permission updates Claude proposes for "always allow" (e.g. accept edits for the session). */
+  readonly suggestions: ReadonlyArray<unknown>
+}
+
+/**
+ * The `control_response` that answers a `can_use_tool` request. Questions are answered by
+ * allowing the tool with the answers added to its input, keyed by question text.
+ */
+export const claudeApprovalResponse = (pending: PendingRequest | undefined, r: ApprovalResponse) => {
+  if (r.decision === "deny") {
+    return { behavior: "deny", message: r.note ?? (pending?.toolName === QUESTION_TOOL ? "The user chose not to answer." : "Denied by the user in AgentDesk") }
+  }
+  const input = (pending?.input ?? {}) as Record<string, unknown>
+  if (pending?.toolName === QUESTION_TOOL) {
+    const answers = Object.fromEntries(Object.entries(r.answers ?? {}).map(([q, a]) => [q, a.join(", ")]))
+    return { behavior: "allow", updatedInput: { ...input, answers } }
+  }
+  return {
+    behavior: "allow",
+    updatedInput: input,
+    ...(r.scope === "session" && pending?.suggestions.length && { updatedPermissions: pending.suggestions })
+  }
+}
+
 export const makeClaudeAdapter = (options: ClaudeAdapterOptions = {}): HarnessAdapter => {
   const resolveBinary = () => options.binary ?? process.env.AGENTDESK_CLAUDE_BIN ?? findExecutable("claude")
 
@@ -93,19 +131,34 @@ export const makeClaudeAdapter = (options: ClaudeAdapterOptions = {}): HarnessAd
       })
       const normalizer = new ClaudeNormalizer()
       normalizer.providerSessionId = input.providerSessionId
-      const pendingToolInputs = new Map<string, unknown>()
+      const pendingRequests = new Map<string, PendingRequest>()
       const sendControl = (request: Record<string, unknown>) =>
         proc.write(JSON.stringify({ type: "control_request", request_id: randomUUID(), request }) + "\n")
+      const sendResponse = (response: Record<string, unknown>) =>
+        proc.write(JSON.stringify({ type: "control_response", response }) + "\n")
 
       const { events } = yield* wireLineProcess({
         harness: "claude",
         process: proc,
         normalizer,
         onMessage: (msg) =>
-          Effect.sync(() => {
+          Effect.gen(function* () {
             if (isRecord(msg) && msg.type === "control_request" && isRecord(msg.request)) {
               const id = str(msg.request_id)
-              if (id) pendingToolInputs.set(id, msg.request.input)
+              if (!id) return true
+              if (msg.request.subtype === "can_use_tool") {
+                pendingRequests.set(id, {
+                  toolName: str(msg.request.tool_name),
+                  input: msg.request.input,
+                  suggestions: Array.isArray(msg.request.permission_suggestions) ? msg.request.permission_suggestions : []
+                })
+                return false
+              }
+              // Anything else (hook callbacks, SDK MCP calls) is not ours to serve: answer at once so Claude never waits.
+              yield* sendResponse({ subtype: "error", request_id: id, error: `AgentDesk does not handle ${str(msg.request.subtype) ?? "this request"}` }).pipe(
+                Effect.ignore
+              )
+              return true
             }
             return isRecord(msg) && msg.type === "control_response"
           })
@@ -123,21 +176,14 @@ export const makeClaudeAdapter = (options: ClaudeAdapterOptions = {}): HarnessAd
           (options?.model ? sendControl({ subtype: "set_model", model: options.model }) : Effect.void).pipe(
             Effect.andThen(proc.write(userMessage(text, images)))
           ),
-        respondToApproval: (requestId, decision, note) => {
-          const input = pendingToolInputs.get(requestId)
-          pendingToolInputs.delete(requestId)
-          const response =
-            decision === "allow"
-              ? { behavior: "allow", updatedInput: input ?? {} }
-              : { behavior: "deny", message: note ?? "Denied by the user in AgentDesk" }
-          return proc.write(
-            JSON.stringify({
-              type: "control_response",
-              response: { subtype: "success", request_id: requestId, response }
-            }) + "\n"
-          )
+        respondToApproval: (requestId, response) => {
+          const pending = pendingRequests.get(requestId)
+          pendingRequests.delete(requestId)
+          return sendResponse({ subtype: "success", request_id: requestId, response: claudeApprovalResponse(pending, response) })
         },
-        interrupt: sendControl({ subtype: "interrupt" }),
+        interrupt: Effect.sync(() => {
+          normalizer.interruptRequested = true
+        }).pipe(Effect.andThen(sendControl({ subtype: "interrupt" }))),
         // `--effort` is a launch flag: a new effort means resuming in a new process.
         liveEffort: false
       } satisfies HarnessSession
@@ -146,6 +192,7 @@ export const makeClaudeAdapter = (options: ClaudeAdapterOptions = {}): HarnessAd
   return {
     id: "claude",
     displayName: "Claude Code",
+    capabilities: CLAUDE_CAPABILITIES,
     detect: Effect.gen(function* () {
       const binary = resolveBinary()
       if (!binary) return { id: "claude" as const, installed: false, detail: "claude CLI not found on PATH" }
@@ -157,7 +204,8 @@ export const makeClaudeAdapter = (options: ClaudeAdapterOptions = {}): HarnessAd
         version: r.stdout.trim().split(/\s+/)[0],
         detail: r.code === 0 ? "Uses the CLI's own login; AgentDesk never reads its credentials." : r.stderr.trim(),
         models: CLAUDE_MODELS,
-        efforts: CLAUDE_EFFORTS
+        efforts: CLAUDE_EFFORTS,
+        capabilities: CLAUDE_CAPABILITIES
       }
     }),
     start: (input) => launch(input),

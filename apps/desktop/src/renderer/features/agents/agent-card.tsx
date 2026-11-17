@@ -25,7 +25,19 @@ export const AgentCard = ({ session, ticket, projectName, list = false }: {
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-fg-subtle">
             <SessionStateBadge state={session.state} />
             <span>{HARNESS_LABELS[session.harness]}</span>
+            {session.usage?.costUsd ? <span title="Cost so far">${session.usage.costUsd.toFixed(2)}</span> : null}
           </div>
+          {session.plan && (
+            <div className="flex items-center gap-2 text-[11px] text-fg-muted" title={session.plan.current ?? "Plan done"} data-testid="agent-plan">
+              <span className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-bg-muted">
+                <span className="block h-full bg-success" style={{ width: `${(session.plan.done / session.plan.total) * 100}%` }} />
+              </span>
+              <span className="shrink-0 tabular-nums">
+                {session.plan.done}/{session.plan.total}
+              </span>
+              {session.plan.current && <span className="min-w-0 truncate">{session.plan.current}</span>}
+            </div>
+          )}
           {session.statusDetail && !(session.preview && session.statusDetail.endsWith(session.preview)) && (
             <p className="truncate font-mono text-[11px] text-fg-muted" title={session.statusDetail} data-testid="agent-status-detail">
               {session.statusDetail}

@@ -1,4 +1,4 @@
-import type { ImageRef, StoredAgentEvent } from "@agentdesk/contracts"
+import type { AgentQuestion, ImageRef, PlanItem, QuestionAnswers, StoredAgentEvent, TokenUsage } from "@agentdesk/contracts"
 
 export type TranscriptItem =
   | { kind: "user"; key: string; text: string; images: ReadonlyArray<ImageRef>; at: string }
@@ -23,9 +23,14 @@ export type TranscriptItem =
       summary: string
       details: unknown
       decision?: "allow" | "deny"
+      /** "question": answered with `questions`' ids instead of allowed. */
+      question?: ReadonlyArray<AgentQuestion>
+      canAllowForSession?: boolean
+      scope?: "once" | "session"
+      answers?: QuestionAnswers
     }
   | { kind: "status"; key: string; text: string; tone: "neutral" | "warning" | "danger" | "success" }
-  | { kind: "turn"; key: string; status: string; costUsd?: number; durationMs?: number }
+  | { kind: "turn"; key: string; status: string; costUsd?: number; durationMs?: number; usage?: TokenUsage }
 
 /**
  * Incrementally folds canonical agent events into renderable transcript items.
@@ -34,6 +39,8 @@ export type TranscriptItem =
  */
 export class TranscriptBuilder {
   items: Array<TranscriptItem> = []
+  /** The agent's latest plan or to-do list, if it keeps one. */
+  plan: ReadonlyArray<PlanItem> | undefined
   private seen = new Set<number>()
   private tools = new Map<string, number>()
   private approvals = new Map<string, number>()
@@ -110,17 +117,31 @@ export class TranscriptBuilder {
       }
       case "approval.requested":
         this.approvals.set(e.approvalId, this.items.length)
-        this.items.push({ kind: "approval", key, approvalId: e.approvalId, toolName: e.toolName, summary: e.summary, details: e.details })
+        this.items.push({
+          kind: "approval",
+          key,
+          approvalId: e.approvalId,
+          toolName: e.toolName,
+          summary: e.summary,
+          details: e.details,
+          ...(e.kind === "question" && { question: e.questions ?? [] }),
+          ...(e.canAllowForSession && { canAllowForSession: true })
+        })
         break
       case "approval.resolved": {
         const i = this.approvals.get(e.approvalId)
         const item = i !== undefined ? this.items[i] : undefined
-        if (i !== undefined && item?.kind === "approval") this.replace(i, { ...item, decision: e.decision })
+        if (i !== undefined && item?.kind === "approval") {
+          this.replace(i, { ...item, decision: e.decision, ...(e.scope && { scope: e.scope }), ...(e.answers && { answers: e.answers }) })
+        }
         break
       }
       case "turn.completed":
         this.finalizeStreaming()
-        this.items.push({ kind: "turn", key, status: e.status ?? "success", costUsd: e.costUsd, durationMs: e.durationMs })
+        this.items.push({ kind: "turn", key, status: e.status ?? "success", costUsd: e.costUsd, durationMs: e.durationMs, usage: e.usage })
+        break
+      case "plan.updated":
+        this.plan = e.items
         break
       case "session.started":
         this.items.push({ kind: "status", key, text: `Session started${e.model ? ` · ${e.model}` : ""}`, tone: "neutral" })

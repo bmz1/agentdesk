@@ -1,5 +1,6 @@
 import { useState } from "react"
-import { CircleAlert, CircleCheck, Hand, Info, LoaderCircle, Terminal, Wrench, X } from "lucide-react"
+import type { AgentQuestion, PlanItem, QuestionAnswers, TokenUsage } from "@agentdesk/contracts"
+import { Check, Circle, CircleAlert, CircleCheck, CircleDot, CircleHelp, CircleSlash, Hand, Info, ListChecks, LoaderCircle, Terminal, Wrench, X } from "lucide-react"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
 import { Button } from "@/components/ui/button"
 import { Message, MessageContent, MessageFooter } from "@/components/ui/message"
@@ -28,11 +29,20 @@ import { AttachmentImage } from "./images"
 import { Code, Markdown } from "./markdown"
 import type { TranscriptItem } from "./transcript-model"
 
+/** How the user answered: "session" allows matching requests for the rest of the session. */
+export interface DecideOptions {
+  readonly scope?: "once" | "session"
+  readonly answers?: QuestionAnswers
+}
+export type DecideFn = (approvalId: string, decision: "allow" | "deny", options?: DecideOptions) => void
+
 export interface TranscriptProps {
   items: ReadonlyArray<TranscriptItem>
+  /** The agent's latest plan or to-do list. */
+  plan?: ReadonlyArray<PlanItem>
   /** The agent is busy: show a working indicator after the last output. */
   working?: boolean
-  onDecide?: (approvalId: string, decision: "allow" | "deny") => void
+  onDecide?: DecideFn
   deciding?: string | null
   /** Older events exist beyond the loaded page. */
   hasEarlier?: boolean
@@ -73,7 +83,7 @@ const groupBlocks = (items: ReadonlyArray<TranscriptItem>) =>
   }, [])
 
 /** Structured agent session, laid out with the shadcn chat components. */
-export const Transcript = ({ items, working, onDecide, deciding, hasEarlier, loadingEarlier, onLoadEarlier }: TranscriptProps) => {
+export const Transcript = ({ items, plan, working, onDecide, deciding, hasEarlier, loadingEarlier, onLoadEarlier }: TranscriptProps) => {
   const exchanges = groupExchanges(items)
   const pending = items.findLast((i): i is Item<"approval"> => i.kind === "approval" && !i.decision)
   const last = items.at(-1)
@@ -83,6 +93,7 @@ export const Transcript = ({ items, working, onDecide, deciding, hasEarlier, loa
     <MessageScrollerProvider autoScroll defaultScrollPosition="end">
       <MessageScroller className="flex-1">
         <MessageScrollerViewport data-testid="transcript">
+          {plan && plan.length > 0 && <PlanChecklist items={plan} />}
           <MessageScrollerContent className="mx-auto w-full max-w-3xl gap-6 px-6 py-6">
             {hasEarlier && onLoadEarlier && (
               <Button variant="ghost" size="sm" className="self-center text-xs text-muted-foreground" onClick={onLoadEarlier} disabled={loadingEarlier} data-testid="load-earlier">
@@ -108,7 +119,12 @@ export const Transcript = ({ items, working, onDecide, deciding, hasEarlier, loa
               </MessageScrollerItem>
             )}
           </MessageScrollerContent>
-          {pending && <PendingApproval item={pending} onDecide={onDecide} deciding={deciding === pending.approvalId} />}
+          {pending &&
+            (pending.question ? (
+              <PendingQuestion key={pending.approvalId} item={pending} questions={pending.question} onDecide={onDecide} deciding={deciding === pending.approvalId} />
+            ) : (
+              <PendingApproval item={pending} onDecide={onDecide} deciding={deciding === pending.approvalId} />
+            ))}
         </MessageScrollerViewport>
         <MessageScrollerButton className="bottom-4" />
       </MessageScroller>
@@ -172,10 +188,20 @@ const AgentMessage = ({ items }: { items: ReadonlyArray<TranscriptItem> }) => (
   </Message>
 )
 
+/** "12.3k" style token counts. */
+export const formatTokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
+
+const tokensLabel = (u: TokenUsage | undefined) => {
+  if (!u) return undefined
+  const read = u.inputTokens + (u.cacheReadTokens ?? 0) + (u.cacheWriteTokens ?? 0)
+  return `${formatTokens(read)} in · ${formatTokens(u.outputTokens)} out`
+}
+
 const TurnFooter = ({ item }: { item: Item<"turn"> }) => {
   const meta = [
     item.status === "success" ? "Done" : item.status.replace(/_/g, " "),
     item.durationMs !== undefined && `${(item.durationMs / 1000).toFixed(1)}s`,
+    tokensLabel(item.usage),
     item.costUsd ? `$${item.costUsd.toFixed(3)}` : undefined
   ].filter(Boolean)
   return (
@@ -251,13 +277,28 @@ const StepLine = ({ step }: { step: Step }) => {
       )
     }
     case "approval":
+      if (step.question) {
+        const answered = (step.question ?? []).map((q) => (step.answers?.[q.id] ?? []).join(", ")).filter(Boolean).join(" · ")
+        return (
+          <TraceLine status={step.decision ? (step.decision === "deny" ? "error" : undefined) : "pending"}>
+            <TraceIcon>
+              <CircleHelp />
+            </TraceIcon>
+            <TraceTitle>{step.decision ? (step.decision === "allow" ? "Answered" : "Declined to answer") : "Waiting for your answer"}</TraceTitle>
+            <TraceDescription className="truncate text-[12px]" title={step.summary}>
+              {step.summary}
+              {answered && <span className="text-foreground"> → {answered}</span>}
+            </TraceDescription>
+          </TraceLine>
+        )
+      }
       return (
         <TraceLine status={step.decision ? (step.decision === "deny" ? "error" : undefined) : "pending"}>
           <TraceIcon>
             <Hand />
           </TraceIcon>
           <TraceTitle>
-            {step.decision ? (step.decision === "allow" ? "Allowed" : "Denied") : "Waiting for approval"} · {step.toolName}
+            {step.decision ? (step.decision === "allow" ? (step.scope === "session" ? "Allowed for the session" : "Allowed") : "Denied") : "Waiting for approval"} · {step.toolName}
           </TraceTitle>
           <TraceDescription className="truncate font-mono text-[12px]">{step.summary}</TraceDescription>
         </TraceLine>
@@ -279,7 +320,7 @@ const PendingApproval = ({
   deciding
 }: {
   item: Item<"approval">
-  onDecide?: (id: string, d: "allow" | "deny") => void
+  onDecide?: DecideFn
   deciding?: boolean
 }) => {
   const details = item.details as { input?: unknown } | undefined
@@ -305,12 +346,157 @@ const PendingApproval = ({
             <Button variant="outline" disabled={deciding} onClick={() => onDecide?.(item.approvalId, "deny")} title={`Deny (${shortcutHint("deny")})`}>
               <X /> Deny
             </Button>
+            {item.canAllowForSession && (
+              <Button
+                variant="secondary"
+                disabled={deciding}
+                onClick={() => onDecide?.(item.approvalId, "allow", { scope: "session" })}
+                title={`Allow, and don't ask again for this in this session (${shortcutHint("approveSession")})`}
+                data-testid="approve-session"
+              >
+                Allow for session
+              </Button>
+            )}
             <Button disabled={deciding} onClick={() => onDecide?.(item.approvalId, "allow")} title={`Allow (${shortcutHint("approve")})`}>
               {deciding ? <LoaderCircle className="animate-spin" /> : <CircleCheck />} Allow
             </Button>
           </div>
         </div>
         {details?.input !== undefined && <Code code={stringify(details.input)} />}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The agent asks the user something (Claude AskUserQuestion, Codex request_user_input,
+ * OpenCode question). Options are one click; "Other" takes free text when the agent allows it.
+ */
+const PendingQuestion = ({
+  item,
+  questions,
+  onDecide,
+  deciding
+}: {
+  item: Item<"approval">
+  questions: ReadonlyArray<AgentQuestion>
+  onDecide?: DecideFn
+  deciding?: boolean
+}) => {
+  const [picked, setPicked] = useState<Record<string, ReadonlyArray<string>>>({})
+  const [other, setOther] = useState<Record<string, string>>({})
+  const answerOf = (q: AgentQuestion) => [...(picked[q.id] ?? []), ...(other[q.id]?.trim() ? [other[q.id]!.trim()] : [])]
+  const complete = questions.length > 0 && questions.every((q) => answerOf(q).length > 0)
+  const submit = () => complete && onDecide?.(item.approvalId, "allow", { answers: Object.fromEntries(questions.map((q) => [q.id, answerOf(q)])) })
+  const toggle = (q: AgentQuestion, label: string) =>
+    setPicked((p) => {
+      const current = p[q.id] ?? []
+      if (!q.multiSelect) return { ...p, [q.id]: current[0] === label ? [] : [label] }
+      return { ...p, [q.id]: current.includes(label) ? current.filter((l) => l !== label) : [...current, label] }
+    })
+  return (
+    <div className="sticky bottom-2 isolate z-20 mx-auto w-full max-w-3xl px-6 pt-2">
+      <div className="w-full rounded-2xl border border-primary/40 bg-bg-elevated p-4 text-sm shadow-lg ring-1 ring-foreground/5" data-testid="question-card">
+        <div className="mb-3 flex items-center gap-2 font-medium">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+            <CircleHelp className="size-4" />
+          </div>
+          {questions.length === 1 ? "The agent has a question" : `The agent has ${questions.length} questions`}
+        </div>
+        <div className="flex flex-col gap-4">
+          {questions.map((q) => (
+            <fieldset key={q.id} className="flex flex-col gap-2">
+              <legend className="mb-1.5">
+                {q.header && <span className="mr-2 rounded bg-bg-muted px-1.5 py-0.5 text-[11px] text-fg-muted">{q.header}</span>}
+                {q.question}
+                {q.multiSelect && <span className="ml-1 text-xs text-fg-subtle">(choose any)</span>}
+              </legend>
+              {q.options.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {q.options.map((o) => {
+                    const on = (picked[q.id] ?? []).includes(o.label)
+                    return (
+                      <Button
+                        key={o.label}
+                        size="sm"
+                        variant={on ? "default" : "outline"}
+                        aria-pressed={on}
+                        title={o.description}
+                        onClick={() => toggle(q, o.label)}
+                        data-testid="question-option"
+                      >
+                        {on && <Check />}
+                        {o.label}
+                      </Button>
+                    )
+                  })}
+                </div>
+              )}
+              {q.allowOther && (
+                <input
+                  className="h-8 rounded-md border border-border bg-bg px-2 text-sm"
+                  placeholder={q.options.length ? "Or type another answer…" : "Your answer…"}
+                  value={other[q.id] ?? ""}
+                  onChange={(e) => setOther((o) => ({ ...o, [q.id]: e.target.value }))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      submit()
+                    }
+                  }}
+                  data-testid="question-other"
+                />
+              )}
+            </fieldset>
+          ))}
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="outline" disabled={deciding} onClick={() => onDecide?.(item.approvalId, "deny")}>
+            Skip
+          </Button>
+          <Button disabled={deciding || !complete} onClick={submit} data-testid="question-submit">
+            {deciding ? <LoaderCircle className="animate-spin" /> : <CircleCheck />} Send {questions.length === 1 ? "answer" : "answers"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const PLAN_ICONS = { completed: CircleCheck, in_progress: CircleDot, pending: Circle, cancelled: CircleSlash } as const
+
+/** The agent's plan or to-do list, pinned above the conversation; collapsed to its progress by default. */
+const PlanChecklist = ({ items }: { items: ReadonlyArray<PlanItem> }) => {
+  const [open, setOpen] = useState(false)
+  const counted = items.filter((i) => i.status !== "cancelled")
+  const done = counted.filter((i) => i.status === "completed").length
+  const current = counted.find((i) => i.status === "in_progress")
+  return (
+    <div className="sticky top-0 z-10 mx-auto w-full max-w-3xl px-6 pt-2" data-testid="plan">
+      <div className="rounded-xl border border-border bg-bg-elevated/95 text-xs shadow-sm backdrop-blur">
+        <button className="flex w-full items-center gap-2 px-3 py-2 text-left" onClick={() => setOpen(!open)} aria-expanded={open}>
+          <ListChecks className="size-3.5 shrink-0 text-fg-muted" />
+          <span className="font-medium">
+            Plan {done}/{counted.length}
+          </span>
+          <span className="h-1 w-16 overflow-hidden rounded-full bg-bg-muted">
+            <span className="block h-full bg-success" style={{ width: `${counted.length ? (done / counted.length) * 100 : 0}%` }} />
+          </span>
+          {current && <span className="min-w-0 truncate text-fg-muted">{current.text}</span>}
+        </button>
+        {open && (
+          <ol className="flex flex-col gap-1 border-t border-border px-3 py-2">
+            {items.map((i, n) => {
+              const Icon = PLAN_ICONS[i.status]
+              return (
+                <li key={n} className={cn("flex items-start gap-2", i.status === "completed" && "text-fg-muted line-through", i.status === "cancelled" && "text-fg-subtle line-through")}>
+                  <Icon className={cn("mt-0.5 size-3.5 shrink-0", i.status === "in_progress" && "text-primary", i.status === "completed" && "text-success")} />
+                  {i.text}
+                </li>
+              )
+            })}
+          </ol>
+        )}
       </div>
     </div>
   )

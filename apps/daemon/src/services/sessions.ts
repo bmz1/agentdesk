@@ -5,6 +5,7 @@ import type {
   AgentSession,
   ApprovalDecision,
   HarnessDefaults,
+  QuestionAnswers,
   HarnessId,
   Project,
   SessionState,
@@ -25,7 +26,8 @@ import { Activity } from "./activity"
 import { Approvals } from "./approvals"
 import { Attachments } from "./attachments"
 import { Database } from "./database"
-import { EventLog, previewText } from "./event-log"
+import { addTurnUsage, EventLog, planSummary, previewText, type SessionPlan, type SessionUsage } from "./event-log"
+import { Limits } from "./limits"
 import { HarnessSettings } from "./harness-settings"
 import { Harnesses } from "./harnesses"
 import { Notices } from "./notices"
@@ -72,9 +74,14 @@ export const describeEvent = (event: AgentEvent): string | undefined => {
       return oneLine(arg ? `${event.name}: ${arg}` : event.name)
     }
     case "approval.requested":
-      return oneLine(`Needs approval: ${event.summary}`)
+      return oneLine(event.kind === "question" ? `Asks: ${event.summary}` : `Needs approval: ${event.summary}`)
+    case "plan.updated": {
+      const plan = planSummary(event.items)
+      if (!plan) return undefined
+      return oneLine(plan.current ? `Step ${Math.min(plan.done + 1, plan.total)}/${plan.total}: ${plan.current}` : `Plan done (${plan.total}/${plan.total})`)
+    }
     case "approval.resolved":
-      return event.decision === "allow" ? "Approved, continuing" : "Denied, continuing"
+      return event.answers ? "Answered, continuing" : event.decision === "allow" ? "Approved, continuing" : "Denied, continuing"
     case "turn.completed":
       return event.status === "error" ? "Turn failed" : event.status === "interrupted" ? "Turn interrupted" : "Turn finished"
     case "session.error":
@@ -140,7 +147,8 @@ export interface SessionsShape {
     approvalId: string,
     decision: ApprovalDecision,
     actor: string,
-    note?: string
+    note?: string,
+    options?: { readonly scope?: "once" | "session"; readonly answers?: QuestionAnswers }
   ) => Effect.Effect<void, SessionError>
   /** Wait until the session's current turn completes (or the process exits). */
   readonly awaitTurn: (id: string, afterEventId: number) => Effect.Effect<TurnResult, DbError>
@@ -237,6 +245,7 @@ export const SessionsLive = Layer.effect(
         return { refs, prompt }
       })
     const notices = yield* Notices
+    const limits = yield* Limits
     const activity = yield* Activity
     const tickets = yield* Tickets
     const projects = yield* Projects
@@ -269,6 +278,23 @@ export const SessionsLive = Layer.effect(
     }
     let shuttingDown = false
 
+    /** Plan progress and usage totals per session; loaded from the log on first use, then kept current by `record`. */
+    const plans = new Map<string, SessionPlan | null>()
+    const usages = new Map<string, SessionUsage | null>()
+    const loadExtras = (ids: ReadonlyArray<string>) =>
+      Effect.gen(function* () {
+        const missingPlans = ids.filter((id) => !plans.has(id))
+        const missingUsage = ids.filter((id) => !usages.has(id))
+        if (missingPlans.length) {
+          const found = yield* events.plans(missingPlans)
+          for (const id of missingPlans) plans.set(id, found.get(id) ?? null)
+        }
+        if (missingUsage.length) {
+          const found = yield* events.usage(missingUsage)
+          for (const id of missingUsage) usages.set(id, found.get(id) ?? null)
+        }
+      })
+
     const toSession = (r: Row, lastEventId = 0, preview: string | null = null): AgentSession => ({
       id: r.id,
       ticketId: r.ticketId,
@@ -282,6 +308,8 @@ export const SessionsLive = Layer.effect(
       lastEventId,
       statusDetail: (LIVE_STATES.includes(r.state as SessionState) && details.get(r.id)) || null,
       preview,
+      plan: plans.get(r.id) ?? null,
+      usage: usages.get(r.id) ?? null,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt
     })
@@ -298,6 +326,7 @@ export const SessionsLive = Layer.effect(
 
     const snapshot = (r: Row) =>
       Effect.gen(function* () {
+        yield* loadExtras([r.id])
         return toSession(r, yield* events.lastEventId(r.id), yield* previewOf(r.id))
       })
 
@@ -339,6 +368,14 @@ export const SessionsLive = Layer.effect(
         if (preview !== null) {
           previews.set(sessionId, preview)
           changed = true
+        }
+        if (stored.event.type === "plan.updated") {
+          plans.set(sessionId, planSummary(stored.event.items))
+          changed = true
+        }
+        // A cached total adds the turn; an unloaded one is read from the log, which already has it.
+        if (stored.event.type === "turn.completed" && usages.has(sessionId)) {
+          usages.set(sessionId, addTurnUsage(usages.get(sessionId), stored.event) ?? null)
         }
         if (changed) yield* getRow(sessionId).pipe(Effect.flatMap(publishRow), Effect.catchTag("NotFound", () => Effect.void))
         return stored
@@ -390,12 +427,23 @@ export const SessionsLive = Layer.effect(
               : { type: "session.status", state: "image_unavailable", detail: raw.source.path ?? "The agent produced an image that could not be stored" }
             break
           }
+          case "rate_limit": {
+            // Account-wide, not part of the conversation: kept per harness, never in the transcript.
+            const l = live.get(sessionId)
+            if (l) yield* limits.update(l.harness, raw)
+            return
+          }
           case "approval.requested": {
             const approval = yield* approvals.create({
               ticketId,
-              kind: "tool",
+              kind: raw.kind === "question" ? "question" : "tool",
               title: raw.summary,
-              details: { toolName: raw.toolName, ...(typeof raw.details === "object" && raw.details ? raw.details : { details: raw.details }) },
+              details: {
+                toolName: raw.toolName,
+                ...(typeof raw.details === "object" && raw.details ? raw.details : { details: raw.details }),
+                ...(raw.questions && { questions: raw.questions }),
+                ...(raw.canAllowForSession && { canAllowForSession: true })
+              },
               sessionId,
               runId,
               stepRunId,
@@ -781,20 +829,48 @@ export const SessionsLive = Layer.effect(
       approvalId: string,
       decision: ApprovalDecision,
       actor: string,
-      note?: string
+      note?: string,
+      options: { readonly scope?: "once" | "session"; readonly answers?: QuestionAnswers } = {}
     ) {
-        const approval = yield* approvals.record(approvalId, decision, actor, note)
-        yield* Effect.annotateCurrentSpan({ sessionId: approval.sessionId ?? "", ticketId: approval.ticketId })
+        const pending = yield* approvals.get(approvalId)
+        const details = (pending.details ?? {}) as { questions?: ReadonlyArray<{ id: string; question: string }>; canAllowForSession?: boolean }
+        const isQuestion = pending.kind === "question"
+        const answers = isQuestion && decision === "allow" ? options.answers ?? {} : undefined
+        if (answers && (details.questions ?? []).some((q) => !(answers[q.id] ?? []).some((a) => a.trim()))) {
+          return yield* new BadRequest({ message: "Answer every question, or decline to answer" })
+        }
+        const scope = !isQuestion && decision === "allow" && options.scope === "session" && details.canAllowForSession ? "session" : "once"
+        // Answers are kept as the decision's note, so the audit trail shows what the user chose.
+        const answerNote = answers
+          ? (details.questions ?? []).map((q) => `${q.question} → ${(answers[q.id] ?? []).join(", ")}`).join("\n")
+          : undefined
+        const approval = yield* approvals.record(approvalId, decision, actor, note ?? answerNote)
+        yield* Effect.annotateCurrentSpan({ sessionId: approval.sessionId ?? "", ticketId: approval.ticketId, scope })
         if (!approval.sessionId) return
         const l = live.get(approval.sessionId)
         if (l && approval.providerRequestId) {
-          yield* l.handle.respondToApproval(approval.providerRequestId, decision, note)
+          yield* l.handle.respondToApproval(approval.providerRequestId, {
+            decision,
+            ...(note && { note }),
+            ...(scope === "session" && { scope }),
+            ...(answers && { answers })
+          })
           yield* setState(approval.sessionId, "running")
         }
-        yield* record(approval.sessionId, { type: "approval.resolved", approvalId, decision })
+        yield* record(approval.sessionId, {
+          type: "approval.resolved",
+          approvalId,
+          decision,
+          ...(scope === "session" && { scope }),
+          ...(answers && { answers })
+        })
         yield* activity.record({
           kind: "approval.decided",
-          message: `${decision === "allow" ? "Approved" : "Denied"}: ${approval.title}`,
+          message: isQuestion
+            ? decision === "allow"
+              ? `Answered: ${approval.title}`
+              : `Declined to answer: ${approval.title}`
+            : `${decision === "allow" ? (scope === "session" ? "Approved for the session" : "Approved") : "Denied"}: ${approval.title}`,
           ticketId: approval.ticketId,
           runId: approval.runId,
           actor
@@ -900,6 +976,7 @@ export const SessionsLive = Layer.effect(
               .all()
           )
           const lastIds = yield* events.lastEventIds(rows.map((r) => r.id))
+          yield* loadExtras(rows.map((r) => r.id))
           return yield* Effect.forEach(rows, (r) =>
             previewOf(r.id).pipe(Effect.map((preview) => toSession(r, lastIds.get(r.id) ?? 0, preview)))
           )

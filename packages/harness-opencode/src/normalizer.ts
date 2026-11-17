@@ -1,5 +1,24 @@
-import type { AgentEvent } from "@agentdesk/contracts"
-import { asInlineImage, imageEvents, isRecord, str, type Normalizer } from "@agentdesk/harness-core"
+import type { AgentEvent, AgentQuestion, PlanItem, TokenUsage } from "@agentdesk/contracts"
+import { asInlineImage, imageEvents, isRecord, num, str, type Normalizer } from "@agentdesk/harness-core"
+
+const PLAN_STATUSES: ReadonlyArray<PlanItem["status"]> = ["pending", "in_progress", "completed", "cancelled"]
+
+/** OpenCode questions → canonical ones. Answers go back as a list in question order, so ids are indexes. */
+export const openCodeQuestions = (questions: unknown): Array<AgentQuestion> =>
+  (Array.isArray(questions) ? questions.filter(isRecord) : []).flatMap((q, i) => {
+    const question = str(q.question)
+    if (!question) return []
+    const options = (Array.isArray(q.options) ? q.options.filter(isRecord) : []).flatMap((o) =>
+      str(o.label) ? [{ label: str(o.label)!, ...(str(o.description) && { description: str(o.description) }) }] : []
+    )
+    return [{ id: String(i), ...(str(q.header) && { header: str(q.header) }), question, options, multiSelect: q.multiple === true, allowOther: q.custom !== false }]
+  })
+
+interface MessageUsage {
+  readonly usage: TokenUsage
+  readonly cost: number | undefined
+  readonly model: string | undefined
+}
 
 /**
  * Normalizes `opencode serve` bus events (GET /event) for one OpenCode session.
@@ -13,11 +32,20 @@ export class OpenCodeNormalizer implements Normalizer {
   private aborted = false
   private errored = false
   private busy = false
+  private busySince = 0
+  /** Completed assistant messages of the current turn, by id (updates repeat). */
+  private turnMessages = new Map<string, MessageUsage>()
+  /** Pending question request ids: they are answered on a different endpoint than permissions. */
+  readonly questionIds = new Set<string>()
 
   constructor(public sessionId: string) {}
 
   /** Mark that a prompt was sent so the next idle reports a completed turn. */
   markBusy() {
+    if (!this.busy) {
+      this.busySince = Date.now()
+      this.turnMessages.clear()
+    }
     this.busy = true
   }
 
@@ -31,6 +59,22 @@ export class OpenCodeNormalizer implements Normalizer {
         const info = isRecord(p.info) ? p.info : {}
         const id = str(info.id)
         if (id && str(info.role)) this.roles.set(id, str(info.role)!)
+        const time = isRecord(info.time) ? info.time : {}
+        if (id && info.role === "assistant" && time.completed !== undefined && isRecord(info.tokens)) {
+          const t = info.tokens
+          const cache = isRecord(t.cache) ? t.cache : {}
+          this.turnMessages.set(id, {
+            usage: {
+              inputTokens: num(t.input) ?? 0,
+              outputTokens: num(t.output) ?? 0,
+              cacheReadTokens: num(cache.read) ?? 0,
+              cacheWriteTokens: num(cache.write) ?? 0,
+              reasoningTokens: num(t.reasoning) ?? 0
+            },
+            cost: num(info.cost),
+            model: str(info.providerID) && str(info.modelID) ? `${str(info.providerID)}/${str(info.modelID)}` : undefined
+          })
+        }
         return []
       }
       case "message.part.delta": {
@@ -53,9 +97,39 @@ export class OpenCodeNormalizer implements Normalizer {
             providerRequestId: id,
             toolName: permission,
             summary: patterns ? `${permission}: ${patterns}` : permission,
-            details: { input: p.metadata, patterns: p.patterns }
+            details: { input: p.metadata, patterns: p.patterns, always: p.always },
+            // `always` lists the patterns an "always" reply would allow for the session.
+            canAllowForSession: Array.isArray(p.always) && p.always.length > 0
           }
         ]
+      }
+      case "question.asked":
+      case "question.v2.asked": {
+        const id = str(p.id)
+        if (!id) return []
+        this.questionIds.add(id)
+        const questions = openCodeQuestions(p.questions)
+        return [
+          {
+            type: "approval.requested",
+            approvalId: id,
+            providerRequestId: id,
+            toolName: "question",
+            kind: "question",
+            questions,
+            summary: questions.length === 1 ? questions[0]!.question : `${questions.length} questions`,
+            details: { input: p.questions }
+          }
+        ]
+      }
+      case "todo.updated": {
+        const items = (Array.isArray(p.todos) ? p.todos.filter(isRecord) : []).flatMap((t) => {
+          const text = str(t.content)
+          if (!text) return []
+          const status = PLAN_STATUSES.includes(str(t.status) as PlanItem["status"]) ? (str(t.status) as PlanItem["status"]) : "pending"
+          return [{ text, status }]
+        })
+        return [{ type: "plan.updated", items }]
       }
       case "permission.v2.asked": {
         const id = str(p.id)
@@ -69,7 +143,8 @@ export class OpenCodeNormalizer implements Normalizer {
             providerRequestId: id,
             toolName: action,
             summary: resources ? `${action}: ${resources}` : action,
-            details: { input: p.metadata, resources: p.resources }
+            details: { input: p.metadata, resources: p.resources },
+            canAllowForSession: Array.isArray(p.save) && p.save.length > 0
           }
         ]
       }
@@ -89,7 +164,30 @@ export class OpenCodeNormalizer implements Normalizer {
         const status = this.aborted ? "interrupted" : this.errored ? "error" : "success"
         this.aborted = false
         this.errored = false
-        return [{ type: "turn.completed", providerSessionId: this.sessionId, status }]
+        const messages = [...this.turnMessages.values()]
+        this.turnMessages.clear()
+        const sum = (k: keyof TokenUsage) => messages.reduce((n, m) => n + (m.usage[k] ?? 0), 0)
+        const costs = messages.map((m) => m.cost).filter((c): c is number => c !== undefined)
+        const model = messages.at(-1)?.model
+        return [
+          {
+            type: "turn.completed",
+            providerSessionId: this.sessionId,
+            status,
+            durationMs: Date.now() - this.busySince,
+            ...(messages.length > 0 && {
+              usage: {
+                inputTokens: sum("inputTokens"),
+                outputTokens: sum("outputTokens"),
+                cacheReadTokens: sum("cacheReadTokens"),
+                cacheWriteTokens: sum("cacheWriteTokens"),
+                ...(sum("reasoningTokens") && { reasoningTokens: sum("reasoningTokens") })
+              }
+            }),
+            ...(costs.length > 0 && { costUsd: costs.reduce((a, b) => a + b, 0) }),
+            ...(model && { model })
+          }
+        ]
       }
       default:
         return []

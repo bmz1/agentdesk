@@ -260,7 +260,7 @@ const ApprovalGate = ({ approval }: { approval: Approval }) => {
   const [note, setNote] = useState("")
   const qc = useQueryClient()
   const decide = useMutation({
-    mutationFn: (d: "allow" | "deny") => api.decide(approval.id, d, note || undefined),
+    mutationFn: (d: "allow" | "deny") => api.decide(approval.id, d, note ? { note } : {}),
     onSettled: () => qc.invalidateQueries({ queryKey: ["runs"] })
   })
   const details = approval.details as { content?: string | null; files?: Array<{ path: string; additions: number; deletions: number }>; branch?: string }

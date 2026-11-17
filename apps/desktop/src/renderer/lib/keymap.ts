@@ -18,6 +18,7 @@ export const SHORTCUTS = {
   goSettings: { keys: "mod+,", label: "Go to Settings" },
   toggleSidebar: { keys: "mod+b", label: "Toggle sidebar" },
   approve: { keys: "mod+shift+a", label: "Allow pending tool call" },
+  approveSession: { keys: "mod+shift+s", label: "Allow pending tool call for the session" },
   deny: { keys: "mod+shift+d", label: "Deny pending tool call" },
   interrupt: { keys: "mod+.", label: "Interrupt agent" }
 } as const satisfies Record<string, { keys: string; label: string }>

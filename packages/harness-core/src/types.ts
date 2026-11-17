@@ -1,4 +1,4 @@
-import type { AgentEvent, ApprovalDecision, HarnessDetection, HarnessId, PermissionMode } from "@agentdesk/contracts"
+import type { AgentEvent, ApprovalDecision, HarnessCapabilities, HarnessDetection, HarnessId, PermissionMode, QuestionAnswers } from "@agentdesk/contracts"
 import type { Effect, Scope, Stream } from "effect"
 import type { ChildProcessSpawner } from "effect/process"
 import type { HarnessError } from "./errors"
@@ -33,6 +33,16 @@ export interface PromptOptions {
   readonly effort?: string
 }
 
+/** The user's answer to an approval or question request. */
+export interface ApprovalResponse {
+  readonly decision: ApprovalDecision
+  readonly note?: string
+  /** "session": allow matching requests for the rest of the session (when the request said it can). */
+  readonly scope?: "once" | "session"
+  /** For question requests: answers keyed by question id. */
+  readonly answers?: QuestionAnswers
+}
+
 export interface StartInput {
   readonly cwd: string
   readonly policy: RunPolicy
@@ -61,11 +71,7 @@ export interface HarnessSession {
   readonly events: Stream.Stream<AgentEvent, HarnessError>
   /** Send a prompt. `options.model` switches the model from this turn on (undefined keeps the current one). */
   readonly prompt: (text: string, images?: ReadonlyArray<PromptImage>, options?: PromptOptions) => Effect.Effect<void, HarnessError>
-  readonly respondToApproval: (
-    providerRequestId: string,
-    decision: ApprovalDecision,
-    note?: string
-  ) => Effect.Effect<void, HarnessError>
+  readonly respondToApproval: (providerRequestId: string, response: ApprovalResponse) => Effect.Effect<void, HarnessError>
   readonly interrupt: Effect.Effect<void, HarnessError>
   /** False when an effort change needs a new process (resumed with the new effort). Default true. */
   readonly liveEffort?: boolean
@@ -77,6 +83,7 @@ export type HarnessRequirements = Scope.Scope | ChildProcessSpawner.ChildProcess
 export interface HarnessAdapter {
   readonly id: HarnessId
   readonly displayName: string
+  readonly capabilities: HarnessCapabilities
   readonly detect: Effect.Effect<HarnessDetection, never, ChildProcessSpawner.ChildProcessSpawner>
   readonly start: (input: StartInput) => Effect.Effect<HarnessSession, HarnessError, HarnessRequirements>
   readonly resume?: (input: ResumeInput) => Effect.Effect<HarnessSession, HarnessError, HarnessRequirements>
