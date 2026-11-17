@@ -156,7 +156,8 @@ export const makeCodexAdapter = (options: CodexAdapterOptions = {}): HarnessAdap
             threadId: input.providerSessionId,
             cwd: input.cwd,
             ...policy,
-            ...(input.policy.model && { model: input.policy.model })
+            ...(input.policy.model && { model: input.policy.model }),
+            ...(input.policy.appendSystemPrompt && { developerInstructions: input.policy.appendSystemPrompt })
           })
         : yield* request("thread/start", {
             cwd: input.cwd,

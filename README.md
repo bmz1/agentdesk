@@ -34,7 +34,8 @@ When you run `pnpm dev:web`, open `http://localhost:5173/?daemon=http://127.0.0.
 - **Agents** offers board and list layouts, grouped into Needs you, Working, Awaiting follow-up, and Recent. Cards show the latest meaningful message and open the exact session. A finished turn does not mark the ticket Done.
 - Project and issue views remember their layout and filters. Explicit URL filters take precedence over saved preferences.
 - **Chat + changes** opens a resizable split, remembered per ticket. Add feedback with the **+** beside a diff line, then send unresolved comments together to an idle/resumable session or a new installed harness. Stop the current agent before starting another. Comments retain their original code and line context, and stay available for verification and resolution after sending.
-- **Inbox** includes unread agent updates alongside pending approvals. Opening a focused conversation marks its streamed events read; Mark unread keeps an update available for later. Read state, view preferences, split layouts, and saved review comments stay local to this app installation.
+- **Settings → Agent harness defaults** configures the harness for new projects plus each harness’s model, permissions, and extra instructions. New projects inherit harness permissions; existing projects keep their explicit policy until changed to **Use harness default**. Ticket models override harness models. Defaults apply to future launches and resumes, including workflow steps.
+- **Inbox** includes unread agent updates alongside pending approvals. Opening a focused conversation marks its streamed events read; Mark unread keeps an update available for later. Read state, view preferences, split layouts, and saved review comments stay local to this app installation. The native macOS Dock badge mirrors approvals and unread updates, deduplicating sessions with pending approvals; it continues polling while the desktop app is running with its window closed.
 
 ## Repository layout
 
@@ -60,6 +61,7 @@ pnpm test                                    # unit, protocol fixtures, daemon i
 AGENTDESK_SMOKE=claude,codex,opencode pnpm test:smoke   # real CLIs (each must be logged in)
 pnpm --filter @agentdesk/desktop exec playwright install chromium  # once, for browser tests
 pnpm e2e                                     # Playwright: renderer + real daemon, full ticket → PR flow
+pnpm --filter @agentdesk/desktop e2e:native    # after pnpm build: real macOS Electron Dock badge + closed-window polling
 ```
 
 ## Documentation

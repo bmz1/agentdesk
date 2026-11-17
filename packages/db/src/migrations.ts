@@ -284,5 +284,11 @@ DROP TABLE jira_connections;
     id: 3,
     name: "ticket_model",
     sql: /* sql */ `ALTER TABLE tickets ADD COLUMN model TEXT;`
+  },
+  {
+    id: 4,
+    name: "project_harness_permission_inheritance",
+    // Existing projects retain their explicit policy; new projects opt in at creation.
+    sql: /* sql */ `ALTER TABLE projects ADD COLUMN inherit_harness_permissions INTEGER NOT NULL DEFAULT 0;`
   }
 ]

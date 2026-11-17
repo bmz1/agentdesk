@@ -13,6 +13,8 @@ import type {
   FileTree,
   HarnessDetection,
   HarnessId,
+  HarnessSettings,
+  UpdateHarnessSettingsBody,
   ImageRef,
   Project,
   StoredAgentEvent,
@@ -104,6 +106,8 @@ export interface TicketQuery {
 }
 
 export const api = {
+  harnessSettings: () => request<HarnessSettings>("GET", "/settings/harnesses"),
+  updateHarnessSettings: (body: UpdateHarnessSettingsBody) => request<HarnessSettings>("PATCH", "/settings/harnesses", body),
   info: () => request<DaemonInfo>("GET", "/info"),
   harnesses: (refresh = false) => request<ReadonlyArray<HarnessDetection>>("GET", `/harnesses/detect${qs({ refresh: refresh ? 1 : undefined })}`),
 

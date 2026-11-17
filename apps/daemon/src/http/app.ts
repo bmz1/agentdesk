@@ -1,4 +1,5 @@
 import {
+  UpdateHarnessSettingsBody,
   ApprovalDecisionBody,
   type BoardStatus,
   CreateJiraConnectionBody,
@@ -27,6 +28,7 @@ import { Approvals } from "../services/approvals"
 import { Attachments } from "../services/attachments"
 import { listTicketFiles, readTicketFile, readTicketImage } from "../services/files"
 import { EventLog } from "../services/event-log"
+import { HarnessSettings } from "../services/harness-settings"
 import { Harnesses } from "../services/harnesses"
 import { TaskSync } from "../services/task-sync"
 import { Notices } from "../services/notices"
@@ -78,6 +80,11 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
       data: JSON.stringify(n)
     }))
   )
+
+  app.get("/settings/harnesses", (c) => respond(c, HarnessSettings.use((s) => s.get)))
+  app.patch("/settings/harnesses", (c) => respond(c,
+    body(c, UpdateHarnessSettingsBody).pipe(Effect.flatMap((b) => HarnessSettings.use((s) => s.update(b))))
+  ))
 
   // ---- projects --------------------------------------------------------------------
   app.get("/projects", (c) => respond(c, Projects.use((p) => p.list)))

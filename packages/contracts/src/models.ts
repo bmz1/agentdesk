@@ -24,6 +24,7 @@ export const Project = Schema.Struct({
   defaultHarness: HarnessId,
   defaultWorkflowId: NullableString,
   permissionMode: PermissionMode,
+  inheritHarnessPermissions: Schema.Boolean,
   testCommand: NullableString,
   createdAt: Schema.String,
   updatedAt: Schema.String
@@ -321,3 +322,22 @@ export const FileContent = Schema.Struct({
   content: Schema.String
 })
 export type FileContent = typeof FileContent.Type
+
+/** Daemon-owned launch defaults, applied to future sessions and workflow steps. */
+export const HarnessDefaults = Schema.Struct({
+  model: Schema.NullOr(Schema.String.check(Schema.isMaxLength(500))),
+  permissionMode: PermissionMode,
+  instructions: Schema.String.check(Schema.isMaxLength(20_000))
+})
+export type HarnessDefaults = typeof HarnessDefaults.Type
+
+export const HarnessSettings = Schema.Struct({
+  defaultHarness: HarnessId,
+  harnesses: Schema.Struct({
+    claude: HarnessDefaults,
+    codex: HarnessDefaults,
+    opencode: HarnessDefaults,
+    mock: HarnessDefaults
+  })
+})
+export type HarnessSettings = typeof HarnessSettings.Type

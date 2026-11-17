@@ -67,7 +67,7 @@ export const ReviewChanges = ({ ticket, onSelectSession }: { ticket: Ticket; onS
           {c.sentAt && <p className="mt-1 text-[11px] text-fg-subtle">Sent · verify the revision before resolving</p>}
         </div>)}
         <div className="flex flex-wrap items-center gap-2">
-          <Select aria-label="Review feedback destination" value={target} onChange={(e) => setTarget(e.target.value)} className="min-w-0 flex-1" data-testid="review-target">
+          <Select aria-label="Review feedback destination" value={target} onChange={(e) => setTarget(e.target.value)} className="min-w-0 flex-[1_1_12rem]" data-testid="review-target">
             <option value="" disabled>Choose an agent</option>
             {available.map((s) => <option key={s.id} value={s.id}>{HARNESS_LABELS[s.harness]} · {s.id.slice(-6)} · {s.state}</option>)}
             {installed.map((h) => <option key={h.id} value={`new:${h.id}`} disabled={hasLiveSession}>New {HARNESS_LABELS[h.id]} session{hasLiveSession ? " (stop current agent first)" : ""}</option>)}

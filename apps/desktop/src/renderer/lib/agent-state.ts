@@ -1,4 +1,4 @@
-import type { AgentSession, Ticket } from "@agentdesk/contracts"
+import type { AgentSession, Approval, Ticket } from "@agentdesk/contracts"
 
 export type AgentGroup = "attention" | "working" | "followup" | "recent"
 export const AGENT_GROUPS: ReadonlyArray<{ id: AgentGroup; label: string }> = [
@@ -24,3 +24,13 @@ export const isSessionUnread = (session: AgentSession, seen: Record<string, numb
 export const ticketSession = (ticket: Ticket, sessions: ReadonlyArray<AgentSession>) =>
   sessions.find((s) => s.id === ticket.activeSessionId) ??
   sessions.filter((s) => s.ticketId === ticket.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
+
+/** An unread session awaiting approval is one Inbox item, not two badge entries. */
+export const notificationCount = (
+  sessions: ReadonlyArray<AgentSession>,
+  approvals: ReadonlyArray<Pick<Approval, "sessionId">>,
+  seen: Record<string, number>
+) => {
+  const approvalSessions = new Set(approvals.map((a) => a.sessionId).filter(Boolean))
+  return approvals.length + sessions.filter((s) => isSessionUnread(s, seen) && !approvalSessions.has(s.id)).length
+}

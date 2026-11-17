@@ -52,14 +52,43 @@ await waitFor(async () => fetch("http://localhost:5173").then((r) => r.ok).catch
 
 const browser = await chromium.launch()
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
+const assertDropdowns = async () => {
+  const problems = await page.locator("select:visible").evaluateAll((selects) => selects.flatMap((select) => {
+    const style = getComputedStyle(select)
+    const rect = select.getBoundingClientRect()
+    const parent = select.parentElement.getBoundingClientRect()
+    const broken = style.appearance !== "none" || parseFloat(style.paddingRight) < 24 || style.backgroundSize !== "12px 12px" || rect.right > parent.right + 1 || rect.left < parent.left - 1
+    return broken ? [select.getAttribute("aria-label") || select.dataset.testid || select.value] : []
+  }))
+  if (problems.length) fail(`dropdown overflow or arrow spacing: ${problems.join(", ")}`)
+}
 const errors = []
 page.on("pageerror", (e) => errors.push(String(e)))
 try {
   await page.goto(`http://localhost:5173/?daemon=${encodeURIComponent(conn.url)}&token=${conn.token}#/projects`)
+  // Configure daemon-owned harness defaults before creating a project.
+  await page.getByRole("link", { name: "Settings", exact: true }).click()
+  await page.selectOption('[data-testid="default-harness"]', "mock")
+  await page.locator('[data-testid="harness-mock"] summary').click()
+  await page.fill('[data-testid="harness-model-mock"]', "mock-default-model")
+  await page.fill('[data-testid="harness-instructions-mock"]', "Verify every change.")
+  await page.selectOption('[data-testid="harness-permissions-mock"]', "ask")
+  await page.click('[data-testid="harness-defaults-save-mock"]')
+  await page.getByRole("status").filter({ hasText: "Defaults saved." }).waitFor()
+  await page.reload()
+  await page.locator('[data-testid="harness-mock"] summary').click()
+  if (await page.inputValue('[data-testid="harness-model-mock"]') !== "mock-default-model") fail("harness defaults did not persist")
+  await assertDropdowns()
+  await page.setViewportSize({ width: 960, height: 900 })
+  await assertDropdowns()
+  await page.screenshot({ path: join(home, "harness-settings.png") })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.locator('a[aria-label="Manage projects"]').click()
   // Register a project through the UI.
   await page.fill('[data-testid="project-name"]', "E2E Service")
   await page.fill('[data-testid="project-repo"]', repo)
   await page.selectOption('[data-testid="project-harness"]', "claude")
+  await assertDropdowns()
   await page.click('[data-testid="project-save"]')
   await page.waitForSelector('[data-testid="board"]')
 
@@ -73,6 +102,7 @@ try {
   await page.click('[data-testid="project-new-thread"]')
   if (await page.inputValue('[data-testid="ticket-title"]') !== "Write release notes") fail("creation draft lost on close")
   await page.selectOption('[data-testid="ticket-harness"]', "mock")
+  await assertDropdowns()
   // A failed launch keeps the created ticket for retry instead of duplicating it.
   await page.route("**/tickets/*/sessions", (route) => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Temporary start failure" }) }), { times: 1 })
   await page.click('[data-testid="ticket-create-start"]')
@@ -114,6 +144,11 @@ try {
   await page.getByText("Clarify the release notes [noop]", { exact: true }).waitFor()
   if (await separator.getAttribute("aria-valuenow") !== "55") fail("split layout did not persist")
   await page.waitForFunction(() => document.querySelector('[data-testid="review-target"]')?.value && !document.querySelector('[data-testid="review-target"]').value.startsWith("new:"))
+  await assertDropdowns()
+  await page.setViewportSize({ width: 960, height: 900 })
+  await assertDropdowns()
+  await page.screenshot({ path: join(home, "dropdowns-narrow.png") })
+  await page.setViewportSize({ width: 1440, height: 900 })
   await page.screenshot({ path: join(home, "chat-review.png") })
   await page.click('[data-testid="review-send"]')
   await page.getByText("Feedback sent. Comments stay here for verification.", { exact: true }).waitFor()
@@ -149,6 +184,7 @@ try {
   // Workflow through both gates.
   await page.click('[data-testid="tab-workflow"]')
   await page.selectOption('select[title="Override the harness for every agent step"]', "mock")
+  await assertDropdowns()
   await page.waitForSelector('[data-testid="start-run"]:not([disabled])', { timeout: 20_000 })
   await page.click('[data-testid="start-run"]')
   for (let i = 0; i < 60; i++) {

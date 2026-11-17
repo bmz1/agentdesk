@@ -12,6 +12,7 @@ export const queryClient = new QueryClient({
 /** Query key factory. Route loaders and components share these, never ad-hoc keys. */
 export const qk = {
   info: ["info"] as const,
+  harnessSettings: ["settings", "harnesses"] as const,
   harnesses: ["harnesses"] as const,
   projects: ["projects"] as const,
   project: (id: string) => ["projects", id] as const,
@@ -39,6 +40,7 @@ export const qk = {
 }
 
 export const q = {
+  harnessSettings: () => queryOptions({ queryKey: qk.harnessSettings, queryFn: api.harnessSettings }),
   info: () => queryOptions({ queryKey: qk.info, queryFn: api.info, refetchInterval: 15_000 }),
   harnesses: () => queryOptions({ queryKey: qk.harnesses, queryFn: () => api.harnesses(), staleTime: 60_000 }),
   projects: () => queryOptions({ queryKey: qk.projects, queryFn: api.projects }),
@@ -71,6 +73,9 @@ export const q = {
 export const applyNotice = (n: ChangeNotice) => {
   const inv = (key: ReadonlyArray<unknown>) => void queryClient.invalidateQueries({ queryKey: key })
   switch (n.topic) {
+    case "settings":
+      inv(qk.harnessSettings)
+      break
     case "tickets":
       inv(["tickets"])
       break

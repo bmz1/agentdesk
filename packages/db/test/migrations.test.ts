@@ -57,3 +57,15 @@ describe("migration 2: generic task sources", () => {
     expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'jira_%'").all()).toEqual([])
   })
 })
+
+describe("migration 4: harness permission inheritance", () => {
+  it("preserves existing explicit permissions", () => {
+    const Database = require("better-sqlite3")
+    const sqlite = new Database(":memory:")
+    migrate(sqlite, migrations.filter((m) => m.id < 4))
+    sqlite.prepare(`INSERT INTO projects (id,key,name,repo_path,default_branch,git_provider,default_harness,permission_mode,created_at,updated_at) VALUES ('p','P','P','/tmp','main','none','mock','plan','now','now')`).run()
+    expect(migrate(sqlite, migrations)).toEqual([4])
+    expect(sqlite.prepare("SELECT permission_mode, inherit_harness_permissions FROM projects WHERE id='p'").get()).toEqual({ permission_mode: "plan", inherit_harness_permissions: 0 })
+    sqlite.close()
+  })
+})

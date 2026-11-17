@@ -11,7 +11,8 @@
     "dev:web": "vite --config vite.renderer.config.ts",
     "build:web": "vite build --config vite.renderer.config.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "e2e": "node e2e/app.e2e.mjs"
+    "e2e": "node e2e/app.e2e.mjs",
+    "e2e:native": "node e2e/native-badge.e2e.mjs"
   },
   "dependencies": {
     "@agentdesk/contracts": "workspace:*",

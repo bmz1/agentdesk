@@ -374,7 +374,7 @@ const Sidebar = ({ ticket, onUpdate }: { ticket: Ticket; onUpdate: (b: UpdateBod
   )
 }
 
-const ghostSelect = "h-7 min-w-0 flex-1 w-full -mx-1.5 border-transparent bg-transparent px-1.5 hover:border-border hover:bg-bg-muted"
+const ghostSelect = "h-7 min-w-0 flex-1 w-full border-transparent bg-transparent px-1.5 hover:border-border hover:bg-bg-muted"
 
 /**
  * Model picker for the ticket's effective harness. Harnesses that route to several
@@ -382,6 +382,8 @@ const ghostSelect = "h-7 min-w-0 flex-1 w-full -mx-1.5 border-transparent bg-tra
  */
 const ModelProps = ({ harness, value, onChange }: { harness: HarnessId; value: string | null; onChange: (model: string | null) => void }) => {
   const detections = useQuery(q.harnesses())
+  const defaults = useQuery(q.harnessSettings())
+  const defaultModel = defaults.data?.harnesses[harness].model
   const models: ReadonlyArray<HarnessModel> = detections.data?.find((d) => d.id === harness)?.models ?? []
   const [draft, setDraft] = useState(value ?? "")
   useEffect(() => setDraft(value ?? ""), [value])
@@ -394,7 +396,7 @@ const ModelProps = ({ harness, value, onChange }: { harness: HarnessId; value: s
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={() => draft.trim() !== (value ?? "") && onChange(draft.trim() || null)}
-          placeholder={detections.isPending ? "Loading…" : "Harness default"}
+          placeholder={detections.isPending ? "Loading…" : defaultModel ? `Default · ${defaultModel}` : "Harness default"}
           className="-mx-1.5 h-7 w-full border-transparent bg-transparent px-1.5 font-mono text-[12px] hover:border-border"
         />
       </Prop>
@@ -414,7 +416,7 @@ const ModelProps = ({ harness, value, onChange }: { harness: HarnessId; value: s
       {providers.length > 0 && (
         <Prop label="Provider">
           <Select value={provider} onChange={(e) => onChange(options.find((m) => m.provider === e.target.value)?.id ?? null)} className={ghostSelect}>
-            <option value="">Harness default</option>
+            <option value="">{defaultModel ? `Default · ${defaultModel}` : "Harness default"}</option>
             {providers.map((p) => (
               <option key={p} value={p}>
                 {p}
@@ -430,7 +432,7 @@ const ModelProps = ({ harness, value, onChange }: { harness: HarnessId; value: s
           disabled={providers.length > 0 && !provider}
           className={ghostSelect}
         >
-          <option value="">Harness default</option>
+          <option value="">{defaultModel ? `Default · ${defaultModel}` : "Harness default"}</option>
           {shown.map((m) => (
             <option key={m.id} value={m.id}>
               {m.label}

@@ -13,6 +13,7 @@ export const projects = sqliteTable("projects", {
   defaultHarness: text("default_harness").notNull(),
   defaultWorkflowId: text("default_workflow_id"),
   permissionMode: text("permission_mode").notNull(),
+  inheritHarnessPermissions: integer("inherit_harness_permissions", { mode: "boolean" }).notNull().default(false),
   testCommand: text("test_command"),
   ticketCounter: integer("ticket_counter").notNull().default(0),
   createdAt: ts("created_at").notNull(),

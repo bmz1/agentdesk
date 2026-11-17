@@ -1,6 +1,7 @@
 import { join } from "node:path"
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, session, shell } from "electron"
-import { ensureDaemon } from "./daemon"
+import { createNotificationBadge } from "./notification-badge"
+import { ensureDaemon, readConnectionFile } from "./daemon"
 import appIcon from "../../resources/icon.png?asset"
 
 app.setName("AgentDesk")
@@ -62,6 +63,15 @@ const createWindow = () => {
 
 app.whenReady().then(() => {
   if (process.platform === "darwin") app.dock?.setIcon(appIcon)
+  const badge = createNotificationBadge({ connection: readConnectionFile, setBadge: (count) => {
+    if (process.platform === "darwin") app.dock?.setBadge(count ? String(count) : "")
+    else app.setBadgeCount(count)
+  } })
+  const badgeTimer = setInterval(() => void badge.refresh(), 5000)
+  badgeTimer.unref()
+  void badge.refresh()
+  app.once("before-quit", () => { clearInterval(badgeTimer); badge.stop() })
+  ipcMain.handle("agentdesk:notification-state", (_e, count: unknown, seen: unknown) => badge.update(count, seen))
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({ responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [CSP] } })

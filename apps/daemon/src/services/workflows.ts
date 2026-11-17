@@ -26,6 +26,7 @@ import { Approvals, toApproval } from "./approvals"
 import { Database } from "./database"
 import { Notices } from "./notices"
 import { Projects } from "./projects"
+import { HarnessSettings } from "./harness-settings"
 import { buildTicketPrompt, projectPolicy, Sessions, ticketModel } from "./sessions"
 import { Tickets } from "./tickets"
 import { Workspaces } from "./workspaces"
@@ -122,6 +123,7 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
     Workflows,
     Effect.gen(function* () {
       const config = yield* DaemonConfig
+      const harnessSettings = yield* HarnessSettings
       const { use, tx } = yield* Database
       const notices = yield* Notices
       const activity = yield* Activity
@@ -304,7 +306,7 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
           workspaceId: ws.id,
           runId: run.id,
           stepRunId,
-          policy: yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, harness)),
+          policy: yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, harness), (yield* harnessSettings.get).harnesses[harness]),
           prompt: buildTicketPrompt(ticket, parts.join("\n\n"))
         })
         yield* setStep(stepRunId, { sessionId: session.id })

@@ -1,3 +1,4 @@
+import { useEffect } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import {
@@ -15,7 +16,8 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd, Tooltip } from "@/components/ui/misc"
-import { isSessionUnread } from "@/lib/agent-state"
+import { notificationCount } from "@/lib/agent-state"
+import { bridge } from "@/lib/connection"
 import { q } from "@/lib/queries"
 import { useUi } from "@/lib/store"
 import { cn } from "@/lib/utils"
@@ -39,9 +41,12 @@ export const Sidebar = () => {
   const info = useQuery(q.info())
   const threads = useProjectThreads()
   const seen = useUi((s) => s.sessionSeen)
-  const unreadSessions = [...threads.values()].flat().filter((t) => isSessionUnread(t.session, seen)).length
-  const unreadWithApproval = [...threads.values()].flat().filter((t) => isSessionUnread(t.session, seen) && pending.data?.some((a) => a.sessionId === t.session.id)).length
-  const inboxCount = (pending.data?.length ?? 0) + unreadSessions - unreadWithApproval
+  const inboxSessions = [...threads.values()].flat().map((t) => t.session)
+  const inboxCount = notificationCount(inboxSessions, pending.data ?? [], seen)
+  useEffect(() => {
+    if (pending.isPending) return
+    void bridge()?.updateNotificationState?.(inboxCount, seen).catch(() => {})
+  }, [inboxCount, seen, pending.isPending])
   const collapsedProjects = useUi((s) => s.collapsedProjects)
   const toggleProject = useUi((s) => s.toggleProject)
 

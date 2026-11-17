@@ -64,9 +64,9 @@ const SessionHeader = ({
   const [starting, setStarting] = useState(false)
   const live = ["starting", "running", "waiting_for_approval", "idle"].includes(selected.state)
   return (
-    <div className="flex items-center gap-2 border-b px-4 py-2">
-      <Bot className="size-4 text-fg-muted" />
-      <Select value={selected.id} onChange={(e) => onSelect(e.target.value)} className="max-w-72" data-testid="session-select">
+    <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
+      <Bot className="size-4 shrink-0 text-fg-muted" />
+      <Select value={selected.id} onChange={(e) => onSelect(e.target.value)} className="min-w-32 max-w-72 flex-1" aria-label="Agent session" data-testid="session-select">
         {sessions.map((s) => (
           <option key={s.id} value={s.id}>
             {HARNESS_LABELS[s.harness]} · {relativeTime(s.createdAt)} · {s.state}
@@ -75,7 +75,7 @@ const SessionHeader = ({
       </Select>
       <SessionStateBadge state={selected.state} />
       <Tooltip content={selected.cwd}>
-        <span className="truncate font-mono text-[11px] text-fg-subtle">{selected.cwd.split("/").slice(-2).join("/")}</span>
+        <span className="min-w-0 max-w-48 truncate font-mono text-[11px] text-fg-subtle">{selected.cwd.split("/").slice(-2).join("/")}</span>
       </Tooltip>
       <div className="flex-1" />
       {live ? (

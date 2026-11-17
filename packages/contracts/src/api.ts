@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { HarnessDefaults } from "./models"
 import { ApprovalDecision, BoardStatus, GitProvider, HarnessId, PermissionMode, Priority } from "./ids"
 
 /** Request bodies validated at the HTTP boundary. */
@@ -12,6 +13,7 @@ export const CreateProjectBody = Schema.Struct({
   defaultHarness: Schema.optional(HarnessId),
   defaultWorkflowId: Schema.optional(Schema.NullOr(Schema.String)),
   permissionMode: Schema.optional(PermissionMode),
+  inheritHarnessPermissions: Schema.optional(Schema.Boolean),
   testCommand: Schema.optional(Schema.NullOr(Schema.String))
 })
 export type CreateProjectBody = typeof CreateProjectBody.Type
@@ -24,6 +26,7 @@ export const UpdateProjectBody = Schema.Struct({
   defaultHarness: Schema.optional(HarnessId),
   defaultWorkflowId: Schema.optional(Schema.NullOr(Schema.String)),
   permissionMode: Schema.optional(PermissionMode),
+  inheritHarnessPermissions: Schema.optional(Schema.Boolean),
   testCommand: Schema.optional(Schema.NullOr(Schema.String))
 })
 export type UpdateProjectBody = typeof UpdateProjectBody.Type
@@ -153,9 +156,20 @@ export type ApiErrorBody = typeof ApiErrorBody.Type
 
 /** Live board/run invalidation notifications sent over `GET /events`. */
 export const ChangeNotice = Schema.Struct({
-  topic: Schema.Literals(["tickets", "projects", "runs", "sessions", "approvals", "activity", "sources", "workflows"]),
+  topic: Schema.Literals(["tickets", "projects", "runs", "sessions", "approvals", "activity", "sources", "workflows", "settings"]),
   ticketId: Schema.optional(Schema.String),
   runId: Schema.optional(Schema.String),
   sessionId: Schema.optional(Schema.String)
 })
 export type ChangeNotice = typeof ChangeNotice.Type
+
+export const UpdateHarnessSettingsBody = Schema.Struct({
+  defaultHarness: Schema.optional(HarnessId),
+  harnesses: Schema.optional(Schema.Struct({
+    claude: Schema.optional(HarnessDefaults),
+    codex: Schema.optional(HarnessDefaults),
+    opencode: Schema.optional(HarnessDefaults),
+    mock: Schema.optional(HarnessDefaults)
+  }))
+})
+export type UpdateHarnessSettingsBody = typeof UpdateHarnessSettingsBody.Type

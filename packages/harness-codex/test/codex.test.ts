@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { mkdtempSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { AgentEvent } from "@agentdesk/contracts"
@@ -80,6 +80,19 @@ layer(NodeProcessLayer, { excludeTestServices: true })("Codex adapter (fake app-
         "echo run cmd",
         "echo follow up"
       ])
+    })
+  )
+
+  it.effect("sends model and extra instructions when resuming a provider conversation", () =>
+    Effect.gen(function* () {
+      const log = join(mkdtempSync(join(tmpdir(), "codex-defaults-")), "rpc.jsonl")
+      const session = yield* adapter.resume!({
+        cwd: tmpdir(), providerSessionId: "thr_existing", prompt: "continue",
+        policy: { permissionMode: "plan", model: "chosen-model", appendSystemPrompt: "Follow the defaults.", env: { AGENTDESK_TEST_CODEX_LOG: log } }
+      })
+      yield* session.events.pipe(Stream.takeUntil((e) => e.type === "turn.completed"), Stream.runDrain)
+      const request = readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line)).find((m) => m.method === "thread/resume")
+      expect(request.params).toMatchObject({ threadId: "thr_existing", model: "chosen-model", developerInstructions: "Follow the defaults." })
     })
   )
 

@@ -4,6 +4,7 @@ import type {
   AgentEvent,
   AgentSession,
   ApprovalDecision,
+  HarnessDefaults,
   HarnessId,
   Project,
   SessionState,
@@ -23,6 +24,7 @@ import { Approvals } from "./approvals"
 import { Attachments } from "./attachments"
 import { Database } from "./database"
 import { EventLog } from "./event-log"
+import { HarnessSettings } from "./harness-settings"
 import { Harnesses } from "./harnesses"
 import { Notices } from "./notices"
 import { Projects } from "./projects"
@@ -102,19 +104,22 @@ interface LiveSession {
  * Build the harness run policy for a project. Unrestricted mode is refused
  * unless a real sandbox is configured: a git worktree is not a sandbox.
  */
-export const projectPolicy = (project: Project, sandboxPrefix: ReadonlyArray<string> | undefined, model?: string | null) =>
-  project.permissionMode === "unrestricted" && !sandboxPrefix?.length
-    ? Effect.fail(
-        new BadRequest({
-          message:
-            "Unrestricted permission mode requires a sandbox (set AGENTDESK_SANDBOX_CMD). Choose another permission mode or configure a sandbox."
-        })
-      )
+export const projectPolicy = (
+  project: Project,
+  sandboxPrefix: ReadonlyArray<string> | undefined,
+  model?: string | null,
+  defaults?: HarnessDefaults
+) => {
+  const permissionMode = project.inheritHarnessPermissions ? defaults?.permissionMode ?? "ask" : project.permissionMode
+  return permissionMode === "unrestricted" && !sandboxPrefix?.length
+    ? Effect.fail(new BadRequest({ message: "Unrestricted permission mode requires a sandbox (set AGENTDESK_SANDBOX_CMD). Choose another permission mode or configure a sandbox." }))
     : Effect.succeed<RunPolicy>({
-        permissionMode: project.permissionMode,
-        ...(model && { model }),
-        ...(project.permissionMode === "unrestricted" && { sandboxPrefix })
+        permissionMode,
+        ...((model ?? defaults?.model) && { model: (model ?? defaults?.model)! }),
+        ...(defaults?.instructions && { appendSystemPrompt: defaults.instructions }),
+        ...(permissionMode === "unrestricted" && { sandboxPrefix })
       })
+}
 
 /**
  * The ticket's model applies only when the run uses the ticket's own harness;
@@ -140,6 +145,7 @@ export const SessionsLive = Layer.effect(
     const { use } = yield* Database
     const events = yield* EventLog
     const harnesses = yield* Harnesses
+    const defaults = yield* HarnessSettings
     const approvals = yield* Approvals
     const attachments = yield* Attachments
 
@@ -418,7 +424,7 @@ export const SessionsLive = Layer.effect(
         }
         const project = yield* projects.get(ticket.projectId)
         const harness = input.harness ?? ticket.harness ?? project.defaultHarness
-        const policy = yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, harness))
+        const policy = yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, harness), (yield* defaults.get).harnesses[harness])
         const ws = input.useRepoDirectly
           ? undefined
           : yield* workspaces.forTicket({
@@ -465,7 +471,7 @@ export const SessionsLive = Layer.effect(
           prompt: text,
           images: images.prompt,
           resume: true,
-          policy: yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, row.harness as HarnessId)),
+          policy: yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, row.harness as HarnessId), (yield* defaults.get).harnesses[row.harness as HarnessId]),
           lockHolder: row.workspaceId && !row.runId ? id : undefined
         })
         yield* activity.record({ kind: "session.resumed", message: "Agent session resumed with a follow-up", ticketId: row.ticketId, actor })

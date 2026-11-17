@@ -24,12 +24,13 @@ export const PERMISSION_MODES: ReadonlyArray<{ id: PermissionMode; label: string
 export const ProjectForm = ({ project, onDone }: { project?: Project; onDone?: (p: Project) => void }) => {
   const qc = useQueryClient()
   const workflows = useQuery(q.workflows())
+  const defaults = useQuery(q.harnessSettings())
   const [name, setName] = useState(project?.name ?? "")
   const [key, setKey] = useState(project?.key ?? "")
   const [repoPath, setRepoPath] = useState(project?.repoPath ?? "")
   const [defaultBranch, setDefaultBranch] = useState(project?.defaultBranch ?? "")
-  const [harness, setHarness] = useState<HarnessId>(project?.defaultHarness ?? "claude")
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>(project?.permissionMode ?? "ask")
+  const [harness, setHarness] = useState<HarnessId | "">(project?.defaultHarness ?? "")
+  const [permissionMode, setPermissionMode] = useState<PermissionMode | "">(project && !project.inheritHarnessPermissions ? project.permissionMode : "")
   const [testCommand, setTestCommand] = useState(project?.testCommand ?? "")
   const [workflowId, setWorkflowId] = useState(project?.defaultWorkflowId ?? "")
   const save = useMutation({
@@ -39,8 +40,9 @@ export const ProjectForm = ({ project, onDone }: { project?: Project; onDone?: (
             name,
             repoPath,
             defaultBranch: defaultBranch || undefined,
-            defaultHarness: harness,
-            permissionMode,
+            defaultHarness: harness || undefined,
+            permissionMode: permissionMode || undefined,
+            inheritHarnessPermissions: !permissionMode,
             testCommand: testCommand || null,
             defaultWorkflowId: workflowId || null
           })
@@ -49,8 +51,9 @@ export const ProjectForm = ({ project, onDone }: { project?: Project; onDone?: (
             key: key || undefined,
             repoPath,
             defaultBranch: defaultBranch || undefined,
-            defaultHarness: harness,
-            permissionMode,
+            defaultHarness: harness || undefined,
+            permissionMode: permissionMode || undefined,
+            inheritHarnessPermissions: !permissionMode,
             testCommand: testCommand || null,
             defaultWorkflowId: workflowId || null
           }),
@@ -98,7 +101,8 @@ export const ProjectForm = ({ project, onDone }: { project?: Project; onDone?: (
           <Input value={defaultBranch} onChange={(e) => setDefaultBranch(e.target.value)} placeholder="auto-detect" />
         </Field>
         <Field label="Default harness">
-          <Select value={harness} onChange={(e) => setHarness(e.target.value as HarnessId)} data-testid="project-harness">
+          <Select value={harness} onChange={(e) => setHarness(e.target.value as HarnessId | "")} data-testid="project-harness">
+            {!project && <option value="">App default · {defaults.data ? HARNESS_LABELS[defaults.data.defaultHarness] : "…"}</option>}
             {(Object.keys(HARNESS_LABELS) as Array<HarnessId>).map((h) => (
               <option key={h} value={h}>
                 {HARNESS_LABELS[h]}
@@ -117,8 +121,9 @@ export const ProjectForm = ({ project, onDone }: { project?: Project; onDone?: (
           </Select>
         </Field>
       </div>
-      <Field label="Agent permissions" hint={mode?.hint}>
-        <Select value={permissionMode} onChange={(e) => setPermissionMode(e.target.value as PermissionMode)}>
+      <Field label="Agent permissions" hint={mode?.hint ?? "Uses the selected harness’s permission default from Settings when a session starts."}>
+        <Select value={permissionMode} onChange={(e) => setPermissionMode(e.target.value as PermissionMode | "")}>
+          <option value="">Use harness default</option>
           {PERMISSION_MODES.map((m) => (
             <option key={m.id} value={m.id}>
               {m.label}
