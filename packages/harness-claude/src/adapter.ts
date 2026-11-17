@@ -55,6 +55,9 @@ export const CLAUDE_MODELS = [
   { id: "haiku", label: "Haiku (latest)" }
 ]
 
+/** `claude --effort` levels. */
+export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
+
 export const makeClaudeAdapter = (options: ClaudeAdapterOptions = {}): HarnessAdapter => {
   const resolveBinary = () => options.binary ?? process.env.AGENTDESK_CLAUDE_BIN ?? findExecutable("claude")
 
@@ -76,6 +79,7 @@ export const makeClaudeAdapter = (options: ClaudeAdapterOptions = {}): HarnessAd
         "stdio",
         ...permissionFlags(input.policy.permissionMode),
         ...(input.policy.model ? ["--model", input.policy.model] : []),
+        ...(input.policy.effort ? ["--effort", input.policy.effort] : []),
         ...(input.policy.appendSystemPrompt ? ["--append-system-prompt", input.policy.appendSystemPrompt] : []),
         ...(input.providerSessionId ? ["--resume", input.providerSessionId] : [])
       ]
@@ -115,7 +119,10 @@ export const makeClaudeAdapter = (options: ClaudeAdapterOptions = {}): HarnessAd
         pid: proc.pid,
         providerSessionId: Effect.sync(() => normalizer.providerSessionId),
         events: eventsStream(events),
-        prompt: (text, images) => proc.write(userMessage(text, images)),
+        prompt: (text, images, options) =>
+          (options?.model ? sendControl({ subtype: "set_model", model: options.model }) : Effect.void).pipe(
+            Effect.andThen(proc.write(userMessage(text, images)))
+          ),
         respondToApproval: (requestId, decision, note) => {
           const input = pendingToolInputs.get(requestId)
           pendingToolInputs.delete(requestId)
@@ -130,7 +137,9 @@ export const makeClaudeAdapter = (options: ClaudeAdapterOptions = {}): HarnessAd
             }) + "\n"
           )
         },
-        interrupt: sendControl({ subtype: "interrupt" })
+        interrupt: sendControl({ subtype: "interrupt" }),
+        // `--effort` is a launch flag: a new effort means resuming in a new process.
+        liveEffort: false
       } satisfies HarnessSession
     })
 
@@ -147,7 +156,8 @@ export const makeClaudeAdapter = (options: ClaudeAdapterOptions = {}): HarnessAd
         binary,
         version: r.stdout.trim().split(/\s+/)[0],
         detail: r.code === 0 ? "Uses the CLI's own login; AgentDesk never reads its credentials." : r.stderr.trim(),
-        models: CLAUDE_MODELS
+        models: CLAUDE_MODELS,
+        efforts: CLAUDE_EFFORTS
       }
     }),
     start: (input) => launch(input),

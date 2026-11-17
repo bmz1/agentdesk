@@ -64,7 +64,8 @@ export const IssuesView = ({
     setView(scope, urlSearch)
   }, [scope, urlSearch])
   const projectId = fixedProjectId ?? search.project
-  const query: TicketQuery = { projectId, source: search.source, q: search.q, pinned: pinnedOnly }
+  // Threads live in the sidebar and Agents; the board shows tracked work. Pinned items show either way.
+  const query: TicketQuery = { projectId, source: search.source, q: search.q, pinned: pinnedOnly, tracked: pinnedOnly ? undefined : true }
   const tickets = useQuery(q.tickets(query))
   const sessions = useQuery(q.sessions(false))
   const projects = useQuery(q.projects())

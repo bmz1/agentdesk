@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { HarnessDefaults } from "./models"
-import { ApprovalDecision, BoardStatus, GitProvider, HarnessId, PermissionMode, Priority } from "./ids"
+import { ApprovalDecision, BoardStatus, GitProvider, HarnessId, PermissionMode, Priority, WorkspaceMode } from "./ids"
 
 /** Request bodies validated at the HTTP boundary. */
 
@@ -40,8 +40,12 @@ export const CreateTicketBody = Schema.Struct({
   priority: Schema.optional(Priority),
   harness: Schema.optional(Schema.NullOr(HarnessId)),
   model: Schema.optional(Schema.NullOr(Schema.String)),
+  effort: Schema.optional(Schema.NullOr(Schema.String)),
   workflowId: Schema.optional(Schema.NullOr(Schema.String)),
-  labels: Schema.optional(Schema.Array(Schema.String))
+  labels: Schema.optional(Schema.Array(Schema.String)),
+  /** False creates a thread, kept off the board. Defaults to true. */
+  tracked: Schema.optional(Schema.Boolean),
+  workspaceMode: Schema.optional(WorkspaceMode)
 })
 export type CreateTicketBody = typeof CreateTicketBody.Type
 
@@ -53,9 +57,11 @@ export const UpdateTicketBody = Schema.Struct({
   priority: Schema.optional(Priority),
   harness: Schema.optional(Schema.NullOr(HarnessId)),
   model: Schema.optional(Schema.NullOr(Schema.String)),
+  effort: Schema.optional(Schema.NullOr(Schema.String)),
   workflowId: Schema.optional(Schema.NullOr(Schema.String)),
   labels: Schema.optional(Schema.Array(Schema.String)),
   pinned: Schema.optional(Schema.Boolean),
+  tracked: Schema.optional(Schema.Boolean),
   sortOrder: Schema.optional(Schema.Number),
   projectId: Schema.optional(Schema.String)
 })
@@ -88,7 +94,11 @@ export type StartRunBody = typeof StartRunBody.Type
 export const PromptBody = Schema.Struct({
   text: Schema.NonEmptyString,
   /** Attachment ids from `POST /attachments`. */
-  images: Schema.optional(Schema.Array(Schema.String))
+  images: Schema.optional(Schema.Array(Schema.String)),
+  /** Switch the session's model from this turn on; null returns to the harness default. */
+  model: Schema.optional(Schema.NullOr(Schema.String)),
+  /** Switch the reasoning effort from this turn on; null returns to the model default. */
+  effort: Schema.optional(Schema.NullOr(Schema.String))
 })
 export type PromptBody = typeof PromptBody.Type
 

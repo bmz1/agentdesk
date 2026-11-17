@@ -77,7 +77,7 @@ export const Sidebar = () => {
           <Button variant="ghost" size="icon" onClick={() => setCommandOpen(true)} aria-label="Search">
             <Search />
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => openCreate()} aria-label="New ticket" data-testid="new-ticket">
+          <Button variant="ghost" size="icon" onClick={() => openCreate(undefined, "thread")} aria-label="New thread (⌘N)" title="New thread (⌘N)" data-testid="new-ticket">
             <Plus />
           </Button>
         </div>
@@ -127,7 +127,7 @@ export const Sidebar = () => {
                 </Link>
                 <button
                   type="button"
-                  onClick={() => openCreate(p.id)}
+                  onClick={() => openCreate(p.id, "thread")}
                   className="flex size-7 shrink-0 items-center justify-center rounded-md text-fg-subtle hover:bg-bg-muted hover:text-fg"
                   aria-label={`New thread in ${p.name}`}
                   title="New thread / ticket"

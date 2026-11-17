@@ -1,7 +1,7 @@
 import type { BoardStatus, Ticket } from "@agentdesk/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { Bot, CheckSquare, ChevronLeft, FileDiff, FolderGit2, FolderTree, GitBranchPlus, History, Info, Pin, PinOff, Columns2 } from "lucide-react"
+import { Bot, CheckSquare, ChevronLeft, Eye, FileDiff, FolderGit2, FolderTree, GitBranch, GitBranchPlus, History, Info, KanbanSquare, MessagesSquare, Pin, PinOff, Columns2 } from "lucide-react"
 import { BOARD_COLUMNS, RunStatusBadge, SourceBadge } from "@/components/status"
 import { Button } from "@/components/ui/button"
 import { Select } from "@/components/ui/input"
@@ -34,6 +34,7 @@ export const TicketDetail = ({
   onSession: (id: string | undefined) => void
 }) => {
   const ticket = useQuery(q.ticket(ticketId))
+  const workspace = useQuery(q.ticketWorkspace(ticketId))
   const layout = useUi((s) => s.ticketLayouts[ticketId])
   const setLayout = useUi((s) => s.setTicketLayout)
   const qc = useQueryClient()
@@ -63,7 +64,7 @@ export const TicketDetail = ({
   return (
     <div className="flex h-full min-w-0 flex-col">
       <header className="flex items-center gap-2 border-b px-4 py-2">
-        <Link to="/issues" className="rounded p-1 text-fg-muted hover:bg-bg-muted">
+        <Link to={t.tracked ? "/issues" : "/agents"} className="rounded p-1 text-fg-muted hover:bg-bg-muted">
           <ChevronLeft className="size-4" />
         </Link>
         <span className="font-mono text-xs text-fg-muted">{t.identifier}</span>
@@ -76,18 +77,30 @@ export const TicketDetail = ({
           setLayout(ticketId, { split: !split, width: layout?.width ?? 50 })
           if (tab !== "agent" && tab !== "changes") onTab("agent")
         }} data-testid="toggle-agent-split"><Columns2 /> Chat + changes</Button>
-        <Select
-          value={t.status}
-          onChange={(e) => update.mutate({ status: e.target.value as BoardStatus })}
-          title="Local board status (never written back to the source)"
-          data-testid="ticket-status"
-        >
-          {BOARD_COLUMNS.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label}
-            </option>
-          ))}
-        </Select>
+        {t.workspaceMode === "readonly" && <WorkspaceIndicator branch={workspace.data?.cleanupState === "active" ? workspace.data.branch : undefined} />}
+        {t.tracked ? (
+          <Select
+            value={t.status}
+            onChange={(e) => update.mutate({ status: e.target.value as BoardStatus })}
+            title="Local board status (never written back to the source)"
+            data-testid="ticket-status"
+          >
+            {BOARD_COLUMNS.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </Select>
+        ) : (
+          <>
+            <span className="inline-flex items-center gap-1 rounded bg-bg-muted px-1.5 py-0.5 text-[11px] text-fg-muted" title="Threads stay off the board">
+              <MessagesSquare className="size-3" /> Thread
+            </span>
+            <Button size="sm" variant="ghost" onClick={() => update.mutate({ tracked: true })} title="Put this thread on the board as a ticket" data-testid="track-thread">
+              <KanbanSquare /> Track on board
+            </Button>
+          </>
+        )}
         <Button variant="ghost" size="icon" onClick={() => update.mutate({ pinned: !t.pinned })} title={t.pinned ? "Unpin" : "Pin to My issues"}>
           {t.pinned ? <PinOff /> : <Pin />}
         </Button>
@@ -186,3 +199,19 @@ const HistoryTab = ({ ticketId }: { ticketId: string }) => {
     </div>
   )
 }
+
+/** Where a read-only thread's agent works: the main checkout until it creates a worktree we adopt. */
+const WorkspaceIndicator = ({ branch }: { branch: string | undefined }) =>
+  branch ? (
+    <span className="inline-flex max-w-48 items-center gap-1 rounded bg-bg-muted px-1.5 py-0.5 text-[11px] text-fg-muted" title={`Agent's worktree: ${branch}`} data-testid="thread-worktree-branch">
+      <GitBranch className="size-3 shrink-0" /> <span className="truncate font-mono">{branch}</span>
+    </span>
+  ) : (
+    <span
+      className="inline-flex items-center gap-1 rounded bg-bg-muted px-1.5 py-0.5 text-[11px] text-fg-muted"
+      title="The agent reads your main checkout without changing it. When it needs to edit code it creates a worktree, which is picked up automatically."
+      data-testid="thread-readonly"
+    >
+      <Eye className="size-3" /> Read-only
+    </span>
+  )

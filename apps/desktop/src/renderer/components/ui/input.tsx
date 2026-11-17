@@ -39,6 +39,8 @@ export const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttrib
         "appearance-none pr-7"
       )}
       {...props}
+      // Inline so no stylesheet can bring back the native arrow next to the custom chevron.
+      style={{ ...props.style, appearance: "none", WebkitAppearance: "none" }}
     />
   )
 )

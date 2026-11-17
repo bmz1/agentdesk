@@ -129,8 +129,11 @@ export class TranscriptBuilder {
         this.items.push({
           kind: "status",
           key,
-          text: e.detail ? `${e.state.replace(/_/g, " ")} — ${e.detail}` : e.state.replace(/_/g, " "),
-          tone: e.state === "interrupted" ? "warning" : "neutral"
+          text:
+            e.state === "edit_blocked" || e.state === "worktree_adopted"
+              ? e.detail ?? e.state.replace(/_/g, " ")
+              : e.detail ? `${e.state.replace(/_/g, " ")} — ${e.detail}` : e.state.replace(/_/g, " "),
+          tone: e.state === "interrupted" || e.state === "edit_blocked" ? "warning" : e.state === "worktree_adopted" ? "success" : "neutral"
         })
         break
       case "session.error":

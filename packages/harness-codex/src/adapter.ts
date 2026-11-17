@@ -6,6 +6,7 @@ import {
   type HarnessAdapter,
   type HarnessSession,
   type PromptImage,
+  type PromptOptions,
   isRecord,
   runCommand,
   spawnManaged,
@@ -63,7 +64,14 @@ export const listCodexModels = (binary: string) =>
       const data = Array.isArray(result.data) ? result.data : []
       return data.flatMap((m) => {
         const id = isRecord(m) && m.hidden !== true ? str(m.id) : undefined
-        return id ? [{ id, label: str((m as Record<string, unknown>).displayName) ?? id }] : []
+        if (!id) return []
+        const rec = m as Record<string, unknown>
+        const efforts = (Array.isArray(rec.supportedReasoningEfforts) ? rec.supportedReasoningEfforts : []).flatMap((e) => {
+          const level = isRecord(e) ? str(e.reasoningEffort) : str(e)
+          return level ? [level] : []
+        })
+        const defaultEffort = str(rec.defaultReasoningEffort)
+        return [{ id, label: str(rec.displayName) ?? id, ...(efforts.length && { efforts }), ...(defaultEffort && { defaultEffort }) }]
       })
     })
   ).pipe(
@@ -175,20 +183,26 @@ export const makeCodexAdapter = (options: CodexAdapterOptions = {}): HarnessAdap
 
       // Codex accepts one turn at a time. Prompts go through a queue drained by a
       // single scoped fiber that starts a turn and waits for its completion.
-      const prompts = yield* Queue.unbounded<{ text: string; images: ReadonlyArray<PromptImage> }>()
+      const prompts = yield* Queue.unbounded<{ text: string; images: ReadonlyArray<PromptImage>; model?: string; effort?: string }>()
+      // Codex takes the effort per turn; remember the latest so every turn carries it.
+      let effort = input.policy.effort
       yield* Effect.gen(function* () {
-        const { text, images } = yield* Queue.take(prompts)
+        const { text, images, model, effort: turnEffort } = yield* Queue.take(prompts)
+        if (turnEffort) effort = turnEffort
         const done = yield* Deferred.make<void>()
         turnDone = done
-        yield* startTurn(text, images).pipe(
+        yield* startTurn(text, images, model).pipe(
           Effect.catch((e) => Effect.andThen(emit({ type: "session.error", message: e.message }), Deferred.succeed(done, undefined)))
         )
         yield* Deferred.await(done)
       }).pipe(Effect.forever, Effect.forkScoped)
 
-      const startTurn = (text: string, images: ReadonlyArray<PromptImage>) =>
+      const startTurn = (text: string, images: ReadonlyArray<PromptImage>, model?: string) =>
         request("turn/start", {
           threadId,
+          // A per-turn override that also sticks for later turns of the thread.
+          ...(model && { model }),
+          ...(effort && { effort }),
           input: [{ type: "text", text, text_elements: [] }, ...images.map((i) => ({ type: "localImage", path: i.path }))]
         }).pipe(
           Effect.tap((r) =>
@@ -200,7 +214,13 @@ export const makeCodexAdapter = (options: CodexAdapterOptions = {}): HarnessAdap
           Effect.asVoid,
           Effect.withSpan("codex.turn.start", { attributes: { threadId } })
         )
-      const prompt = (text: string, images: ReadonlyArray<PromptImage> = []) => Queue.offer(prompts, { text, images }).pipe(Effect.asVoid)
+      const prompt = (text: string, images: ReadonlyArray<PromptImage> = [], options?: PromptOptions) =>
+        Queue.offer(prompts, {
+          text,
+          images,
+          ...(options?.model && { model: options.model }),
+          ...(options?.effort && { effort: options.effort })
+        }).pipe(Effect.asVoid)
 
       if (input.prompt) yield* prompt(input.prompt, input.images)
 

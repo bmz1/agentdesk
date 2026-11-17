@@ -40,12 +40,14 @@ interface UiState {
   commandOpen: boolean
   createTicketOpen: boolean
   createTicketProjectId: string | undefined
+  /** Which form the create dialog opens with: a quick thread (default) or a full ticket. */
+  createKind: "thread" | "ticket"
   daemonConnected: boolean
   lastRoute: string | undefined
   toggleSidebar(): void
   setTheme(t: UiState["theme"]): void
   setCommandOpen(open: boolean): void
-  openCreateTicket(projectId?: string): void
+  openCreateTicket(projectId?: string, kind?: "thread" | "ticket"): void
   closeCreateTicket(): void
   setDaemonConnected(c: boolean): void
   setLastRoute(r: string): void
@@ -70,12 +72,13 @@ export const useUi = create<UiState>()(
       commandOpen: false,
       createTicketOpen: false,
       createTicketProjectId: undefined,
+      createKind: "thread",
       daemonConnected: false,
       lastRoute: undefined,
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setTheme: (theme) => set({ theme }),
       setCommandOpen: (commandOpen) => set({ commandOpen }),
-      openCreateTicket: (projectId) => set({ createTicketOpen: true, createTicketProjectId: projectId }),
+      openCreateTicket: (projectId, kind = "ticket") => set({ createTicketOpen: true, createTicketProjectId: projectId, createKind: kind }),
       closeCreateTicket: () => set({ createTicketOpen: false }),
       setDaemonConnected: (daemonConnected) => set({ daemonConnected }),
       setLastRoute: (lastRoute) => set({ lastRoute })

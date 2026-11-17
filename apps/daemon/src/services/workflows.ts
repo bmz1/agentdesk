@@ -24,10 +24,11 @@ import { newId, nowIso } from "../util"
 import { Activity } from "./activity"
 import { Approvals, toApproval } from "./approvals"
 import { Database } from "./database"
+import { EventLog } from "./event-log"
 import { Notices } from "./notices"
 import { Projects } from "./projects"
 import { HarnessSettings } from "./harness-settings"
-import { buildTicketPrompt, projectPolicy, Sessions, ticketModel } from "./sessions"
+import { buildTicketPrompt, projectPolicy, Sessions, ticketEffort, ticketModel } from "./sessions"
 import { Tickets } from "./tickets"
 import { Workspaces } from "./workspaces"
 
@@ -69,6 +70,11 @@ export interface WorkflowsShape {
   readonly list: (filter: { ticketId?: string; status?: string }) => Effect.Effect<ReadonlyArray<WorkflowRun>, DbError>
   readonly cancel: (id: string) => Effect.Effect<void, NotFound | BadRequest | DbError>
   readonly resume: (id: string) => Effect.Effect<void, NotFound | BadRequest | DbError>
+  /**
+   * A follow-up was sent to a step session of an interrupted run: resume the run so the step
+   * continues with that conversation. No-op for any other session.
+   */
+  readonly continueFromSession: (sessionId: string) => Effect.Effect<void, NotFound | BadRequest | DbError>
   /** Re-run the last failed step as a new attempt. */
   readonly retry: (id: string) => Effect.Effect<void, NotFound | BadRequest | DbError>
   readonly resolveApproval: (
@@ -129,6 +135,7 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
       const activity = yield* Activity
       const approvals = yield* Approvals
       const sessions = yield* Sessions
+      const events = yield* EventLog
       const tickets = yield* Tickets
       const projects = yield* Projects
       const workspaces = yield* Workspaces
@@ -277,6 +284,27 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
       type RunContext = Effect.Success<ReturnType<typeof context>>
 
       // ---- step kinds -----------------------------------------------------------------
+      /**
+       * An agent step interrupted by a daemon restart whose conversation the user then continued
+       * by hand. The step adopts that conversation's latest turn instead of starting over.
+       */
+      const continuedSession = (runId: string, stepId: string, stepRunId: string) =>
+        Effect.gen(function* () {
+          const prev = (yield* stepsOf(runId))
+            .filter((s) => s.stepId === stepId && s.state === "interrupted" && s.sessionId && s.id !== stepRunId)
+            .at(-1)
+          if (!prev?.sessionId) return undefined
+          const history = yield* events.history(prev.sessionId, { limit: 100_000 })
+          const interruptedAt = history.find((e) => e.event.type === "session.status" && e.event.state === "interrupted")?.id
+          if (interruptedAt === undefined) return undefined
+          const prompt = history.filter((e) => e.id > interruptedAt && e.event.type === "user.prompt").at(-1)
+          if (!prompt) return undefined
+          const finished = history.some((e) => e.id > prompt.id && e.event.type === "turn.completed")
+          // A turn that never finished and has no live process would wait forever: start over instead.
+          if (!finished && !sessions.isLive(prev.sessionId)) return undefined
+          return { sessionId: prev.sessionId, afterEventId: prompt.id }
+        })
+
       const agentStep = Effect.fn("Workflow.agentStep")(function* (
         run: RunRow,
         step: PlanStep,
@@ -299,20 +327,39 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
         }
         const harness = (run.harnessOverride ?? step.harness ?? ticket.harness ?? project.defaultHarness) as HarnessId
         yield* Effect.annotateCurrentSpan({ harness, contextArtifacts: step.context.length, isRetry: retryOf !== undefined })
-        const session = yield* sessions.start({
+        const continued = retryOf === undefined ? yield* continuedSession(run.id, step.id, stepRunId) : undefined
+        if (continued) {
+          yield* setStep(stepRunId, { sessionId: continued.sessionId })
+          yield* notices.publish({ topic: "runs", runId: run.id, ticketId: run.ticketId })
+          yield* activity.record({
+            kind: "step.continued",
+            message: `Step "${step.name}" continues with the conversation resumed after the interruption`,
+            ticketId: run.ticketId,
+            runId: run.id
+          })
+        }
+        const session = continued ? { id: continued.sessionId } : yield* sessions.start({
           ticketId: run.ticketId,
           harness,
           cwd: ws.path,
           workspaceId: ws.id,
           runId: run.id,
           stepRunId,
-          policy: yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, harness), (yield* harnessSettings.get).harnesses[harness]),
+          policy: yield* projectPolicy(
+            project,
+            config.sandboxPrefix,
+            ticketModel(ticket, project, harness),
+            (yield* harnessSettings.get).harnesses[harness],
+            ticketEffort(ticket, project, harness)
+          ),
           prompt: buildTicketPrompt(ticket, parts.join("\n\n"))
         })
-        yield* setStep(stepRunId, { sessionId: session.id })
-        yield* notices.publish({ topic: "runs", runId: run.id, ticketId: run.ticketId })
+        if (!continued) {
+          yield* setStep(stepRunId, { sessionId: session.id })
+          yield* notices.publish({ topic: "runs", runId: run.id, ticketId: run.ticketId })
+        }
         const turn = yield* sessions
-          .awaitTurn(session.id, 0)
+          .awaitTurn(session.id, continued?.afterEventId ?? 0)
           .pipe(step.timeoutSec ? Effect.timeoutOption(Duration.seconds(step.timeoutSec)) : Effect.map(Option.some))
         yield* sessions.stop(session.id).pipe(Effect.ignore)
         if (Option.isNone(turn)) return { state: "failed", error: `Agent step timed out after ${step.timeoutSec}s` }
@@ -706,6 +753,16 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
         yield* schedule(id)
       })
 
+      const continueFromSession = Effect.fn("Workflows.continueFromSession")(function* (sessionId: string) {
+        const session = yield* sessions.get(sessionId)
+        if (!session.runId) return
+        const run = yield* getRunRow(session.runId)
+        if (run.status !== "interrupted") return
+        const last = (yield* stepsOf(run.id)).at(-1)
+        if (last?.sessionId !== sessionId || last.state !== "interrupted") return
+        yield* resume(run.id)
+      })
+
       const retry = Effect.fn("Workflows.retry")(function* (id: string) {
         const run = yield* getRunRow(id)
         if (run.status !== "failed") return yield* new BadRequest({ message: "Only failed runs can be retried" })
@@ -818,6 +875,7 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
           ),
         cancel,
         resume,
+        continueFromSession,
         retry,
         resolveApproval,
         artifact: (id) =>

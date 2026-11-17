@@ -11,6 +11,7 @@ import { q, qk } from "@/lib/queries"
 import { useUi } from "@/lib/store"
 import { relativeTime } from "@/lib/utils"
 import { Composer } from "./composer"
+import { ComposerModelPicker } from "./model-picker"
 import { Transcript } from "./transcript"
 import { useSessionEvents } from "./use-session-events"
 
@@ -40,7 +41,7 @@ export const AgentPanel = ({
   return (
     <div className="flex h-full flex-col">
       <SessionHeader sessions={list} selected={selected} onSelect={onSelectSession} ticket={ticket} />
-      <SessionView key={selected.id} session={selected} />
+      <SessionView key={selected.id} session={selected} ticket={ticket} />
     </div>
   )
 }
@@ -106,8 +107,21 @@ const SessionHeader = ({
   )
 }
 
-const SessionView = ({ session }: { session: AgentSession }) => {
+const SessionView = ({ session, ticket }: { session: AgentSession; ticket: Ticket }) => {
   const { items, connected, lastId } = useSessionEvents(session.id)
+  const project = useQuery(q.project(ticket.projectId))
+  // The ticket's model applies when the session runs the ticket's own harness; otherwise the harness default
+  // until switched here. `picked` is a switch not yet sent.
+  const ticketHarness = ticket.harness ?? project.data?.defaultHarness
+  const own = session.harness === ticketHarness
+  const [switched, setSwitched] = useState<{ model?: string | null; effort?: string | null }>({})
+  const [picked, setPicked] = useState<{ model?: string | null; effort?: string | null }>({})
+  const current = {
+    model: switched.model !== undefined ? switched.model : own ? ticket.model : null,
+    effort: switched.effort !== undefined ? switched.effort : own ? ticket.effort : null
+  }
+  const model = picked.model !== undefined ? picked.model : current.model
+  const effort = picked.effort !== undefined ? picked.effort : current.effort
   const markRead = useUi((s) => s.markSessionRead)
   useEffect(() => {
     const read = () => {
@@ -150,10 +164,32 @@ const SessionView = ({ session }: { session: AgentSession }) => {
         )}
       </div>
       <Composer
-        onSend={(text, images) => api.prompt(session.id, text, images)}
+        onSend={async (text, images) => {
+          const change = {
+            ...(model !== current.model && { model }),
+            ...(effort !== current.effort && { effort })
+          }
+          await api.prompt(session.id, text, images, change)
+          setSwitched((s) => ({ ...s, ...change }))
+          setPicked({})
+        }}
         onInterrupt={() => void api.interrupt(session.id)}
         running={session.state === "running"}
-        meta={`${HARNESS_LABELS[session.harness]} · ${session.state === "idle" ? "awaiting follow-up" : session.state.replace(/_/g, " ")}`}
+        meta={
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="shrink-0">{HARNESS_LABELS[session.harness]}</span>
+            <ComposerModelPicker
+              harness={session.harness}
+              model={model}
+              effort={effort}
+              // A new model has its own effort levels: start from its default.
+              onModel={(m) => setPicked({ model: m, effort: null })}
+              onEffort={(e) => setPicked((p) => ({ ...p, effort: e }))}
+              disabled={!live && !resumable}
+            />
+            <span className="truncate">· {session.state === "idle" ? "awaiting follow-up" : session.state.replace(/_/g, " ")}</span>
+          </span>
+        }
         disabled={!live && !resumable}
         placeholder={
           live ? undefined : resumable ? "Send a follow-up to resume this conversation…" : "This session has ended. Start a new session."

@@ -71,6 +71,31 @@ export const worktreeRemove = (repo: string, path: string, force = false) =>
     Effect.asVoid
   )
 
+export interface WorktreeEntry {
+  readonly path: string
+  /** Short branch name; null when detached. */
+  readonly branch: string | null
+  readonly head: string | null
+}
+
+/** Parse `git worktree list --porcelain`. The first entry is the main checkout. */
+export const parseWorktreeList = (porcelain: string): ReadonlyArray<WorktreeEntry> =>
+  porcelain
+    .split(/\n\n+/)
+    .map((block) => {
+      const lines = block.split("\n")
+      const value = (key: string) => lines.find((l) => l.startsWith(`${key} `))?.slice(key.length + 1) ?? null
+      const path = value("worktree")
+      return path
+        ? { path, branch: value("branch")?.replace(/^refs\/heads\//, "") ?? null, head: value("HEAD") }
+        : undefined
+    })
+    .filter((w): w is WorktreeEntry => w !== undefined)
+
+/** Linked worktrees of a repository, excluding the main checkout. */
+export const worktreeList = (repo: string) =>
+  git(repo, ["worktree", "list", "--porcelain"]).pipe(Effect.map((s) => parseWorktreeList(s).slice(1)))
+
 export interface StatusEntry {
   readonly path: string
   readonly status: string

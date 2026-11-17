@@ -30,6 +30,7 @@ When you run `pnpm dev:web`, open `http://localhost:5173/?daemon=http://127.0.0.
 
 ## Managing agent work
 
+- **Threads** are for brainstorming and back-and-forth work. Start one with **⌘N** (or the sidebar **+**): write a message, pick a project, go. Threads stay off the board, show up in the sidebar and **Agents**, and become board tickets with **Track on board**. By default a thread is read-only in the main checkout: edits there are refused automatically. When the agent needs to change code, it creates its own git worktree, and AgentDesk infers it from the worktrees that appeared during the session and the agent's tool calls, then adopts it for diff, review and PRs. Tick **Start in a new worktree** to isolate a thread from the first message.
 - Use the project’s **+** to create a local ticket with any supported harness. **Create & start** launches it immediately; a failed start keeps the ticket available for retry. Closing the dialog preserves the draft until creation succeeds.
 - **Agents** offers board and list layouts, grouped into Needs you, Working, Awaiting follow-up, and Recent. Cards show the latest meaningful message and open the exact session. A finished turn does not mark the ticket Done.
 - Project and issue views remember their layout and filters. Explicit URL filters take precedence over saved preferences.

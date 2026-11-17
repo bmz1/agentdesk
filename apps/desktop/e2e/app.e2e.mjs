@@ -94,12 +94,14 @@ try {
 
   // Create from the project's plus button with a harness override.
   await page.click('[data-testid="project-new-thread"]')
+  await page.click('[data-testid="create-kind-ticket"]')
   const selectedProject = await page.inputValue('[data-testid="ticket-project"]')
   const projectId = new URL(page.url()).hash.split("/projects/")[1]?.split("?")[0]
   if (selectedProject !== projectId) fail("project plus did not preselect its project")
   await page.fill('[data-testid="ticket-title"]', "Write release notes")
   await page.keyboard.press("Escape")
   await page.click('[data-testid="project-new-thread"]')
+  await page.click('[data-testid="create-kind-ticket"]')
   if (await page.inputValue('[data-testid="ticket-title"]') !== "Write release notes") fail("creation draft lost on close")
   await page.selectOption('[data-testid="ticket-harness"]', "mock")
   await assertDropdowns()
@@ -196,6 +198,21 @@ try {
   }
   const final = await page.locator('[data-testid="run-status"]').getAttribute("data-status")
   if (final !== "completed") fail(`workflow ended ${final}`)
+
+  // A thread: ⌘N, one message, read-only in the main checkout, kept off the board until tracked.
+  await page.keyboard.press("ControlOrMeta+n")
+  await page.fill('[data-testid="thread-prompt"]', "How should we structure the release notes? [noop]")
+  await page.selectOption('[data-testid="ticket-harness"]', "mock")
+  if (await page.isChecked('[data-testid="thread-worktree"]')) fail("thread defaulted to a worktree")
+  await page.keyboard.press("ControlOrMeta+Enter")
+  await page.waitForSelector('[data-testid="ticket-heading"]:has-text("How should we structure the release notes?")')
+  await page.waitForSelector('[data-testid="thread-readonly"]')
+  const thread = (await get("/tickets?tracked=0"))[0]
+  if (!thread || thread.workspaceMode !== "readonly") fail("thread was not created read-only and untracked")
+  if ((await get("/tickets?tracked=1")).some((t) => t.id === thread.id)) fail("thread appeared on the board")
+  await page.click('[data-testid="track-thread"]')
+  await page.waitForSelector('[data-testid="ticket-status"]')
+  if (!(await get(`/tickets/${thread.id}`)).tracked) fail("tracking the thread did not put it on the board")
   if (errors.length) fail(`page errors: ${errors.join("\n")}`)
   console.log(`E2E PASSED (screenshots: ${home})`)
 } catch (e) {

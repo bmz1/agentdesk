@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Command } from "cmdk"
-import { Bot, FolderGit2, Inbox, LayoutGrid, Plus, Settings, Workflow } from "lucide-react"
+import { Bot, FolderGit2, Inbox, LayoutGrid, MessageSquarePlus, Plus, Settings, Workflow } from "lucide-react"
 import { Dialog as D } from "radix-ui"
 import { useEffect, useState } from "react"
 import { StatusIcon } from "@/components/status"
@@ -22,6 +22,10 @@ export const CommandPalette = () => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault()
         setOpen(!useUi.getState().commandOpen)
+      }
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "n") {
+        e.preventDefault()
+        openCreate(undefined, "thread")
       }
       if (e.key === "c" && !e.metaKey && !e.ctrlKey && !isTyping(e)) {
         e.preventDefault()
@@ -56,6 +60,9 @@ export const CommandPalette = () => {
               <Command.Empty className="px-3 py-6 text-center text-xs text-fg-subtle">No results</Command.Empty>
               {!search && (
                 <Command.Group heading="Actions">
+                  <Item onSelect={() => go(() => openCreate(undefined, "thread"))} icon={<MessageSquarePlus />}>
+                    New thread
+                  </Item>
                   <Item onSelect={() => go(() => openCreate())} icon={<Plus />}>
                     Create local ticket
                   </Item>

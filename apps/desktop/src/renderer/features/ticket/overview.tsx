@@ -37,6 +37,7 @@ import { q } from "@/lib/queries"
 import { cn, relativeTime } from "@/lib/utils"
 import { RichText } from "../session/rich-text"
 import { ActivityTimeline } from "./activity-timeline"
+import { effortsFor } from "../session/model-picker"
 import type { TicketTab } from "./ticket-detail"
 
 type UpdateBody = Parameters<typeof api.updateTicket>[1]
@@ -301,7 +302,10 @@ const Sidebar = ({ ticket, onUpdate }: { ticket: Ticket; onUpdate: (b: UpdateBod
           </Select>
         </Prop>
         {project.data && (
-          <ModelProps harness={ticket.harness ?? project.data.defaultHarness} value={ticket.model} onChange={(model) => onUpdate({ model })} />
+          <>
+            <ModelProps harness={ticket.harness ?? project.data.defaultHarness} value={ticket.model} onChange={(model) => onUpdate({ model })} />
+            <EffortProp harness={ticket.harness ?? project.data.defaultHarness} model={ticket.model} value={ticket.effort} onChange={(effort) => onUpdate({ effort })} />
+          </>
         )}
         <Prop label="Workflow">
           <Select value={ticket.workflowId ?? ""} onChange={(e) => onUpdate({ workflowId: e.target.value || null })} className={ghostSelect}>
@@ -441,6 +445,28 @@ const ModelProps = ({ harness, value, onChange }: { harness: HarnessId; value: s
         </Select>
       </Prop>
     </>
+  )
+}
+
+/** Reasoning effort for the ticket's harness; hidden when the harness reports no levels. */
+const EffortProp = ({ harness, model, value, onChange }: { harness: HarnessId; model: string | null; value: string | null; onChange: (effort: string | null) => void }) => {
+  const detections = useQuery(q.harnesses())
+  const defaults = useQuery(q.harnessSettings())
+  const detection = detections.data?.find((d) => d.id === harness)
+  const { levels, defaultLevel } = effortsFor(detection?.efforts, detection?.models ?? [], model ?? defaults.data?.harnesses[harness]?.model)
+  if (levels.length === 0 && !value) return null
+  const options = value && !levels.includes(value) ? [...levels, value] : levels
+  return (
+    <Prop label="Effort">
+      <Select value={value ?? ""} onChange={(e) => onChange(e.target.value || null)} className={ghostSelect} data-testid="ticket-effort">
+        <option value="">{defaultLevel ? `Default · ${defaultLevel}` : "Model default"}</option>
+        {options.map((l) => (
+          <option key={l} value={l}>
+            {l}
+          </option>
+        ))}
+      </Select>
+    </Prop>
   )
 }
 

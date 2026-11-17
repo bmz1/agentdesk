@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs"
+import { basename, dirname, join, relative } from "node:path"
 import type {
   ImageRef,
   AgentEvent,
@@ -11,7 +12,7 @@ import type {
   Ticket
 } from "@agentdesk/contracts"
 import { agentSessions } from "@agentdesk/db"
-import type { GitError } from "@agentdesk/git"
+import * as Git from "@agentdesk/git"
 import { type HarnessError, type HarnessSession, type PromptImage, type RunPolicy, runCommand } from "@agentdesk/harness-core"
 import { and, desc, eq, inArray } from "drizzle-orm"
 import { Context, Effect, Exit, FiberMap, Layer, Option, Scope, Stream } from "effect"
@@ -28,10 +29,26 @@ import { HarnessSettings } from "./harness-settings"
 import { Harnesses } from "./harnesses"
 import { Notices } from "./notices"
 import { Projects } from "./projects"
+import {
+  actionText,
+  editTargets,
+  inferCreatedWorktree,
+  readOnlyPolicy,
+  touchesMainCheckout
+} from "./readonly-threads"
 import { Tickets } from "./tickets"
-import { Workspaces } from "./workspaces"
+import { canonicalPath, Workspaces } from "./workspaces"
 
 type Row = typeof agentSessions.$inferSelect
+
+/** Canonicalize a path that may not exist yet (a file about to be written) via its nearest existing parent. */
+const canonicalPathOf = (p: string): string => {
+  if (existsSync(p)) return canonicalPath(p)
+  const parent = dirname(p)
+  return parent === p ? p : join(canonicalPathOf(parent), basename(p))
+}
+
+const relativeTo = (root: string, p: string) => relative(root, p) || "."
 
 export const LIVE_STATES: ReadonlyArray<SessionState> = ["starting", "running", "waiting_for_approval", "idle"]
 
@@ -46,6 +63,8 @@ export interface StartSessionInput {
   readonly workspaceId?: string | null
   readonly runId?: string | null
   readonly stepRunId?: string | null
+  /** Read-only thread in the main checkout: edits there are refused, a worktree the agent creates is adopted. */
+  readonly readOnly?: boolean
 }
 
 export interface StartForTicketInput {
@@ -55,6 +74,11 @@ export interface StartForTicketInput {
   readonly images?: ReadonlyArray<string>
 }
 
+export interface PromptSwitches {
+  readonly model?: string | null
+  readonly effort?: string | null
+}
+
 export interface TurnResult {
   readonly status: "success" | "error" | "interrupted" | "exited"
   /** Concatenated final assistant messages of the turn. */
@@ -62,7 +86,7 @@ export interface TurnResult {
   readonly lastEventId: number
 }
 
-type SessionError = NotFound | BadRequest | Conflict | DbError | HarnessError | GitError
+type SessionError = NotFound | BadRequest | Conflict | DbError | HarnessError | Git.GitError
 
 export interface SessionsShape {
   readonly start: (input: StartSessionInput) => Effect.Effect<AgentSession, SessionError>
@@ -70,7 +94,14 @@ export interface SessionsShape {
   readonly get: (id: string) => Effect.Effect<AgentSession, NotFound | DbError>
   readonly list: (filter: { ticketId?: string; active?: boolean; limit?: number }) => Effect.Effect<ReadonlyArray<AgentSession>, DbError>
   /** Send a follow-up. Transparently resumes the provider conversation if the process is gone. */
-  readonly prompt: (id: string, text: string, actor?: string, images?: ReadonlyArray<string>) => Effect.Effect<void, SessionError>
+  readonly prompt: (
+    id: string,
+    text: string,
+    actor?: string,
+    images?: ReadonlyArray<string>,
+    /** Switch model or effort from this turn on (null: default). Omitted keeps the current one. */
+    switches?: PromptSwitches
+  ) => Effect.Effect<void, SessionError>
   readonly interrupt: (id: string) => Effect.Effect<void, SessionError>
   /** Terminate the harness process. */
   readonly stop: (id: string) => Effect.Effect<void, SessionError>
@@ -97,6 +128,8 @@ interface LiveSession {
   readonly lockHolder: string | undefined
   readonly workspaceId: string | null
   stopping: boolean
+  /** Stopped only to relaunch with new settings (effort): not an ended session. */
+  restarting: boolean
   exitCode: number | null | undefined
 }
 
@@ -108,7 +141,8 @@ export const projectPolicy = (
   project: Project,
   sandboxPrefix: ReadonlyArray<string> | undefined,
   model?: string | null,
-  defaults?: HarnessDefaults
+  defaults?: HarnessDefaults,
+  effort?: string | null
 ) => {
   const permissionMode = project.inheritHarnessPermissions ? defaults?.permissionMode ?? "ask" : project.permissionMode
   return permissionMode === "unrestricted" && !sandboxPrefix?.length
@@ -116,6 +150,7 @@ export const projectPolicy = (
     : Effect.succeed<RunPolicy>({
         permissionMode,
         ...((model ?? defaults?.model) && { model: (model ?? defaults?.model)! }),
+        ...(effort && { effort }),
         ...(defaults?.instructions && { appendSystemPrompt: defaults.instructions }),
         ...(permissionMode === "unrestricted" && { sandboxPrefix })
       })
@@ -128,16 +163,35 @@ export const projectPolicy = (
 export const ticketModel = (ticket: Ticket, project: Project, harness: HarnessId) =>
   harness === (ticket.harness ?? project.defaultHarness) ? ticket.model : null
 
-export const buildTicketPrompt = (ticket: Ticket, extra?: string) =>
+/** Same rule as the model: effort levels only mean something to the ticket's own harness. */
+export const ticketEffort = (ticket: Ticket, project: Project, harness: HarnessId) =>
+  harness === (ticket.harness ?? project.defaultHarness) ? ticket.effort : null
+
+export const buildTicketPrompt = (ticket: Ticket, extra?: string, inWorktree = true) =>
   [
     `You are working on ticket ${ticket.identifier}: ${ticket.title}`,
     ticket.description ? `\n## Description\n${ticket.description}` : "",
     ticket.acceptanceCriteria ? `\n## Acceptance criteria\n${ticket.acceptanceCriteria}` : "",
-    "\nYou are running inside a dedicated git worktree for this ticket. Keep changes focused on the ticket.",
+    inWorktree ? "\nYou are running inside a dedicated git worktree for this ticket. Keep changes focused on the ticket." : "",
     extra ? `\n## Instructions\n${extra}` : ""
   ]
     .filter(Boolean)
     .join("\n")
+
+/**
+ * First prompt of a session. Board tickets get the ticket brief; a thread is a plain
+ * conversation, so the user's own words go to the agent unchanged.
+ */
+export const firstPrompt = (ticket: Ticket, extra: string | undefined, inWorktree: boolean) =>
+  ticket.tracked ? buildTicketPrompt(ticket, extra, inWorktree) : extra?.trim() || ticket.description || ticket.title
+
+interface ReadOnlyContext {
+  readonly projectId: string
+  readonly repoPath: string
+  readonly ticketId: string
+  /** Canonical paths of linked worktrees when the session started; undefined after a daemon restart. */
+  readonly snapshot: ReadonlySet<string> | undefined
+}
 
 export const SessionsLive = Layer.effect(
   Sessions,
@@ -174,7 +228,78 @@ export const SessionsLive = Layer.effect(
     const consumers = yield* FiberMap.make<string>().pipe(Scope.provide(rootScope))
     const withProcesses = Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, yield* ChildProcessSpawner.ChildProcessSpawner)
     const live = new Map<string, LiveSession>()
+    /** Live read-only sessions, keyed by session id. */
+    const readOnly = new Map<string, ReadOnlyContext>()
     let shuttingDown = false
+
+    const linkedWorktrees = (repoPath: string) =>
+      withProcesses(Git.worktreeList(repoPath)).pipe(Effect.orElseSucceed((): ReadonlyArray<Git.WorktreeEntry> => []))
+
+    /** A session is read-only when its thread started that way and it still runs in the main checkout. */
+    const isReadOnlySession = (row: Row, ticket: Ticket, project: Project) =>
+      ticket.workspaceMode === "readonly" && !row.runId && !row.workspaceId && canonicalPath(row.cwd) === canonicalPath(project.repoPath)
+
+    /**
+     * Edits aimed at the main checkout of a read-only thread are refused without bothering the user.
+     * Returns true when the request was handled here.
+     */
+    const guardReadOnlyEdit = (sessionId: string, raw: Extract<AgentEvent, { type: "approval.requested" }>) =>
+      Effect.gen(function* () {
+        const ctx = readOnly.get(sessionId)
+        const l = live.get(sessionId)
+        if (!ctx || !l) return false
+        const { edit, paths } = editTargets(raw, ctx.repoPath)
+        if (!edit || paths.length === 0) return false
+        const worktrees = (yield* linkedWorktrees(ctx.repoPath)).map((w) => canonicalPath(w.path))
+        const repo = canonicalPath(ctx.repoPath)
+        const blocked = paths.filter((p) => touchesMainCheckout(canonicalPathOf(p), repo, worktrees))
+        if (blocked.length === 0) return false
+        const message =
+          "This thread is read-only in the main checkout. Create a git worktree on a new branch (git worktree add <path> -b <branch>) and make the change there."
+        yield* l.handle.respondToApproval(raw.providerRequestId ?? raw.approvalId, "deny", message)
+        yield* events.append(sessionId, {
+          type: "session.status",
+          state: "edit_blocked",
+          detail: `Refused edit in the main checkout: ${blocked.map((p) => relativeTo(repo, p)).join(", ")}`
+        })
+        return true
+      }).pipe(
+        Effect.catch((e) => Effect.logWarning("read-only guard failed", e).pipe(Effect.as(false)))
+      )
+
+    /** After a read-only turn: if the agent created a worktree, adopt it for the thread. */
+    const adoptCreatedWorktree = (sessionId: string) =>
+      Effect.gen(function* () {
+        const ctx = readOnly.get(sessionId)
+        if (!ctx) return
+        const existing = yield* workspaces.latestForTicket(ctx.ticketId)
+        if (existing && existsSync(existing.path)) return
+        const registered = yield* workspaces.registeredPaths(ctx.projectId)
+        const candidates = (yield* linkedWorktrees(ctx.repoPath)).filter((w) => {
+          const p = canonicalPath(w.path)
+          return !registered.has(p) && !ctx.snapshot?.has(p)
+        })
+        if (candidates.length === 0) return
+        const history = yield* events.history(sessionId, { limit: 5000 })
+        const otherReadOnlySessions = [...readOnly.entries()].filter(
+          ([id, c]) => id !== sessionId && c.projectId === ctx.projectId
+        ).length
+        const worktree = inferCreatedWorktree({
+          candidates,
+          actions: actionText(history),
+          hasSnapshot: ctx.snapshot !== undefined,
+          otherReadOnlySessions
+        })
+        if (!worktree) return
+        const project = yield* projects.get(ctx.projectId)
+        const ws = yield* workspaces.adopt({ project, ticketId: ctx.ticketId, worktree })
+        yield* events.append(sessionId, {
+          type: "session.status",
+          state: "worktree_adopted",
+          detail: `Tracking the agent's worktree ${ws.branch} at ${ws.path}`
+        })
+        yield* notices.publish({ topic: "tickets", ticketId: ctx.ticketId })
+      }).pipe(Effect.catch((e) => Effect.logWarning("worktree adoption failed", e)))
 
     const toSession = (r: Row, lastEventId = 0): AgentSession => ({
       id: r.id,
@@ -264,6 +389,7 @@ export const SessionsLive = Layer.effect(
             break
           }
           case "approval.requested": {
+            if (yield* guardReadOnlyEdit(sessionId, raw)) return
             const approval = yield* approvals.create({
               ticketId,
               kind: "tool",
@@ -285,6 +411,7 @@ export const SessionsLive = Layer.effect(
               )
             }
             yield* setState(sessionId, "idle")
+            if (readOnly.has(sessionId)) yield* adoptCreatedWorktree(sessionId)
             // Ad-hoc work that produced changes is ready for review; workflows manage their own status.
             if (!runId && (raw.status ?? "success") === "success") yield* readyForReview(sessionId, ticketId)
             break
@@ -301,8 +428,11 @@ export const SessionsLive = Layer.effect(
       Effect.gen(function* () {
         live.delete(sessionId)
         yield* Scope.close(l.scope, Exit.void)
+        // A worktree created in the turn the process ended in still belongs to the thread.
+        if (readOnly.has(sessionId) && !shuttingDown) yield* adoptCreatedWorktree(sessionId)
+        readOnly.delete(sessionId)
         if (l.lockHolder && l.workspaceId) yield* workspaces.unlock(l.workspaceId, l.lockHolder)
-        if (shuttingDown) return
+        if (shuttingDown || l.restarting) return
         const expired = yield* approvals.expireForSession(sessionId)
         const row = yield* getRow(sessionId).pipe(Effect.option)
         const current = Option.isSome(row) ? (row.value.state as SessionState) : "closed"
@@ -323,7 +453,14 @@ export const SessionsLive = Layer.effect(
     /** Launch (or resume) the harness process for an existing session row. */
     const launch = Effect.fn("Sessions.launch")(function* (
       row: Row,
-      opts: { prompt?: string; images?: ReadonlyArray<PromptImage>; resume: boolean; policy: RunPolicy; lockHolder?: string }
+      opts: {
+        prompt?: string
+        images?: ReadonlyArray<PromptImage>
+        resume: boolean
+        policy: RunPolicy
+        lockHolder?: string
+        readOnly?: { projectId: string; repoPath: string }
+      }
     ) {
         yield* Effect.annotateCurrentSpan({
           sessionId: row.id,
@@ -335,6 +472,14 @@ export const SessionsLive = Layer.effect(
           sandboxed: !!opts.policy.sandboxPrefix
         })
         const adapter = yield* harnesses.get(row.harness as HarnessId)
+        if (opts.readOnly) {
+          const known = yield* linkedWorktrees(opts.readOnly.repoPath)
+          readOnly.set(row.id, {
+            ...opts.readOnly,
+            ticketId: row.ticketId,
+            snapshot: new Set(known.map((w) => canonicalPath(w.path)))
+          })
+        }
         const scope = yield* Scope.fork(rootScope)
         const startInput = { cwd: row.cwd, policy: opts.policy, prompt: opts.prompt, images: opts.images }
         const handle = yield* (opts.resume && row.providerSessionId && adapter.resume
@@ -344,7 +489,7 @@ export const SessionsLive = Layer.effect(
           Scope.provide(scope),
           withProcesses,
           Effect.withSpan("Harness.start", { attributes: { harness: row.harness, cwd: row.cwd } }),
-          Effect.tapError(() => Scope.close(scope, Exit.void))
+          Effect.tapError(() => Scope.close(scope, Exit.void).pipe(Effect.andThen(Effect.sync(() => readOnly.delete(row.id)))))
         )
         const l: LiveSession = {
           handle,
@@ -353,6 +498,7 @@ export const SessionsLive = Layer.effect(
           lockHolder: opts.lockHolder,
           workspaceId: row.workspaceId,
           stopping: false,
+          restarting: false,
           exitCode: undefined
         }
         live.set(row.id, l)
@@ -397,7 +543,20 @@ export const SessionsLive = Layer.effect(
         yield* use((db) => db.insert(agentSessions).values(row).run())
         const images = yield* loadImages(input.images)
         if (input.prompt) yield* events.append(id, { type: "user.prompt", text: input.prompt, ...(images.refs.length && { images: images.refs }) })
-        yield* launch(row, { prompt: input.prompt, images: images.prompt, resume: false, policy: input.policy, lockHolder }).pipe(
+        const readOnlyTarget = input.readOnly
+          ? yield* tickets.get(input.ticketId).pipe(
+              Effect.flatMap((t) => projects.get(t.projectId)),
+              Effect.map((p) => ({ projectId: p.id, repoPath: p.repoPath }))
+            )
+          : undefined
+        yield* launch(row, {
+          prompt: input.prompt,
+          images: images.prompt,
+          resume: false,
+          policy: input.policy,
+          lockHolder,
+          ...(readOnlyTarget && { readOnly: readOnlyTarget })
+        }).pipe(
           Effect.tapError((e) =>
             Effect.gen(function* () {
               yield* events.append(id, { type: "session.error", message: e.message })
@@ -424,8 +583,11 @@ export const SessionsLive = Layer.effect(
         }
         const project = yield* projects.get(ticket.projectId)
         const harness = input.harness ?? ticket.harness ?? project.defaultHarness
-        const policy = yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, harness), (yield* defaults.get).harnesses[harness])
-        const ws = input.useRepoDirectly
+        const policy = yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, harness), (yield* defaults.get).harnesses[harness], ticketEffort(ticket, project, harness))
+        // A read-only thread stays in the main checkout until the agent creates (and we adopt) a worktree.
+        const adopted = ticket.workspaceMode === "readonly" ? yield* workspaces.latestForTicket(ticketId) : undefined
+        const readOnlyThread = ticket.workspaceMode === "readonly" && !(adopted && existsSync(adopted.path))
+        const ws = input.useRepoDirectly || readOnlyThread
           ? undefined
           : yield* workspaces.forTicket({
               project,
@@ -439,23 +601,81 @@ export const SessionsLive = Layer.effect(
           harness,
           cwd: ws?.path ?? project.repoPath,
           workspaceId: ws?.id ?? null,
-          policy,
-          prompt: buildTicketPrompt(ticket, input.prompt),
-          images: input.images
+          policy: readOnlyThread ? readOnlyPolicy(policy, project.repoPath) : policy,
+          prompt: firstPrompt(ticket, input.prompt, !!ws),
+          images: input.images,
+          readOnly: readOnlyThread
         })
       })
 
-    const prompt = Effect.fn("Sessions.prompt")(function* (id: string, text: string, actor = "user", imageIds?: ReadonlyArray<string>) {
-        const l = live.get(id)
-        yield* Effect.annotateCurrentSpan({ sessionId: id, live: !!l, chars: text.length, images: imageIds?.length ?? 0 })
+    /**
+     * Model and effort switches from the composer. They stick: the ticket remembers them when the
+     * session runs the ticket's own harness, so resumes and new sessions use them too.
+     */
+    const applySwitches = (row: Row, switches: PromptSwitches) =>
+      Effect.gen(function* () {
+        const ticket = yield* tickets.get(row.ticketId)
+        const project = yield* projects.get(ticket.projectId)
+        const own = row.harness === (ticket.harness ?? project.defaultHarness)
+        const update = {
+          ...(switches.model !== undefined && switches.model !== ticket.model && { model: switches.model }),
+          ...(switches.effort !== undefined && switches.effort !== ticket.effort && { effort: switches.effort })
+        }
+        if (own && Object.keys(update).length > 0) yield* tickets.update(ticket.id, update, "user")
+        if (switches.model !== undefined) {
+          yield* events.append(row.id, { type: "session.status", state: "model_changed", detail: switches.model ?? "harness default" })
+        }
+        if (switches.effort !== undefined) {
+          yield* events.append(row.id, { type: "session.status", state: "effort_changed", detail: switches.effort ?? "model default" })
+        }
+      })
+
+    /** Stop a live process so it can be resumed with new launch settings; resolves once it is gone. */
+    const stopForRelaunch = (id: string, l: LiveSession) =>
+      Effect.gen(function* () {
+        l.restarting = true
+        l.stopping = true
+        yield* Scope.close(l.scope, Exit.void)
+        for (let i = 0; i < 200 && live.has(id); i++) yield* Effect.sleep("50 millis")
+      })
+
+    const prompt = Effect.fn("Sessions.prompt")(function* (
+      id: string,
+      text: string,
+      actor = "user",
+      imageIds?: ReadonlyArray<string>,
+      switches: PromptSwitches = {}
+    ) {
+        let l = live.get(id)
+        yield* Effect.annotateCurrentSpan({
+          sessionId: id,
+          live: !!l,
+          chars: text.length,
+          images: imageIds?.length ?? 0,
+          model: switches.model ?? "",
+          effort: switches.effort ?? ""
+        })
         const images = yield* loadImages(imageIds)
         const promptEvent = { type: "user.prompt" as const, text, ...(images.refs.length && { images: images.refs }) }
         const sessionRow = yield* getRow(id)
         if (!sessionRow.runId) yield* backToWork(sessionRow.ticketId)
+        if (switches.model !== undefined || switches.effort !== undefined) yield* applySwitches(sessionRow, switches)
+        // Harnesses that only take effort at launch (Claude) continue the same conversation in a new process.
+        if (l && switches.effort !== undefined && l.handle.liveEffort === false && sessionRow.providerSessionId) {
+          yield* stopForRelaunch(id, l)
+          l = live.get(id)
+        }
         if (l) {
           yield* events.append(id, promptEvent)
           yield* setState(id, "running")
-          yield* l.handle.prompt(text, images.prompt)
+          // "Default" on a live process means the configured harness default, if there is one.
+          const harnessDefaults = (yield* defaults.get).harnesses[l.harness]
+          const liveModel = switches.model === null ? harnessDefaults?.model : switches.model
+          const liveEffort = switches.effort ?? undefined
+          yield* l.handle.prompt(text, images.prompt, {
+            ...(liveModel && { model: liveModel }),
+            ...(liveEffort && { effort: liveEffort })
+          })
           return
         }
         const row = yield* getRow(id)
@@ -467,12 +687,24 @@ export const SessionsLive = Layer.effect(
         const project = yield* projects.get(ticket.projectId)
         yield* events.append(id, promptEvent)
         yield* events.append(id, { type: "session.status", state: "resuming", detail: "Resuming provider conversation in a new process" })
+        const harness = row.harness as HarnessId
+        const basePolicy = yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, harness), (yield* defaults.get).harnesses[harness], ticketEffort(ticket, project, harness))
+        const resumeReadOnly = isReadOnlySession(row, ticket, project)
+        // An explicit switch wins over the ticket's settings (it may be for another harness than the ticket's);
+        // "default" is already reflected in basePolicy (the ticket's value was cleared).
+        const { effort: _ticketEffort, ...withoutEffort } = basePolicy
+        const policy = {
+          ...(switches.effort === null ? withoutEffort : basePolicy),
+          ...(switches.model && { model: switches.model }),
+          ...(switches.effort && { effort: switches.effort })
+        }
         yield* launch(row, {
           prompt: text,
           images: images.prompt,
           resume: true,
-          policy: yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, row.harness as HarnessId), (yield* defaults.get).harnesses[row.harness as HarnessId]),
-          lockHolder: row.workspaceId && !row.runId ? id : undefined
+          policy: resumeReadOnly ? readOnlyPolicy(policy, project.repoPath) : policy,
+          lockHolder: row.workspaceId && !row.runId ? id : undefined,
+          ...(resumeReadOnly && { readOnly: { projectId: project.id, repoPath: project.repoPath } })
         })
         yield* activity.record({ kind: "session.resumed", message: "Agent session resumed with a follow-up", ticketId: row.ticketId, actor })
       })

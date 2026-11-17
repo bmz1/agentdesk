@@ -290,5 +290,19 @@ DROP TABLE jira_connections;
     name: "project_harness_permission_inheritance",
     // Existing projects retain their explicit policy; new projects opt in at creation.
     sql: /* sql */ `ALTER TABLE projects ADD COLUMN inherit_harness_permissions INTEGER NOT NULL DEFAULT 0;`
+  },
+  {
+    id: 5,
+    name: "ticket_threads",
+    // Existing tickets stay on the board and keep their worktree-first behaviour.
+    sql: /* sql */ `
+ALTER TABLE tickets ADD COLUMN tracked INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE tickets ADD COLUMN workspace_mode TEXT NOT NULL DEFAULT 'worktree';
+`
+  },
+  {
+    id: 6,
+    name: "ticket_effort",
+    sql: /* sql */ `ALTER TABLE tickets ADD COLUMN effort TEXT;`
   }
 ]
