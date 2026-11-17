@@ -38,6 +38,7 @@ export const makeClient = (daemon: RunningDaemon, token = "test-token") => {
     get: <T = any>(p: string) => call<T>("GET", p),
     post: <T = any>(p: string, b?: unknown) => call<T>("POST", p, b ?? {}),
     patch: <T = any>(p: string, b: unknown) => call<T>("PATCH", p, b),
+    put: <T = any>(p: string, b: unknown) => call<T>("PUT", p, b),
     del: <T = any>(p: string) => call<T>("DELETE", p),
     /** Collect SSE `data` payloads until `until` returns true. */
     sse: async (path: string, until: (events: Array<any>) => boolean, timeoutMs = 10_000) => {

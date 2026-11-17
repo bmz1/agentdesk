@@ -83,6 +83,15 @@ export const UploadAttachmentBody = Schema.Struct({
   name: Schema.optional(Schema.String)
 })
 export type UploadAttachmentBody = typeof UploadAttachmentBody.Type
+
+export const WriteFileBody = Schema.Struct({
+  path: Schema.NonEmptyString,
+  content: Schema.String,
+  /** The `version` the edit started from; a mismatch fails with 409 StaleFile unless `force`. */
+  baseVersion: Schema.String,
+  force: Schema.optional(Schema.Boolean)
+})
+export type WriteFileBody = typeof WriteFileBody.Type
 export type StartSessionBody = typeof StartSessionBody.Type
 
 export const StartRunBody = Schema.Struct({

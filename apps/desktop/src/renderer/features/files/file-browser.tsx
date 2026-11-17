@@ -1,9 +1,10 @@
 import type { FileTree } from "@agentdesk/contracts"
 import { useQuery } from "@tanstack/react-query"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { ChevronRight, Copy, File, FileDiff, Folder, FolderOpen, FolderSearch, RefreshCw, Search } from "lucide-react"
-import { useMemo, useRef, useState } from "react"
+import { ChevronRight, Copy, File, FileDiff, Folder, FolderOpen, FolderSearch, Pencil, RefreshCw, Search } from "lucide-react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { EmptyState, Spinner, Tooltip } from "@/components/ui/misc"
 import { bridge } from "@/lib/connection"
@@ -12,6 +13,7 @@ import { languageFor, tokenStyle, useHighlightedLines } from "@/lib/highlight"
 import { q } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 import { ImageFrame, useObjectUrl } from "../session/images"
+import { FileEditor } from "./file-editor"
 
 type FileEntry = FileTree["files"][number]
 
@@ -70,13 +72,21 @@ const statusLabel = (s: string) => (s === "??" ? "U" : s[0]!)
 
 const ROW_H = 24
 
-/** Read-only browser over the ticket's worktree (or the project repo before an agent has started). */
+/** Browser (and editor) over the ticket's worktree (or the project repo before an agent has started). */
 export const FileBrowser = ({ ticketId, onShowChanges }: { ticketId: string; onShowChanges: () => void }) => {
   const tree = useQuery(q.ticketFiles(ticketId))
   const [selected, setSelected] = useState<string>()
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const [filter, setFilter] = useState("")
   const [changedOnly, setChangedOnly] = useState(false)
+  // Unsaved edits in the open file; switching files asks before throwing them away.
+  const [dirty, setDirty] = useState(false)
+  const [pendingSelect, setPendingSelect] = useState<string>()
+  const select = (path: string) => {
+    if (path === selected) return
+    if (dirty) setPendingSelect(path)
+    else setSelected(path)
+  }
 
   const files = tree.data?.files ?? []
   const root = useMemo(() => buildTree(files), [files])
@@ -177,7 +187,7 @@ export const FileBrowser = ({ ticketId, onShowChanges }: { ticketId: string; onS
                   <button
                     key={f.path}
                     style={{ ...style, paddingLeft: style.paddingLeft + (term || changedOnly ? 0 : 16) }}
-                    onClick={() => setSelected(f.path)}
+                    onClick={() => select(f.path)}
                     title={f.path}
                     className={cn(
                       "absolute inset-x-0 top-0 flex items-center gap-1.5 pr-2 text-left text-[13px] hover:bg-bg-muted",
@@ -198,11 +208,13 @@ export const FileBrowser = ({ ticketId, onShowChanges }: { ticketId: string; onS
       <section className="flex min-w-0 flex-1 flex-col">
         {selected ? (
           <FileView
+            key={selected}
             ticketId={ticketId}
             path={selected}
             root={tree.data!.root}
             status={files.find((f) => f.path === selected)?.status}
             onShowChanges={onShowChanges}
+            onDirtyChange={setDirty}
           />
         ) : (
           <EmptyState icon={<FolderSearch />} title="Select a file">
@@ -210,6 +222,25 @@ export const FileBrowser = ({ ticketId, onShowChanges }: { ticketId: string; onS
           </EmptyState>
         )}
       </section>
+      <Dialog open={pendingSelect !== undefined} onOpenChange={(open) => !open && setPendingSelect(undefined)}>
+        <DialogContent title="Discard unsaved changes?" description={`Your edits to ${selected} have not been saved.`} className="w-[420px]">
+          <div className="flex justify-end gap-2 p-4">
+            <Button variant="ghost" onClick={() => setPendingSelect(undefined)}>
+              Keep editing
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                setDirty(false)
+                setSelected(pendingSelect)
+                setPendingSelect(undefined)
+              }}
+            >
+              Discard
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -222,15 +253,19 @@ const FileView = ({
   path,
   root,
   status,
-  onShowChanges
+  onShowChanges,
+  onDirtyChange
 }: {
   ticketId: string
   path: string
   root: string
   status: string | undefined
   onShowChanges: () => void
+  onDirtyChange: (dirty: boolean) => void
 }) => {
   const isImage = IMAGE_EXT.test(path)
+  const [editing, setEditing] = useState(false)
+  const stopEditing = useCallback(() => setEditing(false), [])
   const file = useQuery({ ...q.ticketFile(ticketId, path), enabled: !isImage })
   const image = useQuery({
     queryKey: ["tickets", "detail", ticketId, "files", path, "image"],
@@ -263,6 +298,15 @@ const FileView = ({
         <div className="flex-1" />
         {file.data && <span className="text-fg-subtle">{formatBytes(file.data.size)}</span>}
         {image.data && <span className="text-fg-subtle">{formatBytes(image.data.size)}</span>}
+        {file.data && !file.data.binary && !editing && (
+          <Tooltip content={file.data.editable ? "Edit file" : (file.data.readonlyReason ?? "Read-only")}>
+            <span>
+              <Button size="sm" variant="ghost" disabled={!file.data.editable} onClick={() => setEditing(true)} data-testid="file-edit">
+                <Pencil /> Edit
+              </Button>
+            </span>
+          </Tooltip>
+        )}
         {status && (
           <Button size="sm" variant="ghost" onClick={onShowChanges}>
             <FileDiff /> Diff
@@ -297,6 +341,8 @@ const FileView = ({
         <EmptyState title="Can't open this file">{(file.error as Error).message}</EmptyState>
       ) : file.data?.binary ? (
         <EmptyState title="Binary file">{formatBytes(file.data.size)} · not shown</EmptyState>
+      ) : editing && file.data ? (
+        <FileEditor ticketId={ticketId} disk={file.data} onDone={stopEditing} onDirtyChange={onDirtyChange} />
       ) : (
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto bg-bg font-mono text-[12px] leading-[19px]" data-testid="file-content">
           <div style={{ height: virtual.getTotalSize(), minWidth: `calc(${gutter} + ${widest + 4}ch)` }} className="relative">
