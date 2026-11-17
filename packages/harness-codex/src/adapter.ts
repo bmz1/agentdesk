@@ -5,6 +5,7 @@ import {
   HarnessError,
   type HarnessAdapter,
   type HarnessSession,
+  type PromptImage,
   isRecord,
   runCommand,
   spawnManaged,
@@ -12,7 +13,7 @@ import {
   str,
   wireLineProcess
 } from "@agentdesk/harness-core"
-import { Deferred, Effect, Queue } from "effect"
+import { Deferred, Duration, Effect, Queue, Stream } from "effect"
 import { APPROVAL_METHODS, CodexNormalizer } from "./normalizer"
 
 export interface CodexAdapterOptions {
@@ -31,6 +32,44 @@ export const codexPolicy = (mode: PermissionMode) => {
       return { approvalPolicy: "never", sandbox: "danger-full-access" } as const
   }
 }
+
+/** Models offered by `codex app-server` (`model/list`); empty when unavailable. */
+export const listCodexModels = (binary: string) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const proc = yield* spawnManaged({ harness: "codex", command: binary, args: ["app-server"], cwd: process.cwd() })
+      // The server only answers while stdin stays open, so write without closing it.
+      yield* proc.write(
+        [
+          { id: 1, method: "initialize", params: { clientInfo: { name: "agentdesk", title: "AgentDesk", version: "0.1.0" } } },
+          { method: "initialized" },
+          { id: 2, method: "model/list", params: {} }
+        ]
+          .map((m) => JSON.stringify(m) + "\n")
+          .join("")
+      )
+      const reply = yield* proc.lines.pipe(
+        Stream.map((l) => {
+          try {
+            return JSON.parse(l) as unknown
+          } catch {
+            return undefined
+          }
+        }),
+        Stream.filter((m) => isRecord(m) && m.id === 2),
+        Stream.runHead
+      )
+      const result = reply._tag === "Some" && isRecord(reply.value) && isRecord(reply.value.result) ? reply.value.result : {}
+      const data = Array.isArray(result.data) ? result.data : []
+      return data.flatMap((m) => {
+        const id = isRecord(m) && m.hidden !== true ? str(m.id) : undefined
+        return id ? [{ id, label: str((m as Record<string, unknown>).displayName) ?? id }] : []
+      })
+    })
+  ).pipe(
+    Effect.timeoutOrElse({ duration: Duration.seconds(15), orElse: () => Effect.succeed([]) }),
+    Effect.orElseSucceed(() => [])
+  )
 
 export const makeCodexAdapter = (options: CodexAdapterOptions = {}): HarnessAdapter => {
   const resolveBinary = () => options.binary ?? process.env.AGENTDESK_CODEX_BIN ?? findExecutable("codex")
@@ -113,7 +152,12 @@ export const makeCodexAdapter = (options: CodexAdapterOptions = {}): HarnessAdap
       yield* request("initialize", { clientInfo: { name: "agentdesk", title: "AgentDesk", version: "0.1.0" } })
       yield* send({ method: "initialized" })
       const threadResult = input.providerSessionId
-        ? yield* request("thread/resume", { threadId: input.providerSessionId, cwd: input.cwd, ...policy })
+        ? yield* request("thread/resume", {
+            threadId: input.providerSessionId,
+            cwd: input.cwd,
+            ...policy,
+            ...(input.policy.model && { model: input.policy.model })
+          })
         : yield* request("thread/start", {
             cwd: input.cwd,
             ...policy,
@@ -130,19 +174,22 @@ export const makeCodexAdapter = (options: CodexAdapterOptions = {}): HarnessAdap
 
       // Codex accepts one turn at a time. Prompts go through a queue drained by a
       // single scoped fiber that starts a turn and waits for its completion.
-      const prompts = yield* Queue.unbounded<string>()
+      const prompts = yield* Queue.unbounded<{ text: string; images: ReadonlyArray<PromptImage> }>()
       yield* Effect.gen(function* () {
-        const text = yield* Queue.take(prompts)
+        const { text, images } = yield* Queue.take(prompts)
         const done = yield* Deferred.make<void>()
         turnDone = done
-        yield* startTurn(text).pipe(
+        yield* startTurn(text, images).pipe(
           Effect.catch((e) => Effect.andThen(emit({ type: "session.error", message: e.message }), Deferred.succeed(done, undefined)))
         )
         yield* Deferred.await(done)
       }).pipe(Effect.forever, Effect.forkScoped)
 
-      const startTurn = (text: string) =>
-        request("turn/start", { threadId, input: [{ type: "text", text, text_elements: [] }] }).pipe(
+      const startTurn = (text: string, images: ReadonlyArray<PromptImage>) =>
+        request("turn/start", {
+          threadId,
+          input: [{ type: "text", text, text_elements: [] }, ...images.map((i) => ({ type: "localImage", path: i.path }))]
+        }).pipe(
           Effect.tap((r) =>
             Effect.sync(() => {
               const turn = isRecord(r) && isRecord(r.turn) ? r.turn : undefined
@@ -152,9 +199,9 @@ export const makeCodexAdapter = (options: CodexAdapterOptions = {}): HarnessAdap
           Effect.asVoid,
           Effect.withSpan("codex.turn.start", { attributes: { threadId } })
         )
-      const prompt = (text: string) => Queue.offer(prompts, text).pipe(Effect.asVoid)
+      const prompt = (text: string, images: ReadonlyArray<PromptImage> = []) => Queue.offer(prompts, { text, images }).pipe(Effect.asVoid)
 
-      if (input.prompt) yield* prompt(input.prompt)
+      if (input.prompt) yield* prompt(input.prompt, input.images)
 
       const respondToApproval = (requestId: string, decision: ApprovalDecision) => {
         const kind = approvalKinds.get(requestId)
@@ -185,8 +232,10 @@ export const makeCodexAdapter = (options: CodexAdapterOptions = {}): HarnessAdap
       const binary = resolveBinary()
       if (!binary) return { id: "codex" as const, installed: false, detail: "codex CLI not found on PATH" }
       const r = yield* runCommand(binary, ["--version"], { timeoutMs: 10_000 })
+      const models = r.code === 0 ? yield* listCodexModels(binary) : []
       return {
         id: "codex" as const,
+        models,
         installed: r.code === 0,
         binary,
         version: r.stdout.trim().split(/\s+/).at(-1),

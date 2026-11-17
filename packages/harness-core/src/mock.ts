@@ -4,7 +4,7 @@ import { dirname, join } from "node:path"
 import type { AgentEvent, ApprovalDecision } from "@agentdesk/contracts"
 import { type Cause, Deferred, Effect, FiberHandle, Queue, Ref, Stream } from "effect"
 import { HarnessError } from "./errors"
-import type { HarnessAdapter, HarnessSession, StartInput } from "./types"
+import type { HarnessAdapter, HarnessSession, PromptImage, StartInput } from "./types"
 
 export interface MockOptions {
   /** Delay between streamed chunks. */
@@ -33,7 +33,7 @@ export const makeMockAdapter = (options: MockOptions = {}): HarnessAdapter => {
       yield* Effect.addFinalizer(() => Queue.end(events))
       yield* emit({ type: "session.started", providerSessionId, model: "mock-1", cwd: input.cwd })
 
-      const runTurn = (text: string) =>
+      const runTurn = (text: string, images: ReadonlyArray<PromptImage> = []) =>
         Effect.gen(function* () {
           const turn = yield* Ref.updateAndGet(turnCounter, (n) => n + 1)
           const base = options.delayMs ?? 15
@@ -49,6 +49,12 @@ export const makeMockAdapter = (options: MockOptions = {}): HarnessAdapter => {
             yield* Effect.sleep(delay)
           }
           yield* emit({ type: "message.completed", messageId, text: acc })
+          if (images.length > 0) {
+            const toolCallId = `screenshot-${turn}`
+            yield* emit({ type: "tool.started", toolCallId, name: "Screenshot", input: { images: images.length } })
+            yield* emit({ type: "tool.completed", toolCallId, result: `Received ${images.length} image(s)` })
+            yield* emit({ type: "image", toolCallId, source: { data: images[0]!.data, mimeType: images[0]!.mimeType } })
+          }
           if (text.includes("[fail]")) {
             yield* emit({ type: "session.error", message: "Mock failure requested", recoverable: true })
             yield* emit({ type: "turn.completed", providerSessionId, status: "error" })
@@ -95,17 +101,17 @@ export const makeMockAdapter = (options: MockOptions = {}): HarnessAdapter => {
         })
 
       // The daemon records `user.prompt` itself, uniformly for every harness.
-      const prompt = (text: string) =>
+      const prompt = (text: string, images?: ReadonlyArray<PromptImage>) =>
         FiberHandle.run(
           turnFiber,
-          runTurn(text).pipe(
+          runTurn(text, images).pipe(
             Effect.onInterrupt(() => emit({ type: "turn.completed", providerSessionId, status: "interrupted" })),
             Effect.withSpan("mock.turn")
           ),
           { onlyIfMissing: true }
         ).pipe(Effect.asVoid)
 
-      if (input.prompt) yield* prompt(input.prompt)
+      if (input.prompt) yield* prompt(input.prompt, input.images)
 
       return {
         harness: "mock",

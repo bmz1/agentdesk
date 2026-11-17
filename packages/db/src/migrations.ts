@@ -279,5 +279,10 @@ INSERT INTO source_sync_state (connection_id, last_sync_at, last_full_sync_at, h
 DROP TABLE jira_sync_state;
 DROP TABLE jira_connections;
 `
+  },
+  {
+    id: 3,
+    name: "ticket_model",
+    sql: /* sql */ `ALTER TABLE tickets ADD COLUMN model TEXT;`
   }
 ]

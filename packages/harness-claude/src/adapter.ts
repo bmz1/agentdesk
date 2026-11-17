@@ -6,6 +6,7 @@ import {
   HarnessError,
   type HarnessAdapter,
   type HarnessSession,
+  type PromptImage,
   isRecord,
   type ResumeInput,
   runCommand,
@@ -34,8 +35,25 @@ const permissionFlags = (mode: PermissionMode): Array<string> => {
   }
 }
 
-const userMessage = (text: string) =>
-  JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text }] } }) + "\n"
+const userMessage = (text: string, images: ReadonlyArray<PromptImage> = []) =>
+  JSON.stringify({
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        ...images.map((i) => ({ type: "image", source: { type: "base64", media_type: i.mimeType, data: i.data } })),
+        { type: "text", text }
+      ]
+    }
+  }) + "\n"
+
+/** `--model` aliases always resolve to the latest model of that family; full model names also work. */
+export const CLAUDE_MODELS = [
+  { id: "fable", label: "Fable (latest)" },
+  { id: "opus", label: "Opus (latest)" },
+  { id: "sonnet", label: "Sonnet (latest)" },
+  { id: "haiku", label: "Haiku (latest)" }
+]
 
 export const makeClaudeAdapter = (options: ClaudeAdapterOptions = {}): HarnessAdapter => {
   const resolveBinary = () => options.binary ?? process.env.AGENTDESK_CLAUDE_BIN ?? findExecutable("claude")
@@ -90,14 +108,14 @@ export const makeClaudeAdapter = (options: ClaudeAdapterOptions = {}): HarnessAd
       })
 
       yield* sendControl({ subtype: "initialize" })
-      if (input.prompt) yield* proc.write(userMessage(input.prompt))
+      if (input.prompt) yield* proc.write(userMessage(input.prompt, input.images))
 
       return {
         harness: "claude",
         pid: proc.pid,
         providerSessionId: Effect.sync(() => normalizer.providerSessionId),
         events: eventsStream(events),
-        prompt: (text) => proc.write(userMessage(text)),
+        prompt: (text, images) => proc.write(userMessage(text, images)),
         respondToApproval: (requestId, decision, note) => {
           const input = pendingToolInputs.get(requestId)
           pendingToolInputs.delete(requestId)
@@ -128,7 +146,8 @@ export const makeClaudeAdapter = (options: ClaudeAdapterOptions = {}): HarnessAd
         installed: r.code === 0,
         binary,
         version: r.stdout.trim().split(/\s+/)[0],
-        detail: r.code === 0 ? "Uses the CLI's own login; AgentDesk never reads its credentials." : r.stderr.trim()
+        detail: r.code === 0 ? "Uses the CLI's own login; AgentDesk never reads its credentials." : r.stderr.trim(),
+        models: CLAUDE_MODELS
       }
     }),
     start: (input) => launch(input),

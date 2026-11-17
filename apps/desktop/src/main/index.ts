@@ -6,9 +6,11 @@ const isDev = !!process.env.ELECTRON_RENDERER_URL
 
 const CSP = [
   "default-src 'self'",
-  "script-src 'self'",
+  // Dev only: the Vite React Refresh preamble is an inline script.
+  `script-src 'self'${isDev ? " 'unsafe-inline'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: https:",
+  // blob: shows images fetched from the daemon with its token (attachments, screenshots).
+  "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
   // Only the local daemon (loopback) may be contacted from the renderer.
   `connect-src 'self' http://127.0.0.1:* http://localhost:*${isDev ? " ws://localhost:*" : ""}`,

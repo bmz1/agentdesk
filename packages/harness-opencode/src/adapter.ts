@@ -4,6 +4,7 @@ import {
   HarnessError,
   type HarnessAdapter,
   type HarnessSession,
+  type PromptImage,
   isRecord,
   runCommand,
   spawnManaged,
@@ -53,6 +54,12 @@ export const sseJson = (body: ReadableStream<Uint8Array>): Stream.Stream<unknown
     }),
     Stream.filter((u) => u !== undefined)
   )
+
+/** `provider/model` → OpenCode's prompt model selector. Model ids may themselves contain "/". */
+export const openCodeModel = (model: string | undefined) => {
+  const i = model?.indexOf("/") ?? -1
+  return model && i > 0 ? { providerID: model.slice(0, i), modelID: model.slice(i + 1) } : undefined
+}
 
 export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): HarnessAdapter => {
   const resolveBinary = () => options.binary ?? process.env.AGENTDESK_OPENCODE_BIN ?? findExecutable("opencode")
@@ -122,6 +129,7 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
       const sessionId = isRecord(session) ? str(session.id) : undefined
       if (!sessionId) return yield* new HarnessError({ harness: "opencode", reason: "protocol", message: "opencode returned no session id" })
 
+      const model = openCodeModel(input.policy.model)
       const normalizer = new OpenCodeNormalizer(sessionId)
       const events = yield* Queue.unbounded<AgentEvent, HarnessError | Cause.Done>()
       const emit = (e: AgentEvent) => Queue.offer(events, e).pipe(Effect.asVoid)
@@ -139,11 +147,15 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
       )
       yield* Effect.addFinalizer(() => Queue.end(events))
 
-      const prompt = (text: string) =>
+      const prompt = (text: string, images: ReadonlyArray<PromptImage> = []) =>
         Effect.sync(() => normalizer.markBusy()).pipe(
           Effect.andThen(
             http("POST", `/session/${sessionId}/prompt_async`, {
-              parts: [{ type: "text", text }],
+              parts: [
+                { type: "text", text },
+                ...images.map((i) => ({ type: "file", mime: i.mimeType, url: `data:${i.mimeType};base64,${i.data}`, filename: i.path.split("/").at(-1) }))
+              ],
+              ...(model && { model }),
               ...(input.policy.appendSystemPrompt && { system: input.policy.appendSystemPrompt })
             })
           ),
@@ -161,7 +173,7 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
         )
       }
 
-      if (input.prompt) yield* prompt(input.prompt)
+      if (input.prompt) yield* prompt(input.prompt, input.images)
 
       return {
         harness: "opencode",
@@ -181,7 +193,15 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
       const binary = resolveBinary()
       if (!binary) return { id: "opencode" as const, installed: false, detail: "opencode CLI not found on PATH" }
       const r = yield* runCommand(binary, ["--version"], { timeoutMs: 15_000 })
+      const list = r.code === 0 ? yield* runCommand(binary, ["models"], { timeoutMs: 20_000 }) : undefined
+      const models = (list?.code === 0 ? list.stdout.split("\n") : [])
+        .map((l) => l.trim())
+        .flatMap((id) => {
+          const m = openCodeModel(id)
+          return m ? [{ id, label: m.modelID, provider: m.providerID }] : []
+        })
       return {
+        models,
         id: "opencode" as const,
         installed: r.code === 0,
         binary,

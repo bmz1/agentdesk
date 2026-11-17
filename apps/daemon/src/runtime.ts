@@ -4,6 +4,7 @@ import { DaemonConfigLive, type DaemonConfigShape } from "./config"
 import { ObservabilityLive } from "./observability"
 import { Activity } from "./services/activity"
 import { ApprovalsLive } from "./services/approvals"
+import { AttachmentsLive } from "./services/attachments"
 import { CredentialStoreLive } from "./services/credentials"
 import { Database } from "./services/database"
 import { EventLog } from "./services/event-log"
@@ -39,6 +40,7 @@ export const makeAppLayer = (config: DaemonConfigShape, options: AppLayerOptions
   const infra = Layer.mergeAll(
     EventLog.layer,
     Activity.layer,
+    AttachmentsLive,
     CredentialStoreLive(options.credentialStore),
     TaskSourcesLive(options.sourceAdapters)
   ).pipe(

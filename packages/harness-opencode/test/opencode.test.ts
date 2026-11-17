@@ -5,7 +5,7 @@ import type { AgentEvent } from "@agentdesk/contracts"
 import { type HarnessSession, NodeProcessLayer, parseJsonLine } from "@agentdesk/harness-core"
 import { Effect, Stream } from "effect"
 import { describe, expect, it, layer } from "@effect/vitest"
-import { makeOpenCodeAdapter, OpenCodeNormalizer, openCodePermissions } from "../src"
+import { makeOpenCodeAdapter, openCodeModel, OpenCodeNormalizer, openCodePermissions } from "../src"
 
 describe("OpenCodeNormalizer", () => {
   it("normalizes a golden event-bus transcript for one session", () => {
@@ -91,5 +91,13 @@ describe("OpenCodeNormalizer errors", () => {
     expect(n.push({ type: "session.idle", properties: { sessionID: "s" } })).toEqual([
       { type: "turn.completed", providerSessionId: "s", status: "error" }
     ])
+  })
+})
+
+describe("openCodeModel", () => {
+  it("splits provider/model at the first slash", () => {
+    expect(openCodeModel("openrouter/anthropic/claude-x")).toEqual({ providerID: "openrouter", modelID: "anthropic/claude-x" })
+    expect(openCodeModel("no-provider")).toBeUndefined()
+    expect(openCodeModel(undefined)).toBeUndefined()
   })
 })

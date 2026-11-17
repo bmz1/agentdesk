@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { type TicketTab, TicketDetail } from "@/features/ticket/ticket-detail"
 import { q } from "@/lib/queries"
 
-const TABS: ReadonlyArray<TicketTab> = ["overview", "agent", "workflow", "changes", "checks", "history"]
+const TABS: ReadonlyArray<TicketTab> = ["overview", "agent", "workflow", "changes", "files", "checks", "history"]
 
 export const Route = createFileRoute("/issues/$ticketId")({
   validateSearch: (s: Record<string, unknown>): { tab?: TicketTab; session?: string } => ({

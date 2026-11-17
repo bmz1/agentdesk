@@ -1,5 +1,5 @@
 import type { AgentEvent } from "@agentdesk/contracts"
-import { isRecord, num, str, type Normalizer } from "@agentdesk/harness-core"
+import { extractImages, imageEvents, isRecord, num, str, type Normalizer } from "@agentdesk/harness-core"
 
 /** Server→client JSON-RPC requests that ask the user for approval. */
 export const APPROVAL_METHODS: Record<string, { tool: string; legacy: boolean }> = {
@@ -141,8 +141,12 @@ export class CodexNormalizer implements Normalizer {
           }
         ]
       }
-      case "mcpToolCall":
-        return [{ type: "tool.completed", toolCallId: id, result: item.error ?? item.result, isError: !!item.error }]
+      case "mcpToolCall": {
+        const { rest, images } = extractImages(item.result)
+        return [{ type: "tool.completed", toolCallId: id, result: item.error ?? rest, isError: !!item.error }, ...imageEvents(images, id)]
+      }
+      case "imageView":
+        return str(item.path) ? [{ type: "image", toolCallId: id, source: { path: str(item.path)! } }] : []
       case "webSearch":
         return [{ type: "tool.completed", toolCallId: id, result: item.query }]
       default:

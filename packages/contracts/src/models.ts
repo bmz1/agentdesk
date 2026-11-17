@@ -65,6 +65,8 @@ export const Ticket = Schema.Struct({
   priority: Priority,
   source: TicketSource,
   harness: Schema.NullOr(HarnessId),
+  /** Model for the ticket's harness; null uses the harness' own default. */
+  model: NullableString,
   workflowId: NullableString,
   labels: Schema.Array(Schema.String),
   pinned: Schema.Boolean,
@@ -203,13 +205,24 @@ export const WorkflowDefinitionSummary = Schema.Struct({
 })
 export type WorkflowDefinitionSummary = typeof WorkflowDefinitionSummary.Type
 
+export const HarnessModel = Schema.Struct({
+  /** Value passed to the harness (alias, model id, or `provider/model` for OpenCode). */
+  id: Schema.String,
+  label: Schema.String,
+  /** Upstream provider, for harnesses that route to several (OpenCode). */
+  provider: Schema.optional(Schema.String)
+})
+export type HarnessModel = typeof HarnessModel.Type
+
 export const HarnessDetection = Schema.Struct({
   id: HarnessId,
   installed: Schema.Boolean,
   authenticated: Schema.optional(Schema.Boolean),
   version: Schema.optional(Schema.String),
   binary: Schema.optional(Schema.String),
-  detail: Schema.optional(Schema.String)
+  detail: Schema.optional(Schema.String),
+  /** Models the harness offers; empty or missing means free-form entry only. */
+  models: Schema.optional(Schema.Array(HarnessModel))
 })
 export type HarnessDetection = typeof HarnessDetection.Type
 
@@ -287,3 +300,24 @@ export const Diff = Schema.Struct({
   commits: Schema.Array(Schema.Struct({ sha: Schema.String, subject: Schema.String }))
 })
 export type Diff = typeof Diff.Type
+
+/** Files of a ticket's working tree (its worktree, or the project repo before an agent starts). */
+export const FileTree = Schema.Struct({
+  root: Schema.String,
+  /** "worktree" once an agent has created the ticket's branch, else "repository". */
+  origin: Schema.Literals(["worktree", "repository"]),
+  /** Tracked and untracked, non-ignored files; `status` is the git porcelain code when changed. */
+  files: Schema.Array(Schema.Struct({ path: Schema.String, status: Schema.optional(Schema.String) })),
+  truncated: Schema.Boolean
+})
+export type FileTree = typeof FileTree.Type
+
+export const FileContent = Schema.Struct({
+  path: Schema.String,
+  size: Schema.Number,
+  binary: Schema.Boolean,
+  /** True when only the first part of a large file is returned. */
+  truncated: Schema.Boolean,
+  content: Schema.String
+})
+export type FileContent = typeof FileContent.Type

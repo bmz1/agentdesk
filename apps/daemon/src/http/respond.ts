@@ -51,6 +51,15 @@ export const toHttpError = (e: AppError): ErrorBody => {
   }
 }
 
+/** A binary response (images); private, immutable content addressed by id or path. */
+export class RawBody {
+  constructor(
+    readonly bytes: Uint8Array,
+    readonly contentType: string,
+    readonly cacheControl = "private, max-age=31536000, immutable"
+  ) {}
+}
+
 /**
  * Bridges Hono to the daemon's ManagedRuntime. Each request runs as one
  * Effect with:
@@ -73,6 +82,13 @@ export const makeResponder = (runtime: AppRuntime) =>
       { signal: c.req.raw.signal }
     )
     if (Exit.isSuccess(exit)) {
+      if (exit.value instanceof RawBody) {
+        return c.body(exit.value.bytes as Uint8Array<ArrayBuffer>, status, {
+          "content-type": exit.value.contentType,
+          "cache-control": exit.value.cacheControl,
+          "x-content-type-options": "nosniff"
+        })
+      }
       return exit.value === undefined ? c.body(null, 204) : c.json(exit.value as object, status)
     }
     const failure = Cause.findErrorOption(exit.cause)

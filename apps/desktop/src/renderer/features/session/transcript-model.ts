@@ -1,7 +1,8 @@
-import type { StoredAgentEvent } from "@agentdesk/contracts"
+import type { ImageRef, StoredAgentEvent } from "@agentdesk/contracts"
 
 export type TranscriptItem =
-  | { kind: "user"; key: string; text: string; at: string }
+  | { kind: "user"; key: string; text: string; images: ReadonlyArray<ImageRef>; at: string }
+  | { kind: "image"; key: string; image: ImageRef; toolCallId?: string }
   | { kind: "assistant"; key: string; messageId?: string; text: string; streaming: boolean; at: string }
   | { kind: "reasoning"; key: string; text: string }
   | {
@@ -65,7 +66,7 @@ export class TranscriptBuilder {
     switch (e.type) {
       case "user.prompt":
         this.finalizeStreaming()
-        this.items.push({ kind: "user", key, text: e.text, at: s.at })
+        this.items.push({ kind: "user", key, text: e.text, images: e.images ?? [], at: s.at })
         break
       case "message.delta": {
         const last = this.items.at(-1)
@@ -87,6 +88,10 @@ export class TranscriptBuilder {
       }
       case "reasoning":
         this.items.push({ kind: "reasoning", key, text: e.text })
+        break
+      case "image":
+        // Only stored references reach the UI; the daemon resolves inline sources first.
+        if (e.image) this.items.push({ kind: "image", key, image: e.image, toolCallId: e.toolCallId })
         break
       case "tool.started":
         this.finalizeStreaming()

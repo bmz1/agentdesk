@@ -26,7 +26,7 @@ import { Approvals, toApproval } from "./approvals"
 import { Database } from "./database"
 import { Notices } from "./notices"
 import { Projects } from "./projects"
-import { buildTicketPrompt, projectPolicy, Sessions } from "./sessions"
+import { buildTicketPrompt, projectPolicy, Sessions, ticketModel } from "./sessions"
 import { Tickets } from "./tickets"
 import { Workspaces } from "./workspaces"
 
@@ -304,7 +304,7 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
           workspaceId: ws.id,
           runId: run.id,
           stepRunId,
-          policy: yield* projectPolicy(project, config.sandboxPrefix),
+          policy: yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, harness)),
           prompt: buildTicketPrompt(ticket, parts.join("\n\n"))
         })
         yield* setStep(stepRunId, { sessionId: session.id })

@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs"
 import type {
+  ImageRef,
   AgentEvent,
   AgentSession,
   ApprovalDecision,
@@ -10,7 +11,7 @@ import type {
 } from "@agentdesk/contracts"
 import { agentSessions } from "@agentdesk/db"
 import type { GitError } from "@agentdesk/git"
-import { type HarnessError, type HarnessSession, type RunPolicy, runCommand } from "@agentdesk/harness-core"
+import { type HarnessError, type HarnessSession, type PromptImage, type RunPolicy, runCommand } from "@agentdesk/harness-core"
 import { and, desc, eq, inArray } from "drizzle-orm"
 import { Context, Effect, Exit, FiberMap, Layer, Option, Scope, Stream } from "effect"
 import { ChildProcessSpawner } from "effect/process"
@@ -19,6 +20,7 @@ import { newId, nowIso } from "../util"
 import { DaemonConfig } from "../config"
 import { Activity } from "./activity"
 import { Approvals } from "./approvals"
+import { Attachments } from "./attachments"
 import { Database } from "./database"
 import { EventLog } from "./event-log"
 import { Harnesses } from "./harnesses"
@@ -37,6 +39,8 @@ export interface StartSessionInput {
   readonly cwd: string
   readonly policy: RunPolicy
   readonly prompt?: string
+  /** Attachment ids sent with the first prompt. */
+  readonly images?: ReadonlyArray<string>
   readonly workspaceId?: string | null
   readonly runId?: string | null
   readonly stepRunId?: string | null
@@ -46,6 +50,7 @@ export interface StartForTicketInput {
   readonly harness?: HarnessId
   readonly prompt?: string
   readonly useRepoDirectly?: boolean
+  readonly images?: ReadonlyArray<string>
 }
 
 export interface TurnResult {
@@ -63,7 +68,7 @@ export interface SessionsShape {
   readonly get: (id: string) => Effect.Effect<AgentSession, NotFound | DbError>
   readonly list: (filter: { ticketId?: string; active?: boolean; limit?: number }) => Effect.Effect<ReadonlyArray<AgentSession>, DbError>
   /** Send a follow-up. Transparently resumes the provider conversation if the process is gone. */
-  readonly prompt: (id: string, text: string, actor?: string) => Effect.Effect<void, SessionError>
+  readonly prompt: (id: string, text: string, actor?: string, images?: ReadonlyArray<string>) => Effect.Effect<void, SessionError>
   readonly interrupt: (id: string) => Effect.Effect<void, SessionError>
   /** Terminate the harness process. */
   readonly stop: (id: string) => Effect.Effect<void, SessionError>
@@ -97,7 +102,7 @@ interface LiveSession {
  * Build the harness run policy for a project. Unrestricted mode is refused
  * unless a real sandbox is configured: a git worktree is not a sandbox.
  */
-export const projectPolicy = (project: Project, sandboxPrefix: ReadonlyArray<string> | undefined) =>
+export const projectPolicy = (project: Project, sandboxPrefix: ReadonlyArray<string> | undefined, model?: string | null) =>
   project.permissionMode === "unrestricted" && !sandboxPrefix?.length
     ? Effect.fail(
         new BadRequest({
@@ -107,8 +112,16 @@ export const projectPolicy = (project: Project, sandboxPrefix: ReadonlyArray<str
       )
     : Effect.succeed<RunPolicy>({
         permissionMode: project.permissionMode,
+        ...(model && { model }),
         ...(project.permissionMode === "unrestricted" && { sandboxPrefix })
       })
+
+/**
+ * The ticket's model applies only when the run uses the ticket's own harness;
+ * a model id is meaningless to another harness, which then uses its default.
+ */
+export const ticketModel = (ticket: Ticket, project: Project, harness: HarnessId) =>
+  harness === (ticket.harness ?? project.defaultHarness) ? ticket.model : null
 
 export const buildTicketPrompt = (ticket: Ticket, extra?: string) =>
   [
@@ -128,6 +141,18 @@ export const SessionsLive = Layer.effect(
     const events = yield* EventLog
     const harnesses = yield* Harnesses
     const approvals = yield* Approvals
+    const attachments = yield* Attachments
+
+    /** Attachments for a prompt: references for the event log, bytes and paths for the harness. */
+    const loadImages = (ids: ReadonlyArray<string> | undefined) =>
+      Effect.gen(function* () {
+        if (!ids?.length) return { refs: [] as Array<ImageRef>, prompt: [] as Array<PromptImage> }
+        const prompt = yield* attachments.forPrompt(ids)
+        const refs = yield* Effect.forEach(ids, (id) =>
+          attachments.read(id).pipe(Effect.map((a): ImageRef => ({ id, mimeType: a.mimeType, size: a.bytes.byteLength })))
+        )
+        return { refs, prompt }
+      })
     const notices = yield* Notices
     const activity = yield* Activity
     const tickets = yield* Tickets
@@ -197,6 +222,19 @@ export const SessionsLive = Layer.effect(
               )
             }
             break
+          case "image": {
+            // Store the image; the event log keeps only a reference, never base64.
+            if (!raw.source) break
+            const cwd = yield* getRow(sessionId).pipe(
+              Effect.map((r) => r.cwd),
+              Effect.orElseSucceed(() => process.cwd())
+            )
+            const stored = yield* attachments.fromSource(raw.source, cwd).pipe(Effect.option)
+            event = Option.isSome(stored)
+              ? { type: "image", ...(raw.toolCallId && { toolCallId: raw.toolCallId }), image: stored.value }
+              : { type: "session.status", state: "image_unavailable", detail: raw.source.path ?? "The agent produced an image that could not be stored" }
+            break
+          }
           case "approval.requested": {
             const approval = yield* approvals.create({
               ticketId,
@@ -255,7 +293,7 @@ export const SessionsLive = Layer.effect(
     /** Launch (or resume) the harness process for an existing session row. */
     const launch = Effect.fn("Sessions.launch")(function* (
       row: Row,
-      opts: { prompt?: string; resume: boolean; policy: RunPolicy; lockHolder?: string }
+      opts: { prompt?: string; images?: ReadonlyArray<PromptImage>; resume: boolean; policy: RunPolicy; lockHolder?: string }
     ) {
         yield* Effect.annotateCurrentSpan({
           sessionId: row.id,
@@ -268,7 +306,7 @@ export const SessionsLive = Layer.effect(
         })
         const adapter = yield* harnesses.get(row.harness as HarnessId)
         const scope = yield* Scope.fork(rootScope)
-        const startInput = { cwd: row.cwd, policy: opts.policy, prompt: opts.prompt }
+        const startInput = { cwd: row.cwd, policy: opts.policy, prompt: opts.prompt, images: opts.images }
         const handle = yield* (opts.resume && row.providerSessionId && adapter.resume
           ? adapter.resume({ ...startInput, providerSessionId: row.providerSessionId })
           : adapter.start(startInput)
@@ -327,8 +365,9 @@ export const SessionsLive = Layer.effect(
         const lockHolder = input.workspaceId && !input.runId ? id : undefined
         if (lockHolder && input.workspaceId) yield* workspaces.lock(input.workspaceId, lockHolder)
         yield* use((db) => db.insert(agentSessions).values(row).run())
-        if (input.prompt) yield* events.append(id, { type: "user.prompt", text: input.prompt })
-        yield* launch(row, { prompt: input.prompt, resume: false, policy: input.policy, lockHolder }).pipe(
+        const images = yield* loadImages(input.images)
+        if (input.prompt) yield* events.append(id, { type: "user.prompt", text: input.prompt, ...(images.refs.length && { images: images.refs }) })
+        yield* launch(row, { prompt: input.prompt, images: images.prompt, resume: false, policy: input.policy, lockHolder }).pipe(
           Effect.tapError((e) =>
             Effect.gen(function* () {
               yield* events.append(id, { type: "session.error", message: e.message })
@@ -355,7 +394,7 @@ export const SessionsLive = Layer.effect(
         }
         const project = yield* projects.get(ticket.projectId)
         const harness = input.harness ?? ticket.harness ?? project.defaultHarness
-        const policy = yield* projectPolicy(project, config.sandboxPrefix)
+        const policy = yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, harness))
         const ws = input.useRepoDirectly
           ? undefined
           : yield* workspaces.forTicket({
@@ -371,17 +410,20 @@ export const SessionsLive = Layer.effect(
           cwd: ws?.path ?? project.repoPath,
           workspaceId: ws?.id ?? null,
           policy,
-          prompt: buildTicketPrompt(ticket, input.prompt)
+          prompt: buildTicketPrompt(ticket, input.prompt),
+          images: input.images
         })
       })
 
-    const prompt = Effect.fn("Sessions.prompt")(function* (id: string, text: string, actor = "user") {
+    const prompt = Effect.fn("Sessions.prompt")(function* (id: string, text: string, actor = "user", imageIds?: ReadonlyArray<string>) {
         const l = live.get(id)
-        yield* Effect.annotateCurrentSpan({ sessionId: id, live: !!l, chars: text.length })
+        yield* Effect.annotateCurrentSpan({ sessionId: id, live: !!l, chars: text.length, images: imageIds?.length ?? 0 })
+        const images = yield* loadImages(imageIds)
+        const promptEvent = { type: "user.prompt" as const, text, ...(images.refs.length && { images: images.refs }) }
         if (l) {
-          yield* events.append(id, { type: "user.prompt", text })
+          yield* events.append(id, promptEvent)
           yield* setState(id, "running")
-          yield* l.handle.prompt(text)
+          yield* l.handle.prompt(text, images.prompt)
           return
         }
         const row = yield* getRow(id)
@@ -389,13 +431,15 @@ export const SessionsLive = Layer.effect(
           return yield* new BadRequest({ message: "Session has ended and cannot be resumed (no provider session id)" })
         }
         if (row.workspaceId && !row.runId) yield* workspaces.lock(row.workspaceId, id)
-        const project = yield* tickets.get(row.ticketId).pipe(Effect.flatMap((t) => projects.get(t.projectId)))
-        yield* events.append(id, { type: "user.prompt", text })
+        const ticket = yield* tickets.get(row.ticketId)
+        const project = yield* projects.get(ticket.projectId)
+        yield* events.append(id, promptEvent)
         yield* events.append(id, { type: "session.status", state: "resuming", detail: "Resuming provider conversation in a new process" })
         yield* launch(row, {
           prompt: text,
+          images: images.prompt,
           resume: true,
-          policy: yield* projectPolicy(project, config.sandboxPrefix),
+          policy: yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, row.harness as HarnessId)),
           lockHolder: row.workspaceId && !row.runId ? id : undefined
         })
         yield* activity.record({ kind: "session.resumed", message: "Agent session resumed with a follow-up", ticketId: row.ticketId, actor })

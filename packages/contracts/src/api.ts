@@ -36,6 +36,7 @@ export const CreateTicketBody = Schema.Struct({
   status: Schema.optional(BoardStatus),
   priority: Schema.optional(Priority),
   harness: Schema.optional(Schema.NullOr(HarnessId)),
+  model: Schema.optional(Schema.NullOr(Schema.String)),
   workflowId: Schema.optional(Schema.NullOr(Schema.String)),
   labels: Schema.optional(Schema.Array(Schema.String))
 })
@@ -48,6 +49,7 @@ export const UpdateTicketBody = Schema.Struct({
   status: Schema.optional(BoardStatus),
   priority: Schema.optional(Priority),
   harness: Schema.optional(Schema.NullOr(HarnessId)),
+  model: Schema.optional(Schema.NullOr(Schema.String)),
   workflowId: Schema.optional(Schema.NullOr(Schema.String)),
   labels: Schema.optional(Schema.Array(Schema.String)),
   pinned: Schema.optional(Schema.Boolean),
@@ -60,8 +62,18 @@ export const StartSessionBody = Schema.Struct({
   harness: Schema.optional(HarnessId),
   prompt: Schema.optional(Schema.String),
   /** When true, run in the project repo itself instead of a fresh worktree. */
-  useRepoDirectly: Schema.optional(Schema.Boolean)
+  useRepoDirectly: Schema.optional(Schema.Boolean),
+  /** Attachment ids from `POST /attachments`, sent with the first prompt. */
+  images: Schema.optional(Schema.Array(Schema.String))
 })
+
+export const UploadAttachmentBody = Schema.Struct({
+  mimeType: Schema.String,
+  /** Base64 file contents. */
+  data: Schema.NonEmptyString,
+  name: Schema.optional(Schema.String)
+})
+export type UploadAttachmentBody = typeof UploadAttachmentBody.Type
 export type StartSessionBody = typeof StartSessionBody.Type
 
 export const StartRunBody = Schema.Struct({
@@ -70,7 +82,11 @@ export const StartRunBody = Schema.Struct({
 })
 export type StartRunBody = typeof StartRunBody.Type
 
-export const PromptBody = Schema.Struct({ text: Schema.NonEmptyString })
+export const PromptBody = Schema.Struct({
+  text: Schema.NonEmptyString,
+  /** Attachment ids from `POST /attachments`. */
+  images: Schema.optional(Schema.Array(Schema.String))
+})
 export type PromptBody = typeof PromptBody.Type
 
 export const ApprovalDecisionBody = Schema.Struct({

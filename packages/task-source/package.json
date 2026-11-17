@@ -11,9 +11,5 @@
   },
   "dependencies": {
     "effect": "4.1.4"
-  },
-  "devDependencies": {
-    "@agentdesk/jira": "workspace:*",
-    "@agentdesk/linear": "workspace:*"
   }
 }

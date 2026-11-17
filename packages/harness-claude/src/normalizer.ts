@@ -1,5 +1,5 @@
 import type { AgentEvent } from "@agentdesk/contracts"
-import { isRecord, num, str, summarizeToolInput, type Normalizer } from "@agentdesk/harness-core"
+import { extractImages, imageEvents, isRecord, num, str, summarizeToolInput, type Normalizer } from "@agentdesk/harness-core"
 
 /**
  * Normalizes Claude Code `--output-format stream-json --verbose --include-partial-messages`
@@ -90,12 +90,16 @@ export class ClaudeNormalizer implements Normalizer {
     const out: Array<AgentEvent> = []
     for (const block of message.content) {
       if (!isRecord(block) || block.type !== "tool_result") continue
+      const toolCallId = str(block.tool_use_id) ?? "unknown"
+      // Screenshots and viewed images arrive as base64 blocks inside the result.
+      const { rest, images } = extractImages(block.content)
       out.push({
         type: "tool.completed",
-        toolCallId: str(block.tool_use_id) ?? "unknown",
-        result: flattenToolResult(block.content),
+        toolCallId,
+        result: flattenToolResult(rest),
         isError: block.is_error === true
       })
+      out.push(...imageEvents(images, toolCallId))
     }
     return out
   }

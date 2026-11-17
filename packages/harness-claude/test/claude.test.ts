@@ -77,3 +77,28 @@ layer(NodeProcessLayer, { excludeTestServices: true })("Claude adapter (fake CLI
     })
   )
 })
+
+describe("ClaudeNormalizer images", () => {
+  it("splits screenshots out of tool results into image events", () => {
+    const n = new ClaudeNormalizer()
+    const events = n.push({
+      type: "user",
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "t1",
+            content: [
+              { type: "text", text: "Took a screenshot" },
+              { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } }
+            ]
+          }
+        ]
+      }
+    })
+    expect(events).toEqual([
+      { type: "tool.completed", toolCallId: "t1", result: "Took a screenshot", isError: false },
+      { type: "image", toolCallId: "t1", source: { data: "AAAA", mimeType: "image/png" } }
+    ])
+  })
+})

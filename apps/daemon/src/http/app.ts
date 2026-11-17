@@ -8,6 +8,7 @@ import {
   CreateProjectBody,
   CreateTicketBody,
   PromptBody,
+  UploadAttachmentBody,
   SaveWorkflowBody,
   StartRunBody,
   StartSessionBody,
@@ -23,6 +24,8 @@ import { DaemonConfig, type DaemonConfigShape } from "../config"
 import type { AppRuntime } from "../runtime"
 import { Activity } from "../services/activity"
 import { Approvals } from "../services/approvals"
+import { Attachments } from "../services/attachments"
+import { listTicketFiles, readTicketFile, readTicketImage } from "../services/files"
 import { EventLog } from "../services/event-log"
 import { Harnesses } from "../services/harnesses"
 import { TaskSync } from "../services/task-sync"
@@ -32,7 +35,7 @@ import { Sessions } from "../services/sessions"
 import { Tickets } from "../services/tickets"
 import { Workflows } from "../services/workflows"
 import { Workspaces } from "../services/workspaces"
-import { body, makeResponder } from "./respond"
+import { body, makeResponder, RawBody } from "./respond"
 import { securityMiddleware } from "./security"
 import { sseFromStream } from "./sse"
 
@@ -128,6 +131,23 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
       )
     )
   )
+  app.post("/attachments", (c) =>
+    respond(
+      c,
+      body(c, UploadAttachmentBody).pipe(
+        Effect.flatMap((b) => Attachments.use((a) => a.save(Buffer.from(b.data, "base64"), b.mimeType, b.name)))
+      ),
+      201
+    )
+  )
+  app.get("/attachments/:id", (c) =>
+    respond(c, Attachments.use((a) => a.read(id(c))).pipe(Effect.map((a) => new RawBody(a.bytes, a.mimeType))))
+  )
+  app.get("/tickets/:id/raw", (c) =>
+    respond(c, readTicketImage(id(c), c.req.query("path") ?? "").pipe(Effect.map((f) => new RawBody(f.bytes, f.mimeType, "no-store"))))
+  )
+  app.get("/tickets/:id/files", (c) => respond(c, listTicketFiles(id(c))))
+  app.get("/tickets/:id/file", (c) => respond(c, readTicketFile(id(c), c.req.query("path") ?? "")))
   app.get("/tickets/:id/workspace", (c) =>
     respond(c, Workspaces.use((w) => w.latestForTicket(id(c)).pipe(Effect.map((ws) => ws ?? null))))
   )
@@ -152,7 +172,7 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
     )
   })
   app.post("/sessions/:id/prompt", (c) =>
-    respond(c, body(c, PromptBody).pipe(Effect.flatMap((b) => Sessions.use((s) => s.prompt(id(c), b.text)))))
+    respond(c, body(c, PromptBody).pipe(Effect.flatMap((b) => Sessions.use((s) => s.prompt(id(c), b.text, "user", b.images)))))
   )
   app.post("/sessions/:id/interrupt", (c) => respond(c, Sessions.use((s) => s.interrupt(id(c)))))
   app.post("/sessions/:id/stop", (c) => respond(c, Sessions.use((s) => s.stop(id(c)))))

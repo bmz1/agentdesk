@@ -9,8 +9,11 @@ import type {
   CreateTicketBody,
   DaemonInfo,
   Diff,
+  FileContent,
+  FileTree,
   HarnessDetection,
   HarnessId,
+  ImageRef,
   Project,
   StoredAgentEvent,
   Ticket,
@@ -65,6 +68,25 @@ const request = async <T>(method: string, path: string, body?: unknown): Promise
   return json as T
 }
 
+/** Binary GET (images): the daemon needs the bearer token, which <img src> cannot send. */
+const requestBlob = async (path: string): Promise<Blob> => {
+  if (!connection) throw new ApiError(0, "NoDaemon", "Not connected to the AgentDesk daemon")
+  const res = await fetch(connection.url + path, { headers: { Authorization: `Bearer ${connection.token}` } })
+  if (!res.ok) {
+    const json = await res.json().catch(() => undefined)
+    throw new ApiError(res.status, json?.error ?? "Error", json?.message ?? res.statusText)
+  }
+  return res.blob()
+}
+
+const toBase64 = (file: Blob) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ""))
+    reader.onerror = () => reject(reader.error ?? new Error("Could not read file"))
+    reader.readAsDataURL(file)
+  })
+
 const qs = (params: Record<string, string | number | boolean | undefined | null>) => {
   const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")
   return entries.length ? "?" + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString() : ""
@@ -98,9 +120,11 @@ export const api = {
   ticketSessions: (id: string) => request<ReadonlyArray<AgentSession>>("GET", `/tickets/${id}/sessions`),
   ticketApprovals: (id: string) => request<ReadonlyArray<Approval>>("GET", `/tickets/${id}/approvals`),
   ticketDiff: (id: string) => request<Diff>("GET", `/tickets/${id}/diff`),
+  ticketFiles: (id: string) => request<FileTree>("GET", `/tickets/${id}/files`),
+  ticketFile: (id: string, path: string) => request<FileContent>("GET", `/tickets/${id}/file${qs({ path })}`),
   ticketWorkspace: (id: string) => request<Workspace | null>("GET", `/tickets/${id}/workspace`),
   ticketRuns: (id: string) => request<ReadonlyArray<WorkflowRun>>("GET", `/tickets/${id}/runs`),
-  startSession: (ticketId: string, b: { harness?: HarnessId; prompt?: string; useRepoDirectly?: boolean }) =>
+  startSession: (ticketId: string, b: { harness?: HarnessId; prompt?: string; useRepoDirectly?: boolean; images?: ReadonlyArray<string> }) =>
     request<AgentSession>("POST", `/tickets/${ticketId}/sessions`, b),
   startRun: (ticketId: string, b: { workflowId?: string; harness?: HarnessId }) =>
     request<WorkflowRun>("POST", `/tickets/${ticketId}/start-run`, b),
@@ -110,7 +134,12 @@ export const api = {
   sessions: (active = false) => request<ReadonlyArray<AgentSession>>("GET", `/sessions${qs({ active: active ? 1 : undefined })}`),
   session: (id: string) => request<AgentSession>("GET", `/sessions/${id}`),
   sessionHistory: (id: string, after = 0) => request<ReadonlyArray<StoredAgentEvent>>("GET", `/sessions/${id}/history${qs({ after })}`),
-  prompt: (id: string, text: string) => request<void>("POST", `/sessions/${id}/prompt`, { text }),
+  prompt: (id: string, text: string, images?: ReadonlyArray<string>) =>
+    request<void>("POST", `/sessions/${id}/prompt`, { text, ...(images?.length && { images }) }),
+  uploadAttachment: async (file: File) =>
+    request<ImageRef>("POST", "/attachments", { mimeType: file.type, data: await toBase64(file), name: file.name || undefined }),
+  attachment: (id: string) => requestBlob(`/attachments/${id}`),
+  ticketImage: (ticketId: string, path: string) => requestBlob(`/tickets/${ticketId}/raw${qs({ path })}`),
   interrupt: (id: string) => request<void>("POST", `/sessions/${id}/interrupt`),
   stopSession: (id: string) => request<void>("POST", `/sessions/${id}/stop`),
 

@@ -17,11 +17,22 @@ export interface RunPolicy {
   readonly sandboxPrefix?: ReadonlyArray<string>
 }
 
+/** An image attached to a prompt: inline for harnesses that take bytes, a path for those that read files. */
+export interface PromptImage {
+  readonly mimeType: string
+  /** Base64 contents. */
+  readonly data: string
+  /** Absolute path of the same image on disk. */
+  readonly path: string
+}
+
 export interface StartInput {
   readonly cwd: string
   readonly policy: RunPolicy
   /** Optional first prompt. If omitted the session is idle until `prompt` is called. */
   readonly prompt?: string
+  /** Images sent with the first prompt. */
+  readonly images?: ReadonlyArray<PromptImage>
 }
 
 export interface ResumeInput extends StartInput {
@@ -41,7 +52,7 @@ export interface HarnessSession {
   readonly pid: number | undefined
   /** Canonical events. Single consumer; ends when the harness exits. */
   readonly events: Stream.Stream<AgentEvent, HarnessError>
-  readonly prompt: (text: string) => Effect.Effect<void, HarnessError>
+  readonly prompt: (text: string, images?: ReadonlyArray<PromptImage>) => Effect.Effect<void, HarnessError>
   readonly respondToApproval: (
     providerRequestId: string,
     decision: ApprovalDecision,

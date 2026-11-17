@@ -1,32 +1,21 @@
-import type { BoardStatus, HarnessId, Priority, Ticket } from "@agentdesk/contracts"
+import type { BoardStatus, Ticket } from "@agentdesk/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { Bot, CheckSquare, ChevronLeft, GitBranchPlus, ExternalLink, FileDiff, FolderGit2, History, Info, Pin, PinOff, Trash2 } from "lucide-react"
-import { useEffect, useState } from "react"
-import {
-  BOARD_COLUMNS,
-  HARNESS_LABELS,
-  PRIORITIES,
-  RunStatusBadge,
-  SourceBadge,
-  sourceLabel,
-  StatusIcon
-} from "@/components/status"
-import { Badge } from "@/components/ui/badge"
+import { Bot, CheckSquare, ChevronLeft, FileDiff, FolderGit2, FolderTree, GitBranchPlus, History, Info, Pin, PinOff } from "lucide-react"
+import { BOARD_COLUMNS, RunStatusBadge, SourceBadge } from "@/components/status"
 import { Button } from "@/components/ui/button"
-import { Field, Input, Select, Textarea } from "@/components/ui/input"
-import { EmptyState, Section, Spinner, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/misc"
+import { Select } from "@/components/ui/input"
+import { EmptyState, Spinner, Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/misc"
 import { api } from "@/lib/api"
-import { openExternal } from "@/lib/connection"
 import { q, qk } from "@/lib/queries"
-import { relativeTime } from "@/lib/utils"
 import { DiffViewer } from "../diff/diff-viewer"
-import { RichText } from "../session/rich-text"
+import { FileBrowser } from "../files/file-browser"
 import { AgentPanel } from "../session/agent-panel"
-import { ActivityTimeline } from "./activity-timeline"
 import { ChecksTab, WorkflowTab } from "../workflow/workflow-tab"
+import { ActivityTimeline } from "./activity-timeline"
+import { Overview } from "./overview"
 
-export type TicketTab = "overview" | "agent" | "workflow" | "changes" | "checks" | "history"
+export type TicketTab = "overview" | "agent" | "workflow" | "changes" | "files" | "checks" | "history"
 
 
 export const TicketDetail = ({
@@ -109,6 +98,9 @@ export const TicketDetail = ({
           <TabsTrigger value="changes" data-testid="tab-changes">
             <FileDiff /> Changes
           </TabsTrigger>
+          <TabsTrigger value="files" data-testid="tab-files">
+            <FolderTree /> Files
+          </TabsTrigger>
           <TabsTrigger value="checks">
             <CheckSquare /> Checks
           </TabsTrigger>
@@ -117,7 +109,7 @@ export const TicketDetail = ({
           </TabsTrigger>
         </TabsList>
         <TabsContent value="overview" className="min-h-0 flex-1 overflow-y-auto">
-          <Overview ticket={t} onUpdate={(b) => update.mutate(b)} />
+          <Overview ticket={t} onUpdate={(b) => update.mutate(b)} onTab={onTab} />
         </TabsContent>
         <TabsContent value="agent" className="min-h-0 flex-1">
           <AgentPanel ticket={t} sessionId={sessionId} onSelectSession={onSession} />
@@ -131,178 +123,16 @@ export const TicketDetail = ({
         <TabsContent value="changes" className="min-h-0 flex-1 overflow-y-auto p-4">
           <Changes ticketId={t.id} />
         </TabsContent>
-        <TabsContent value="history" className="min-h-0 flex-1 overflow-y-auto p-4">
+        <TabsContent value="files" className="min-h-0 flex-1">
+          <FileBrowser ticketId={t.id} onShowChanges={() => onTab("changes")} />
+        </TabsContent>
+        <TabsContent value="history" className="min-h-0 flex-1 overflow-y-auto">
           <HistoryTab ticketId={t.id} />
         </TabsContent>
       </Tabs>
     </div>
   )
 }
-
-const Overview = ({ ticket, onUpdate }: { ticket: Ticket; onUpdate: (b: Parameters<typeof api.updateTicket>[1]) => void }) => {
-  const project = useQuery(q.project(ticket.projectId))
-  const workspace = useQuery(q.ticketWorkspace(ticket.id))
-  const editable = ticket.source === "local"
-  const [title, setTitle] = useState(ticket.title)
-  const [description, setDescription] = useState(ticket.description)
-  const [acceptance, setAcceptance] = useState(ticket.acceptanceCriteria)
-  useEffect(() => {
-    setTitle(ticket.title)
-    setDescription(ticket.description)
-    setAcceptance(ticket.acceptanceCriteria)
-  }, [ticket.id, ticket.title, ticket.description, ticket.acceptanceCriteria])
-  const qc = useQueryClient()
-  const del = useMutation({ mutationFn: () => api.deleteTicket(ticket.id), onSuccess: () => qc.invalidateQueries({ queryKey: ["tickets"] }) })
-
-  return (
-    <div className="grid grid-cols-[1fr_280px] gap-6 p-6">
-      <div className="min-w-0 space-y-4">
-        {editable ? (
-          <>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              onBlur={() => title.trim() && title !== ticket.title && onUpdate({ title })}
-              className="h-9 border-transparent bg-transparent px-0 text-lg font-semibold hover:border-border"
-            />
-            <Field label="Description">
-              <Textarea
-                rows={8}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                onBlur={() => description !== ticket.description && onUpdate({ description })}
-                placeholder="Add a description…"
-              />
-            </Field>
-          </>
-        ) : (
-          <>
-            <h2 className="text-lg font-semibold">{ticket.title}</h2>
-            <div className="rounded-md border bg-bg-subtle p-3">
-              {ticket.description ? <RichText text={ticket.description} /> : <span className="text-fg-subtle">No description</span>}
-            </div>
-            <p className="text-[11px] text-fg-subtle">
-              Title and description are synchronized read-only from {sourceLabel(ticket.source)}.
-            </p>
-          </>
-        )}
-        <Field label="Acceptance criteria">
-          <Textarea
-            rows={4}
-            value={acceptance}
-            onChange={(e) => setAcceptance(e.target.value)}
-            onBlur={() => acceptance !== ticket.acceptanceCriteria && onUpdate({ acceptanceCriteria: acceptance })}
-            placeholder="What does done look like?"
-          />
-        </Field>
-      </div>
-      <aside className="space-y-3">
-        <Section title="Properties">
-          <div className="space-y-2.5">
-            <Prop label="Status">
-              <span className="flex items-center gap-1.5">
-                <StatusIcon status={ticket.status} /> {BOARD_COLUMNS.find((c) => c.id === ticket.status)?.label}
-              </span>
-            </Prop>
-            <Prop label="Priority">
-              <Select value={ticket.priority} onChange={(e) => onUpdate({ priority: e.target.value as Priority })} className="h-6 w-full">
-                {PRIORITIES.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </Select>
-            </Prop>
-            <Prop label="Harness">
-              <Select
-                value={ticket.harness ?? ""}
-                onChange={(e) => onUpdate({ harness: (e.target.value || null) as HarnessId | null })}
-                className="h-6 w-full"
-              >
-                <option value="">Project default ({project.data ? HARNESS_LABELS[project.data.defaultHarness] : "…"})</option>
-                {(Object.keys(HARNESS_LABELS) as Array<HarnessId>).map((h) => (
-                  <option key={h} value={h}>
-                    {HARNESS_LABELS[h]}
-                  </option>
-                ))}
-              </Select>
-            </Prop>
-            <Prop label="Project">
-              <Link to="/projects/$projectId" params={{ projectId: ticket.projectId }} className="flex items-center gap-1 hover:underline">
-                <FolderGit2 className="size-3.5" />
-                {project.data?.name}
-              </Link>
-            </Prop>
-            {project.data && (
-              <Prop label="Repository">
-                <span className="truncate font-mono text-[11px]" title={project.data.repoPath}>
-                  {project.data.repoPath}
-                </span>
-              </Prop>
-            )}
-            <Prop label="Branch">
-              {workspace.data ? (
-                <span className="truncate font-mono text-[11px]" title={workspace.data.path}>
-                  {workspace.data.branch}
-                </span>
-              ) : (
-                <span className="text-fg-subtle">Created when an agent starts</span>
-              )}
-            </Prop>
-            <Prop label="Updated">{relativeTime(ticket.updatedAt)}</Prop>
-          </div>
-        </Section>
-        {ticket.external && (
-          <Section title={sourceLabel(ticket.external.provider)}>
-            <div className="space-y-2 text-xs">
-              <Prop label="Key">
-                <button className="flex items-center gap-1 text-accent hover:underline" onClick={() => openExternal(ticket.external!.url)}>
-                  {ticket.external.displayKey} <ExternalLink className="size-3" />
-                </button>
-              </Prop>
-              <Prop label="Remote status">
-                <Badge tone="info">{ticket.external.remoteStatus ?? "—"}</Badge>
-              </Prop>
-              <Prop label="Assignee">{ticket.external.remoteAssignee ?? "Unassigned"}</Prop>
-              {ticket.external.remoteState === "missing" && (
-                <p className="text-warning">No longer returned by the sync scope (deleted, moved or no permission). Local history is kept.</p>
-              )}
-              <p className="text-fg-subtle">Board moves stay local; AgentDesk never writes back to {sourceLabel(ticket.external.provider)}.</p>
-            </div>
-          </Section>
-        )}
-        {ticket.labels.length > 0 && (
-          <Section title="Labels">
-            <div className="flex flex-wrap gap-1">
-              {ticket.labels.map((l) => (
-                <Badge key={l}>{l}</Badge>
-              ))}
-            </div>
-          </Section>
-        )}
-        {editable && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-danger"
-            onClick={() => confirm("Delete this local ticket?") && del.mutate()}
-            disabled={del.isPending}
-          >
-            <Trash2 /> Delete ticket
-          </Button>
-        )}
-        {del.error && <p className="text-xs text-danger">{(del.error as Error).message}</p>}
-      </aside>
-    </div>
-  )
-}
-
-const Prop = ({ label, children }: { label: string; children: React.ReactNode }) => (
-  <div className="grid grid-cols-[80px_1fr] items-center gap-2 text-xs">
-    <span className="text-fg-subtle">{label}</span>
-    <div className="min-w-0">{children}</div>
-  </div>
-)
 
 const Changes = ({ ticketId }: { ticketId: string }) => {
   const diff = useQuery({ ...q.ticketDiff(ticketId), refetchInterval: 5_000 })
@@ -341,5 +171,9 @@ const Changes = ({ ticketId }: { ticketId: string }) => {
 
 const HistoryTab = ({ ticketId }: { ticketId: string }) => {
   const activity = useQuery(q.ticketActivity(ticketId))
-  return activity.data ? <ActivityTimeline events={activity.data} /> : <Spinner />
+  return (
+    <div className="mx-auto w-full max-w-3xl px-8 py-8">
+      {activity.data ? <ActivityTimeline events={activity.data} groupByDay /> : <Spinner />}
+    </div>
+  )
 }

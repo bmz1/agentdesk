@@ -19,6 +19,19 @@ describe("projects and local tickets", () => {
     expect(updated).toMatchObject({ testCommand: "pnpm test", defaultHarness: "mock" })
   })
 
+  it("stores a per-ticket model and resets it when the harness changes", async () => {
+    const { daemon, api } = await startTestDaemon()
+    cleanups.push(daemon.stop)
+    const p = await api.post("/projects", { name: "Models", key: "MOD", repoPath: makeRepo() })
+    const t = await api.post("/tickets", { projectId: p.id, title: "Pick a model", harness: "claude", model: "opus" })
+    expect(t).toMatchObject({ harness: "claude", model: "opus" })
+    expect(await api.patch(`/tickets/${t.id}`, { priority: "high" })).toMatchObject({ model: "opus" })
+    expect(await api.patch(`/tickets/${t.id}`, { harness: "codex" })).toMatchObject({ harness: "codex", model: null })
+    expect(await api.patch(`/tickets/${t.id}`, { harness: "opencode", model: "opencode/big-pickle" })).toMatchObject({
+      model: "opencode/big-pickle"
+    })
+  })
+
   it("supports CRUD, search, ordering and board moves, and survives restarts", async () => {
     const first = await startTestDaemon()
     const repo = makeRepo()

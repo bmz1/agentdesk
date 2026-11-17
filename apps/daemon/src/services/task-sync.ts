@@ -113,6 +113,7 @@ export const upsertTasks = (
             priority: "none",
             sourceKind: conn.provider,
             harness: null,
+            model: null,
             workflowId: null,
             labels: [...task.labels],
             pinned: false,

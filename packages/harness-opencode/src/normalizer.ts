@@ -1,5 +1,5 @@
 import type { AgentEvent } from "@agentdesk/contracts"
-import { isRecord, str, type Normalizer } from "@agentdesk/harness-core"
+import { asInlineImage, imageEvents, isRecord, str, type Normalizer } from "@agentdesk/harness-core"
 
 /**
  * Normalizes `opencode serve` bus events (GET /event) for one OpenCode session.
@@ -131,6 +131,9 @@ export class OpenCodeNormalizer implements Normalizer {
             result: state.status === "error" ? state.error : state.output,
             isError: state.status === "error"
           })
+          // Tools (e.g. screenshots, reading an image) attach files as data URLs.
+          const attachments = Array.isArray(state.attachments) ? state.attachments : []
+          out.push(...imageEvents(attachments.flatMap((a) => asInlineImage(a) ?? []), callId))
         }
         return out
       }

@@ -51,7 +51,7 @@ export const TabsList = ({ className, ...p }: React.ComponentProps<typeof T.List
 export const TabsTrigger = ({ className, ...p }: React.ComponentProps<typeof T.Trigger>) => (
   <T.Trigger
     className={cn(
-      "relative -mb-px flex h-9 items-center gap-1.5 border-b-2 border-transparent px-2 text-[13px] text-fg-muted hover:text-fg data-[state=active]:border-accent data-[state=active]:text-fg [&_svg]:size-3.5",
+      "relative -mb-px flex h-9 items-center gap-1.5 rounded-t border-b-2 border-transparent px-2 text-[13px] text-fg-muted outline-none hover:text-fg focus-visible:ring-1 focus-visible:ring-accent/50 data-[state=active]:border-accent data-[state=active]:text-fg [&_svg]:size-3.5",
       className
     )}
     {...p}

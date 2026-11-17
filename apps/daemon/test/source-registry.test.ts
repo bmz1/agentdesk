@@ -2,7 +2,7 @@ import { jiraSource } from "@agentdesk/jira"
 import { linearSource } from "@agentdesk/linear"
 import { describe, expect, it } from "@effect/vitest"
 import { Effect } from "effect"
-import { makeSourceRegistry } from "../src"
+import { makeSourceRegistry } from "@agentdesk/task-source"
 
 describe("source registry", () => {
   const registry = makeSourceRegistry([jiraSource, linearSource])

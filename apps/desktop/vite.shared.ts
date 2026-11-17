@@ -2,7 +2,14 @@ import { resolve } from "node:path"
 import tailwindcss from "@tailwindcss/vite"
 import { tanstackRouter } from "@tanstack/router-plugin/vite"
 import react from "@vitejs/plugin-react"
-import type { UserConfig } from "vite"
+import type { Plugin, UserConfig } from "vite"
+
+// The React Refresh preamble is an inline <script>; allow inline scripts only on the dev server.
+const devInlineScripts = (): Plugin => ({
+  name: "agentdesk:dev-csp",
+  apply: "serve",
+  transformIndexHtml: (html) => html.replace("script-src 'self'", "script-src 'self' 'unsafe-inline'")
+})
 
 export const rendererConfig = (): UserConfig => ({
   root: resolve(import.meta.dirname, "src/renderer"),
@@ -16,7 +23,8 @@ export const rendererConfig = (): UserConfig => ({
       generatedRouteTree: resolve(import.meta.dirname, "src/renderer/routeTree.gen.ts")
     }),
     react(),
-    tailwindcss()
+    tailwindcss(),
+    devInlineScripts()
   ],
   resolve: { alias: { "@": resolve(import.meta.dirname, "src/renderer") } },
   build: { outDir: resolve(import.meta.dirname, "out/renderer"), emptyOutDir: true },

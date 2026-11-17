@@ -122,8 +122,8 @@ const SessionView = ({ session }: { session: AgentSession }) => {
   const resumable = !live && !!session.providerSessionId
   return (
     <>
-      <div className="relative min-h-0 flex-1">
-        <div className="absolute right-3 top-2 z-10">
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div className="absolute top-2 right-3 z-10">
           <Tooltip content={connected ? "Live stream connected" : "Reconnecting to daemon…"}>
             <span className={connected ? "text-success" : "text-warning"}>
               {connected ? <Wifi className="size-3.5" /> : <WifiOff className="size-3.5" />}
@@ -131,17 +131,18 @@ const SessionView = ({ session }: { session: AgentSession }) => {
           </Tooltip>
         </div>
         {items.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-xs text-fg-subtle">
-            <Spinner className="mr-2" /> Waiting for agent events…
+          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+            <span className="shimmer">{live ? "Starting the agent…" : "No events recorded for this session."}</span>
           </div>
         ) : (
-          <Transcript items={items} onDecide={decide} deciding={deciding} />
+          <Transcript items={items} working={session.state === "running" || session.state === "starting"} onDecide={decide} deciding={deciding} />
         )}
       </div>
       <Composer
-        onSend={(text) => api.prompt(session.id, text)}
+        onSend={(text, images) => api.prompt(session.id, text, images)}
         onInterrupt={() => void api.interrupt(session.id)}
         running={session.state === "running"}
+        meta={`${HARNESS_LABELS[session.harness]} · ${session.state === "idle" ? "awaiting follow-up" : session.state.replace(/_/g, " ")}`}
         disabled={!live && !resumable}
         placeholder={
           live ? undefined : resumable ? "Send a follow-up to resume this conversation…" : "This session has ended. Start a new session."

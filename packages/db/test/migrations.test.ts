@@ -49,7 +49,7 @@ describe("migration 2: generic task sources", () => {
       .run(now)
     sqlite.prepare(`INSERT INTO jira_sync_state (connection_id, high_watermark, consecutive_failures) VALUES ('c1','2026-01-02',2)`).run()
 
-    expect(migrate(sqlite, migrations)).toEqual([2])
+    expect(migrate(sqlite, migrations.filter((m) => m.id <= 2))).toEqual([2])
     const row = sqlite.prepare("SELECT * FROM source_connections").get() as any
     expect(row).toMatchObject({ id: "c1", provider: "jira", name: "SEON", credential_ref: "jira:c1", poll_interval_sec: 300 })
     expect(JSON.parse(row.settings)).toEqual({ deployment: "cloud", baseUrl: "https://seon.atlassian.net", principal: "me@seon.io", jql: "project = SEON" })

@@ -141,6 +141,7 @@ export const loadTickets = (database: DatabaseShape, filter: TicketFilter = {}) 
         priority: t.priority as Ticket["priority"],
         source: t.sourceKind as TicketSource,
         harness: (t.harness as Ticket["harness"]) ?? null,
+        model: t.model ?? null,
         workflowId: t.workflowId,
         labels: t.labels ?? [],
         pinned: t.pinned,
@@ -207,6 +208,7 @@ export const TicketsLive = Layer.effect(
               priority: body.priority ?? "none",
               sourceKind: "local",
               harness: body.harness ?? null,
+              model: body.model ?? null,
               workflowId: body.workflowId ?? null,
               labels: [...(body.labels ?? [])],
               pinned: false,
@@ -242,6 +244,10 @@ export const TicketsLive = Layer.effect(
               ...(body.status !== undefined && { status: body.status }),
               ...(body.priority !== undefined && { priority: body.priority }),
               ...(body.harness !== undefined && { harness: body.harness }),
+              // Models are harness-specific: switching harness resets to that harness' default.
+              ...(body.model !== undefined
+                ? { model: body.model }
+                : body.harness !== undefined && body.harness !== before.harness && { model: null }),
               ...(body.workflowId !== undefined && { workflowId: body.workflowId }),
               ...(body.labels !== undefined && { labels: [...body.labels] }),
               ...(body.pinned !== undefined && { pinned: body.pinned }),

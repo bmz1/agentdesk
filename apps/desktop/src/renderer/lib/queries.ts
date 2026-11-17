@@ -22,6 +22,8 @@ export const qk = {
   ticketApprovals: (id: string) => ["tickets", "detail", id, "approvals"] as const,
   ticketDiff: (id: string) => ["tickets", "detail", id, "diff"] as const,
   ticketWorkspace: (id: string) => ["tickets", "detail", id, "workspace"] as const,
+  ticketFiles: (id: string) => ["tickets", "detail", id, "files"] as const,
+  ticketFile: (id: string, path: string) => ["tickets", "detail", id, "files", path] as const,
   ticketRuns: (id: string) => ["tickets", "detail", id, "runs"] as const,
   sessions: (active: boolean) => ["sessions", { active }] as const,
   session: (id: string) => ["sessions", "detail", id] as const,
@@ -47,6 +49,9 @@ export const q = {
   ticketApprovals: (id: string) => queryOptions({ queryKey: qk.ticketApprovals(id), queryFn: () => api.ticketApprovals(id) }),
   ticketDiff: (id: string) => queryOptions({ queryKey: qk.ticketDiff(id), queryFn: () => api.ticketDiff(id), staleTime: 2_000 }),
   ticketWorkspace: (id: string) => queryOptions({ queryKey: qk.ticketWorkspace(id), queryFn: () => api.ticketWorkspace(id) }),
+  ticketFiles: (id: string) => queryOptions({ queryKey: qk.ticketFiles(id), queryFn: () => api.ticketFiles(id), refetchInterval: 10_000 }),
+  ticketFile: (id: string, path: string) =>
+    queryOptions({ queryKey: qk.ticketFile(id, path), queryFn: () => api.ticketFile(id, path), refetchInterval: 10_000 }),
   ticketRuns: (id: string) => queryOptions({ queryKey: qk.ticketRuns(id), queryFn: () => api.ticketRuns(id) }),
   sessions: (active = false) => queryOptions({ queryKey: qk.sessions(active), queryFn: () => api.sessions(active) }),
   session: (id: string) => queryOptions({ queryKey: qk.session(id), queryFn: () => api.session(id) }),

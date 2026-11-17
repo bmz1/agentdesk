@@ -32,6 +32,7 @@ export const tickets = sqliteTable(
     priority: text("priority").notNull(),
     sourceKind: text("source_kind").notNull(),
     harness: text("harness"),
+    model: text("model"),
     workflowId: text("workflow_id"),
     labels: json<Array<string>>("labels").notNull(),
     pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
