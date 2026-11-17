@@ -192,3 +192,15 @@ body {
 .prose-chat th {
   @apply bg-bg-subtle font-medium;
 }
+
+/* Shiki tokens carry both theme colors; pick one per app theme. */
+.shiki-code span[style] {
+  color: var(--shiki-light);
+  font-style: var(--shiki-light-font-style);
+  font-weight: var(--shiki-light-font-weight);
+}
+.dark .shiki-code span[style] {
+  color: var(--shiki-dark);
+  font-style: var(--shiki-dark-font-style);
+  font-weight: var(--shiki-dark-font-weight);
+}

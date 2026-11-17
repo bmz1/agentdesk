@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { EmptyState, Spinner, Tooltip } from "@/components/ui/misc"
 import { bridge } from "@/lib/connection"
 import { api } from "@/lib/api"
+import { languageFor, tokenStyle, useHighlightedLines } from "@/lib/highlight"
 import { q } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 import { ImageFrame, useObjectUrl } from "../session/images"
@@ -238,7 +239,9 @@ const FileView = ({
     refetchInterval: 10_000
   })
   const imageUrl = useObjectUrl(image.data)
-  const lines = useMemo(() => (file.data && !file.data.binary ? file.data.content.replace(/\n$/, "").split("\n") : []), [file.data])
+  const text = file.data && !file.data.binary ? file.data.content.replace(/\n$/, "") : undefined
+  const lines = useMemo(() => (text === undefined ? [] : text.split("\n")), [text])
+  const highlighted = useHighlightedLines(text, languageFor(path))
   const widest = useMemo(() => lines.reduce((m, l) => Math.max(m, l.length), 0), [lines])
   const scrollRef = useRef<HTMLDivElement>(null)
   const virtual = useVirtualizer({ count: lines.length, getScrollElement: () => scrollRef.current, estimateSize: () => LINE_H, overscan: 30 })
@@ -302,7 +305,15 @@ const FileView = ({
                 <span className="shrink-0 pr-3 text-right text-fg-subtle select-none" style={{ width: gutter }}>
                   {v.index + 1}
                 </span>
-                <span className="pr-4 whitespace-pre text-fg">{lines[v.index]}</span>
+                <span className="shiki-code pr-4 whitespace-pre text-fg">
+                  {highlighted?.[v.index]
+                    ? highlighted[v.index]!.map((t, i) => (
+                        <span key={i} style={tokenStyle(t)}>
+                          {t.content}
+                        </span>
+                      ))
+                    : lines[v.index]}
+                </span>
               </div>
             ))}
           </div>
