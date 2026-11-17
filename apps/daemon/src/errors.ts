@@ -22,6 +22,16 @@ export class BadRequest extends Schema.TaggedError<BadRequest>()("BadRequest", {
   details: Schema.optional(Schema.Unknown)
 }) {}
 
+/** A save based on an outdated read: the file changed on disk since `baseVersion`. */
+export class StaleFile extends Schema.TaggedError<StaleFile>()("StaleFile", {
+  path: Schema.String,
+  version: Schema.String
+}) {
+  override get message() {
+    return `${this.path} changed on disk since it was opened`
+  }
+}
+
 export class DbError extends Schema.TaggedError<DbError>()("DbError", {
   message: Schema.String,
   cause: Schema.optional(Schema.Defect())
@@ -32,6 +42,7 @@ export type AppError =
   | NotFound
   | Conflict
   | BadRequest
+  | StaleFile
   | DbError
   | HarnessError
   | GitError
