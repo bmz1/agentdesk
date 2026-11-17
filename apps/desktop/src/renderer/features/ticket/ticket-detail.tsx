@@ -16,6 +16,7 @@ import { AgentPanel } from "../session/agent-panel"
 import { ChecksTab, WorkflowTab } from "../workflow/workflow-tab"
 import { ActivityTimeline } from "./activity-timeline"
 import { Overview } from "./overview"
+import { toast } from "sonner"
 
 export type TicketTab = "overview" | "agent" | "workflow" | "changes" | "files" | "checks" | "history"
 
@@ -46,7 +47,10 @@ export const TicketDetail = ({
       if (prev) qc.setQueryData(qk.ticket(ticketId), { ...prev, ...b })
       return { prev }
     },
-    onError: (_e, _b, ctx) => ctx?.prev && qc.setQueryData(qk.ticket(ticketId), ctx.prev),
+    onError: (e, _b, ctx) => {
+      if (ctx?.prev) qc.setQueryData(qk.ticket(ticketId), ctx.prev)
+      toast.error("Couldn't update ticket", { description: e.message })
+    },
     onSettled: () => qc.invalidateQueries({ queryKey: ["tickets"] })
   })
 

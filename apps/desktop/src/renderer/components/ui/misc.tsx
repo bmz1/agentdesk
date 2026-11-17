@@ -28,20 +28,28 @@ export const EmptyState = ({
   </div>
 )
 
-export const Tooltip = ({ content, children }: { content: React.ReactNode; children: React.ReactNode }) => (
-  <Tip.Provider delayDuration={300}>
-    <Tip.Root>
-      <Tip.Trigger asChild>{children}</Tip.Trigger>
-      <Tip.Portal>
-        <Tip.Content
-          sideOffset={4}
-          className="z-50 rounded border bg-bg-elevated px-2 py-1 text-[11px] text-fg shadow-lg"
-        >
-          {content}
-        </Tip.Content>
-      </Tip.Portal>
-    </Tip.Root>
+/**
+ * Mounted once at the app root. A single provider lets Radix skip the open delay when the
+ * pointer moves from one tooltip to the next; per-tooltip providers each waited 300ms.
+ */
+export const TooltipProvider = ({ children }: { children: React.ReactNode }) => (
+  <Tip.Provider delayDuration={300} skipDelayDuration={300}>
+    {children}
   </Tip.Provider>
+)
+
+export const Tooltip = ({ content, children }: { content: React.ReactNode; children: React.ReactNode }) => (
+  <Tip.Root>
+    <Tip.Trigger asChild>{children}</Tip.Trigger>
+    <Tip.Portal>
+      <Tip.Content
+        sideOffset={4}
+        className="tooltip-motion z-50 rounded border bg-bg-elevated px-2 py-1 text-[11px] text-fg shadow-lg"
+      >
+        {content}
+      </Tip.Content>
+    </Tip.Portal>
+  </Tip.Root>
 )
 
 export const Tabs = T.Root

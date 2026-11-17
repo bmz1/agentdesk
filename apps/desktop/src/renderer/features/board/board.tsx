@@ -24,6 +24,7 @@ import { qk } from "@/lib/queries"
 import { useUi } from "@/lib/store"
 import { cn } from "@/lib/utils"
 import { TicketCard } from "./ticket-card"
+import { toast } from "sonner"
 
 /** Compute a sort key between neighbours (fractional ordering avoids renumbering). */
 export const sortKeyBetween = (prev: number | undefined, next: number | undefined) => {
@@ -72,7 +73,10 @@ export const Board = ({
       qc.setQueryData<ReadonlyArray<Ticket>>(key, (old) => old?.map((t) => (t.id === id ? { ...t, status, sortOrder } : t)))
       return { prev, key }
     },
-    onError: (_e, _v, ctx) => ctx && qc.setQueryData(ctx.key, ctx.prev),
+    onError: (e, _v, ctx) => {
+      if (ctx) qc.setQueryData(ctx.key, ctx.prev)
+      toast.error("Couldn't move ticket", { description: e.message })
+    },
     onSettled: () => qc.invalidateQueries({ queryKey: ["tickets"] })
   })
 
