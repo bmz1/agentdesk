@@ -168,7 +168,7 @@ export const SessionStateBadge = ({ state, compact = false }: { state: SessionSt
 
 export const NeedsInputDot = () => (
   <span className="relative flex size-2" title="Agent needs your input">
-    <span className="absolute inline-flex size-full animate-ping rounded-full bg-warning opacity-60" />
+    <span className="absolute inline-flex size-full animate-ping rounded-full bg-warning opacity-60 motion-reduce:hidden" />
     <span className="relative inline-flex size-2 rounded-full bg-warning" />
   </span>
 )

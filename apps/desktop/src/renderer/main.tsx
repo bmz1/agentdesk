@@ -2,6 +2,8 @@ import { QueryClientProvider } from "@tanstack/react-query"
 import { createHashHistory, createRouter, RouterProvider } from "@tanstack/react-router"
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
+import { TooltipProvider } from "./components/ui/misc"
+import { Toaster } from "./components/ui/toaster"
 import { DaemonGate } from "./features/shell/daemon-gate"
 import { queryClient } from "./lib/queries"
 import { routeTree } from "./routeTree.gen"
@@ -26,9 +28,12 @@ declare module "@tanstack/react-router" {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <DaemonGate>
-        <RouterProvider router={router} />
-      </DaemonGate>
+      <TooltipProvider>
+        <DaemonGate>
+          <RouterProvider router={router} />
+        </DaemonGate>
+        <Toaster />
+      </TooltipProvider>
     </QueryClientProvider>
   </StrictMode>
 )
