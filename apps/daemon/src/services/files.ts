@@ -1,11 +1,12 @@
+import { createHash, randomBytes } from "node:crypto"
 import { existsSync } from "node:fs"
-import { open, readFile, realpath, stat } from "node:fs/promises"
-import { isAbsolute, join, sep } from "node:path"
-import type { FileContent, FileTree } from "@agentdesk/contracts"
+import { chmod, open, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
+import { basename, dirname, isAbsolute, join, sep } from "node:path"
+import type { FileContent, FileTree, WriteFileBody } from "@agentdesk/contracts"
 import { git, status } from "@agentdesk/git"
 import { redactSecrets } from "@agentdesk/harness-core"
-import { Effect } from "effect"
-import { BadRequest, NotFound } from "../errors"
+import { Effect, Semaphore } from "effect"
+import { BadRequest, NotFound, StaleFile } from "../errors"
 import { imageMimeForPath, MAX_IMAGE_BYTES } from "./attachments"
 import { Projects } from "./projects"
 import { Tickets } from "./tickets"
@@ -74,32 +75,99 @@ const resolveTicketPath = (ticketId: string, path: string) =>
     })
   })
 
+const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex")
+
+/**
+ * Describe what was read. Only a file that round-trips exactly — text, complete, and
+ * with nothing redacted — is editable; saving anything else would corrupt it.
+ */
+const toFileContent = (path: string, size: number, bytes: Buffer): FileContent => {
+  const binary = bytes.subarray(0, 8000).includes(0)
+  const truncated = size > bytes.length
+  const text = binary ? "" : bytes.toString("utf8")
+  const content = redactSecrets(text)
+  const readonlyReason = binary
+    ? "Binary files can't be edited"
+    : truncated
+      ? "Large files can't be edited"
+      : content !== text
+        ? "Files containing secrets can't be edited here"
+        : !Buffer.from(text, "utf8").equals(bytes)
+          ? "Files that aren't valid UTF-8 can't be edited"
+          : undefined
+  return {
+    path,
+    size,
+    binary,
+    truncated,
+    content,
+    version: hash(bytes),
+    editable: readonlyReason === undefined,
+    ...(readonlyReason && { readonlyReason })
+  }
+}
+
+const readHead = (full: string, size: number, path: string) =>
+  Effect.tryPromise({
+    try: async () => {
+      const handle = await open(full, "r")
+      try {
+        const buf = Buffer.alloc(Math.min(size, MAX_BYTES))
+        const { bytesRead } = await handle.read(buf, 0, buf.length, 0)
+        return buf.subarray(0, bytesRead)
+      } finally {
+        await handle.close()
+      }
+    },
+    catch: () => new NotFound({ entity: "File", id: path })
+  })
+
 /** Read one text file (the first 512 KB), with secrets redacted. */
 export const readTicketFile = (ticketId: string, path: string) =>
   Effect.gen(function* () {
     const { full, size } = yield* resolveTicketPath(ticketId, path)
-    return yield* Effect.tryPromise({
+    return toFileContent(path, size, yield* readHead(full, size, path))
+  })
+
+/**
+ * Saves are serialised so the version check and the write happen together for
+ * every writer going through the daemon. Agents writing directly can still race
+ * in between; the atomic rename means a reader never sees a half-written file.
+ */
+const writeLock = Semaphore.makeUnsafe(1)
+
+/**
+ * Replace an existing file's contents. Fails with `StaleFile` when the file on disk
+ * no longer matches `baseVersion`, unless `force` is set (the user chose to overwrite).
+ */
+export const writeTicketFile = (ticketId: string, input: WriteFileBody) =>
+  Effect.gen(function* () {
+    const next = Buffer.from(input.content, "utf8")
+    if (next.length > MAX_BYTES) return yield* new BadRequest({ message: "File is too large to save from the editor" })
+    const { full, size } = yield* resolveTicketPath(ticketId, input.path)
+    const current = toFileContent(input.path, size, yield* readHead(full, size, input.path))
+    if (!current.editable) return yield* new BadRequest({ message: current.readonlyReason ?? "File can't be edited" })
+    if (current.version !== input.baseVersion && !input.force) {
+      return yield* new StaleFile({ path: input.path, version: current.version })
+    }
+    if (current.version === hash(next)) return current
+    yield* Effect.tryPromise({
       try: async () => {
-        const handle = await open(full, "r")
+        const { mode } = await stat(full)
+        const tmp = join(dirname(full), `.${basename(full)}.agentdesk-${randomBytes(4).toString("hex")}.tmp`)
         try {
-          const buf = Buffer.alloc(Math.min(size, MAX_BYTES))
-          const { bytesRead } = await handle.read(buf, 0, buf.length, 0)
-          const bytes = buf.subarray(0, bytesRead)
-          const binary = bytes.subarray(0, 8000).includes(0)
-          return {
-            path,
-            size,
-            binary,
-            truncated: size > MAX_BYTES,
-            content: binary ? "" : redactSecrets(bytes.toString("utf8"))
-          } satisfies FileContent
-        } finally {
-          await handle.close()
+          await writeFile(tmp, next, { flag: "wx", mode })
+          await chmod(tmp, mode)
+          await rename(tmp, full)
+        } catch (e) {
+          await rm(tmp, { force: true })
+          throw e
         }
       },
-      catch: () => new NotFound({ entity: "File", id: path })
+      catch: (e) => new BadRequest({ message: `Could not save ${input.path}: ${(e as Error).message}` })
     })
-  })
+    return toFileContent(input.path, next.length, next)
+  }).pipe(Semaphore.withPermit(writeLock))
 
 /** Raw bytes of an image file in the ticket's tree (PNG, JPEG, GIF, WebP), for previews. */
 export const readTicketImage = (ticketId: string, path: string) =>

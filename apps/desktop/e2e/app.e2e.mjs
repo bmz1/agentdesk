@@ -257,6 +257,31 @@ try {
   await page.waitForSelector('[data-testid="ticket-status"]')
   if (!(await get(`/tickets/${thread.id}`)).tracked) fail("tracking the thread did not put it on the board")
 
+  // Edit a file in the viewer (the thread's worktree); an outside write mid-edit asks to overwrite or discard.
+  const threadTree = threadSession.cwd
+  await page.click('[data-testid="tab-files"]')
+  await page.locator('[data-testid="file-tree"] button[title="README.md"]').click()
+  await page.click('[data-testid="file-edit"]')
+  await page.fill('[data-testid="file-editor-input"]', "# edited\n")
+  await page.keyboard.press("ControlOrMeta+s")
+  await page.locator('[data-testid="file-content"]').filter({ hasText: "# edited" }).waitFor()
+  if (readFileSync(join(threadTree, "README.md"), "utf8") !== "# edited\n") fail("file edit was not saved")
+  await page.click('[data-testid="file-edit"]')
+  await page.fill('[data-testid="file-editor-input"]', "# mine\n")
+  writeFileSync(join(threadTree, "README.md"), "# agent\n")
+  await page.click('[data-testid="file-save"]')
+  await page.locator('[data-testid="file-conflict"]').waitFor()
+  await page.screenshot({ path: join(home, "file-conflict.png") })
+  await page.click('[data-testid="file-conflict-discard"]')
+  await page.locator('[data-testid="file-content"]').filter({ hasText: "# agent" }).waitFor()
+  await page.click('[data-testid="file-edit"]')
+  await page.fill('[data-testid="file-editor-input"]', "# mine\n")
+  writeFileSync(join(threadTree, "README.md"), "# agent again\n")
+  await page.click('[data-testid="file-save"]')
+  await page.click('[data-testid="file-conflict-overwrite"]')
+  await page.locator('[data-testid="file-content"]').filter({ hasText: "# mine" }).waitFor()
+  if (readFileSync(join(threadTree, "README.md"), "utf8") !== "# mine\n") fail("overwrite did not replace the changed file")
+
   // The agent asks a question, keeps a plan, then wants to write: answer, then allow for the session.
   await page.keyboard.press("ControlOrMeta+n")
   await page.fill('[data-testid="thread-prompt"]', "Set up storage [ask] [plan]")

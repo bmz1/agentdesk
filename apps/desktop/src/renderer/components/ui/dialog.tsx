@@ -15,10 +15,10 @@ export const DialogContent = ({
   ...props
 }: React.ComponentProps<typeof D.Content> & { title: string; description?: string }) => (
   <D.Portal>
-    <D.Overlay className="fixed inset-0 z-40 bg-black/50 backdrop-blur-[1px]" />
+    <D.Overlay className="overlay-motion fixed inset-0 z-40 bg-black/50 backdrop-blur-[1px]" />
     <D.Content
       className={cn(
-        "fixed left-1/2 top-[12%] z-50 w-[560px] max-w-[92vw] -translate-x-1/2 rounded-lg border bg-bg-elevated shadow-2xl focus:outline-none",
+        "modal-motion fixed left-1/2 top-[12%] z-50 w-[560px] max-w-[92vw] -translate-x-1/2 rounded-lg border bg-bg-elevated shadow-2xl focus:outline-none",
         className
       )}
       {...props}

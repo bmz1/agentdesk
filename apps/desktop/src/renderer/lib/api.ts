@@ -30,7 +30,8 @@ import type {
   WorkflowDefinitionSummary,
   WorkflowRun,
   WorkflowRunDetail,
-  Workspace
+  Workspace,
+  WriteFileBody
 } from "@agentdesk/contracts"
 import { type Connection, resolveConnection } from "./connection"
 
@@ -145,6 +146,7 @@ export const api = {
   ticketDiff: (id: string) => request<Diff>("GET", `/tickets/${id}/diff`),
   ticketFiles: (id: string) => request<FileTree>("GET", `/tickets/${id}/files`),
   ticketFile: (id: string, path: string) => request<FileContent>("GET", `/tickets/${id}/file${qs({ path })}`),
+  writeTicketFile: (id: string, b: WriteFileBody) => request<FileContent>("PUT", `/tickets/${id}/file`, b),
   ticketWorkspace: (id: string) => request<Workspace | null>("GET", `/tickets/${id}/workspace`),
   ticketRuns: (id: string) => request<ReadonlyArray<WorkflowRun>>("GET", `/tickets/${id}/runs`),
   startSession: (ticketId: string, b: { harness?: HarnessId; prompt?: string; images?: ReadonlyArray<string> }) =>

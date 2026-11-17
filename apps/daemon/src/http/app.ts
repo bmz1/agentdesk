@@ -16,7 +16,8 @@ import {
   type TicketSource,
   UpdateJiraConnectionBody,
   UpdateProjectBody,
-  UpdateTicketBody
+  UpdateTicketBody,
+  WriteFileBody
 } from "@agentdesk/contracts"
 import { redactSecrets } from "@agentdesk/harness-core"
 import { Effect, Stream } from "effect"
@@ -26,7 +27,7 @@ import type { AppRuntime } from "../runtime"
 import { Activity } from "../services/activity"
 import { Approvals } from "../services/approvals"
 import { Attachments } from "../services/attachments"
-import { listTicketFiles, readTicketFile, readTicketImage } from "../services/files"
+import { listTicketFiles, readTicketFile, readTicketImage, writeTicketFile } from "../services/files"
 import { EventLog } from "../services/event-log"
 import { HarnessSettings } from "../services/harness-settings"
 import { Harnesses } from "../services/harnesses"
@@ -157,6 +158,7 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
   )
   app.get("/tickets/:id/files", (c) => respond(c, listTicketFiles(id(c))))
   app.get("/tickets/:id/file", (c) => respond(c, readTicketFile(id(c), c.req.query("path") ?? "")))
+  app.put("/tickets/:id/file", (c) => respond(c, body(c, WriteFileBody).pipe(Effect.flatMap((b) => writeTicketFile(id(c), b)))))
   app.get("/tickets/:id/workspace", (c) =>
     respond(c, Workspaces.use((w) => w.latestForTicket(id(c)).pipe(Effect.map((ws) => ws ?? null))))
   )

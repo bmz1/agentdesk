@@ -367,7 +367,12 @@ export const FileContent = Schema.Struct({
   binary: Schema.Boolean,
   /** True when only the first part of a large file is returned. */
   truncated: Schema.Boolean,
-  content: Schema.String
+  content: Schema.String,
+  /** SHA-256 of the bytes on disk; send it back as `baseVersion` when saving. */
+  version: Schema.String,
+  /** False for binary, truncated, or secret-redacted files, which cannot be saved round-trip. */
+  editable: Schema.Boolean,
+  readonlyReason: Schema.optional(Schema.String)
 })
 export type FileContent = typeof FileContent.Type
 

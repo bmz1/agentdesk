@@ -24,6 +24,8 @@ export const toHttpError = (e: AppError): ErrorBody => {
       return { status: 400, error: e._tag, message: e.message, details: e.details }
     case "Conflict":
       return { status: 409, error: e._tag, message: e.message }
+    case "StaleFile":
+      return { status: 409, error: e._tag, message: e.message, details: { path: e.path, version: e.version } }
     case "SchemaError":
       return { status: 400, error: "ValidationError", message: e.message }
     case "WorkflowValidationError":
