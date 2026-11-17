@@ -1,72 +1,86 @@
-import { Cause, Effect, Exit, Schema } from "effect"
+import { Cause, Effect, Exit, Option, Schema } from "effect"
 import type { Context } from "hono"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
+import type { AppError } from "../errors"
 import type { AppRuntime, AppServices } from "../runtime"
 
-interface Mapped {
-  status: ContentfulStatusCode
-  error: string
-  message: string
-  details?: unknown
+interface ErrorBody {
+  readonly status: ContentfulStatusCode
+  readonly error: string
+  readonly message: string
+  readonly details?: unknown
 }
 
-export const mapError = (err: unknown): Mapped => {
-  const tag = typeof err === "object" && err !== null && "_tag" in err ? String((err as { _tag: unknown })._tag) : undefined
-  const message =
-    typeof err === "object" && err !== null && "message" in err ? String((err as { message: unknown }).message) : String(err)
-  switch (tag) {
+/**
+ * Exhaustive, type-checked mapping from every typed daemon failure to an HTTP
+ * response. Adding a new error to `AppError` without handling it here is a
+ * compile error.
+ */
+export const toHttpError = (e: AppError): ErrorBody => {
+  switch (e._tag) {
     case "NotFound":
-      return { status: 404, error: tag, message }
+      return { status: 404, error: e._tag, message: e.message }
     case "BadRequest":
-      return { status: 400, error: tag, message, details: (err as { details?: unknown }).details }
+      return { status: 400, error: e._tag, message: e.message, details: e.details }
     case "Conflict":
-      return { status: 409, error: tag, message }
+      return { status: 409, error: e._tag, message: e.message }
     case "SchemaError":
-      return { status: 400, error: "ValidationError", message }
-    case "HarnessError": {
-      const reason = (err as { reason?: string }).reason
-      return { status: reason === "not_installed" || reason === "unsupported" ? 400 : 502, error: tag, message, details: { reason } }
-    }
-    case "GitError":
-      return { status: 500, error: tag, message }
+      return { status: 400, error: "ValidationError", message: e.message }
+    case "WorkflowValidationError":
+      return { status: 400, error: e._tag, message: e.message, details: e.errors }
+    case "HarnessError":
+      return {
+        status: e.reason === "not_installed" || e.reason === "unsupported" ? 400 : 502,
+        error: e._tag,
+        message: e.message,
+        details: { harness: e.harness, reason: e.reason }
+      }
     case "JiraError":
-      return { status: 502, error: tag, message }
-    default:
-      return { status: 500, error: tag ?? "InternalError", message }
+      return { status: 502, error: e._tag, message: e.message, details: { kind: e.kind, status: e.status } }
+    case "PullRequestError":
+      return { status: 502, error: e._tag, message: e.message }
+    case "GitError":
+      return { status: 500, error: e._tag, message: e.message, details: { command: e.command } }
+    case "DbError":
+      return { status: 500, error: e._tag, message: "Database error" }
   }
 }
 
-export const makeResponder = (runtime: AppRuntime) => {
-  const respond = async <A>(
-    c: Context,
-    effect: Effect.Effect<A, unknown, AppServices>,
-    status: ContentfulStatusCode = 200
-  ): Promise<Response> => {
-    const exit = await runtime.runPromiseExit(effect)
+/**
+ * Bridges Hono to the daemon's ManagedRuntime. Each request runs as one
+ * Effect with:
+ *  - a typed error channel (`AppError`), mapped exhaustively to HTTP;
+ *  - a server span named after the route, with method/route/status attributes;
+ *  - interruption when the client disconnects (AbortSignal).
+ * Defects and interruptions become 500s and are logged with the full Cause.
+ */
+export const makeResponder = (runtime: AppRuntime) =>
+  async <A, E extends AppError>(c: Context, effect: Effect.Effect<A, E, AppServices>, status: ContentfulStatusCode = 200) => {
+    const route = c.req.routePath
+    const exit = await runtime.runPromiseExit(
+      effect.pipe(
+        Effect.tapCause((cause) => (Cause.hasDies(cause) ? Effect.logError("request defect", cause) : Effect.void)),
+        Effect.withSpan(`HTTP ${c.req.method} ${route}`, {
+          kind: "server",
+          attributes: { "http.method": c.req.method, "http.route": route, "http.target": c.req.path }
+        })
+      ),
+      { signal: c.req.raw.signal }
+    )
     if (Exit.isSuccess(exit)) {
-      if (exit.value === undefined) return c.body(null, 204)
-      return c.json(exit.value as object, status)
+      return exit.value === undefined ? c.body(null, 204) : c.json(exit.value as object, status)
     }
-    const err = Cause.squash(exit.cause)
-    const mapped = mapError(err)
-    if (mapped.status >= 500) {
-      await runtime.runPromise(Effect.logError("request failed", Cause.pretty(exit.cause)))
+    const failure = Cause.findErrorOption(exit.cause)
+    if (Option.isSome(failure)) {
+      const { status: code, ...body } = toHttpError(failure.value)
+      return c.json(body, code)
     }
-    return c.json({ error: mapped.error, message: mapped.message, details: mapped.details }, mapped.status)
+    return c.json({ error: "InternalError", message: Cause.hasInterruptsOnly(exit.cause) ? "Request interrupted" : "Unexpected error" }, 500)
   }
-  return respond
-}
 
-/** Parse + validate a JSON body against an Effect Schema. */
-export const body = async <S extends Schema.Top & { readonly DecodingServices: never }>(
-  c: Context,
-  schema: S
-): Promise<Effect.Effect<S["Type"], Schema.SchemaError>> => {
-  let raw: unknown
-  try {
-    raw = await c.req.json()
-  } catch {
-    raw = {}
-  }
-  return Schema.decodeUnknownEffect(schema)(raw) as Effect.Effect<S["Type"], Schema.SchemaError>
-}
+/** Read and validate a JSON body inside Effect; malformed JSON decodes as `{}` and fails validation. */
+export const body = <S extends Schema.Top & { readonly DecodingServices: never }>(c: Context, schema: S) =>
+  Effect.tryPromise(() => c.req.json() as Promise<unknown>).pipe(
+    Effect.orElseSucceed(() => ({})),
+    Effect.flatMap((raw) => Schema.decodeUnknownEffect(schema)(raw) as Effect.Effect<S["Type"], Schema.SchemaError>)
+  )

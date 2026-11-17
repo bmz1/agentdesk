@@ -7,7 +7,7 @@ import type {
 import { jiraConnections, jiraSyncState, projects, ticketExternalLinks, tickets } from "@agentdesk/db"
 import { incrementalJql, type JiraError, type JiraIssue, makeJiraClient } from "@agentdesk/jira"
 import { and, eq, notInArray } from "drizzle-orm"
-import { Context, Duration, Effect, Fiber, Layer, Semaphore } from "effect"
+import { Clock, Context, Duration, Effect, FiberMap, Layer, Redacted, Schedule, Semaphore } from "effect"
 import { DaemonConfig } from "../config"
 import { BadRequest, type DbError, NotFound } from "../errors"
 import { newId, nowIso } from "../util"
@@ -59,10 +59,10 @@ const initialStatus = (cat: JiraIssue["statusCategory"]): BoardStatus =>
 export const upsertIssues = (
   database: DatabaseShape,
   conn: { id: string; projectId: string },
-  issues: ReadonlyArray<JiraIssue>
+  issues: ReadonlyArray<JiraIssue>,
+  now: string
 ) =>
   database.tx((db) => {
-    const now = nowIso()
     let created = 0
     let updated = 0
     const changes: Array<{ ticketId: string; message: string; data: unknown }> = []
@@ -168,8 +168,8 @@ export const JiraSyncLive = (options: JiraSyncOptions = {}) =>
       const notices = yield* Notices
       const config = yield* DaemonConfig
       const locks = new Map<string, Semaphore.Semaphore>()
-      const pollers = new Map<string, Fiber.Fiber<unknown, unknown>>()
-      const layerScope = yield* Effect.scope
+      // One supervised polling fiber per connection; re-running a key replaces (interrupts) the old poller.
+      const pollers = yield* FiberMap.make<string>()
 
       const toConnection = (
         c: typeof jiraConnections.$inferSelect,
@@ -259,12 +259,14 @@ export const JiraSyncLive = (options: JiraSyncOptions = {}) =>
       const syncNow = (id: string, opts: { full?: boolean } = {}) =>
         Effect.gen(function* () {
           const row = yield* getRow(id)
+          const nowMs = yield* Clock.currentTimeMillis
           const state = yield* use((db) => db.select().from(jiraSyncState).where(eq(jiraSyncState.connectionId, id)).get())
           const client = yield* clientFor(row)
           const lastFull = state?.lastFullSyncAt ? Date.parse(state.lastFullSyncAt) : 0
-          const full = opts.full || !state?.highWatermark || Date.now() - lastFull > FULL_SYNC_EVERY
+          const full = opts.full || !state?.highWatermark || nowMs - lastFull > FULL_SYNC_EVERY
           const jql = full ? row.jql : incrementalJql(row.jql, new Date(Date.parse(state!.highWatermark!) - WATERMARK_OVERLAP))
-          const startedAt = nowIso()
+          const startedAt = new Date(nowMs).toISOString()
+          yield* Effect.annotateCurrentSpan({ full, deployment: row.deployment, projectId: row.projectId })
           let fetched = 0
           let created = 0
           let updated = 0
@@ -274,7 +276,7 @@ export const JiraSyncLive = (options: JiraSyncOptions = {}) =>
           let cursor: string | undefined
           do {
             const page = yield* client.searchPage(jql, cursor)
-            const r = yield* upsertIssues(database, { id: row.id, projectId: row.projectId }, page.issues)
+            const r = yield* upsertIssues(database, { id: row.id, projectId: row.projectId }, page.issues, startedAt)
             fetched += page.issues.length
             created += r.created
             updated += r.updated
@@ -339,41 +341,61 @@ export const JiraSyncLive = (options: JiraSyncOptions = {}) =>
               yield* notices.publish({ topic: "jira" })
             })
           ),
+          Effect.tap((r) => Effect.annotateCurrentSpan({ fetched: r.fetched, created: r.created, updated: r.updated, missing: r.missing })),
           Semaphore.withPermit(lockFor(id)),
-          Effect.withSpan("jira.sync", { attributes: { connectionId: id } })
+          Effect.withSpan("JiraSync.sync", { attributes: { connectionId: id } })
         )
 
-      /** Bounded polling with exponential backoff on consecutive failures (capped at 30 minutes). */
+      interface PollOutcome {
+        readonly enabled: boolean
+        readonly failures: number
+        readonly intervalMs: number
+      }
+
+      /** One polling tick: sync (errors are recorded, not fatal) and report how long to wait next. */
+      const pollOnce = (id: string) =>
+        Effect.gen(function* () {
+          const row = yield* getRow(id)
+          if (!row.enabled) return { enabled: false, failures: 0, intervalMs: 0 } satisfies PollOutcome
+          yield* syncNow(id).pipe(Effect.ignore)
+          const state = yield* use((db) => db.select().from(jiraSyncState).where(eq(jiraSyncState.connectionId, id)).get())
+          return {
+            enabled: true,
+            failures: state?.consecutiveFailures ?? 0,
+            intervalMs: Math.max(60, row.pollIntervalSec) * 1000
+          } satisfies PollOutcome
+        })
+
+      /**
+       * Poll on the connection's interval; after failures back off exponentially
+       * (capped at 30 minutes). Expressed as a Schedule whose delay depends on the
+       * outcome of each tick, so it runs on the Effect Clock (TestClock-friendly).
+       */
+      const pollSchedule = Schedule.forever.pipe(
+        Schedule.setInputType<PollOutcome>(),
+        Schedule.modifyDelay(({ input }) =>
+          Effect.succeed(
+            Duration.millis(input.failures > 0 ? Math.min(input.intervalMs * 2 ** input.failures, 30 * 60_000) : input.intervalMs)
+          )
+        )
+      )
+
       const startPoller = (id: string) =>
-        Effect.gen(function* () {
-          const existing = pollers.get(id)
-          if (existing) yield* Fiber.interrupt(existing)
-          if (!config.enableJiraPolling) return
-          const loop = Effect.gen(function* () {
-            while (true) {
-              const row = yield* getRow(id)
-              if (!row.enabled) return
-              yield* syncNow(id).pipe(Effect.ignore)
-              const s = yield* use((db) => db.select().from(jiraSyncState).where(eq(jiraSyncState.connectionId, id)).get())
-              const failures = s?.consecutiveFailures ?? 0
-              const base = Math.max(60, row.pollIntervalSec) * 1000
-              const delay = failures > 0 ? Math.min(base * 2 ** failures, 30 * 60_000) : base
-              yield* Effect.sleep(Duration.millis(delay))
-            }
-          }).pipe(Effect.catch(() => Effect.void))
-          const fiber = yield* Effect.forkIn(loop, layerScope)
-          pollers.set(id, fiber)
-        })
+        config.enableJiraPolling
+          ? FiberMap.run(
+              pollers,
+              id,
+              pollOnce(id).pipe(
+                Effect.repeat({ schedule: pollSchedule, while: (o) => o.enabled }),
+                Effect.catch((e) => Effect.logWarning("Jira poller stopped", e)),
+                Effect.annotateLogs({ jiraConnectionId: id })
+              )
+            ).pipe(Effect.asVoid)
+          : Effect.void
 
-      const stopPoller = (id: string) =>
-        Effect.gen(function* () {
-          const f = pollers.get(id)
-          if (f) yield* Fiber.interrupt(f)
-          pollers.delete(id)
-        })
+      const stopPoller = (id: string) => FiberMap.remove(pollers, id)
 
-      const create = (body: CreateJiraConnectionBody) =>
-        Effect.gen(function* () {
+      const create = Effect.fn("JiraSync.create")(function* (body: CreateJiraConnectionBody) {
           const baseUrl = yield* normalizeBaseUrl(body.baseUrl)
           const project = yield* use((db) => db.select().from(projects).where(eq(projects.id, body.projectId)).get())
           if (!project) return yield* new NotFound({ entity: "project", id: body.projectId })
@@ -381,8 +403,9 @@ export const JiraSyncLive = (options: JiraSyncOptions = {}) =>
             return yield* new BadRequest({ message: "Jira Cloud needs the account email as principal" })
           }
           const id = newId()
+          const createdAt = yield* nowIso
           const credentialRef = `jira:${id}`
-          if (body.token) yield* credentials.set(credentialRef, body.token)
+          if (body.token) yield* credentials.set(credentialRef, Redacted.make(body.token))
           yield* use((db) => {
             db.insert(jiraConnections)
               .values({
@@ -396,7 +419,7 @@ export const JiraSyncLive = (options: JiraSyncOptions = {}) =>
                 projectId: body.projectId,
                 pollIntervalSec: Math.max(60, body.pollIntervalSec ?? 300),
                 enabled: true,
-                createdAt: nowIso()
+                createdAt
               })
               .run()
             db.insert(jiraSyncState).values({ connectionId: id }).run()
@@ -407,10 +430,9 @@ export const JiraSyncLive = (options: JiraSyncOptions = {}) =>
           return yield* get(id)
         })
 
-      const update = (id: string, body: UpdateJiraConnectionBody) =>
-        Effect.gen(function* () {
+      const update = Effect.fn("JiraSync.update")(function* (id: string, body: UpdateJiraConnectionBody) {
           const row = yield* getRow(id)
-          if (body.token) yield* credentials.set(row.credentialRef, body.token)
+          if (body.token) yield* credentials.set(row.credentialRef, Redacted.make(body.token))
           yield* use((db) =>
             db
               .update(jiraConnections)
@@ -435,8 +457,7 @@ export const JiraSyncLive = (options: JiraSyncOptions = {}) =>
           return yield* get(id)
         })
 
-      const remove = (id: string) =>
-        Effect.gen(function* () {
+      const remove = Effect.fn("JiraSync.remove")(function* (id: string) {
           const row = yield* getRow(id)
           yield* stopPoller(id)
           yield* credentials.remove(row.credentialRef)
@@ -449,8 +470,7 @@ export const JiraSyncLive = (options: JiraSyncOptions = {}) =>
           yield* notices.publish({ topic: "jira" })
         })
 
-      const test = (id: string) =>
-        Effect.gen(function* () {
+      const test = Effect.fn("JiraSync.test")(function* (id: string) {
           const row = yield* getRow(id)
           const client = yield* clientFor(row)
           return yield* client.myself.pipe(

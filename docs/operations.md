@@ -41,6 +41,7 @@ Settings → Agent harnesses shows detected versions. Verify end to end with `AG
 | `AGENTDESK_DISABLE_JIRA_POLLING` | — | `1` disables background Jira polling |
 | `AGENTDESK_ALLOW_FILE_CREDENTIALS` | — | `1` opts into the 0600 file credential store |
 | `AGENTDESK_{CLAUDE,CODEX,OPENCODE}_BIN` | PATH lookup | Harness binary overrides |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP/HTTP collector base URL (e.g. `http://127.0.0.1:4318`); enables trace, log and metric export |
 
 ## Files
 ```

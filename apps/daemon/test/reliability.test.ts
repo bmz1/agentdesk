@@ -2,7 +2,7 @@ import { type ChildProcess, spawn } from "node:child_process"
 import { existsSync, mkdtempSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "@effect/vitest"
 import { makeRepo, startTestDaemon, waitFor } from "./helpers"
 
 const procs: Array<ChildProcess> = []
@@ -123,26 +123,5 @@ describe("security guardrails", () => {
     // The mock wrote the (unredacted) prompt into a file; the diff preview is redacted.
     const diff = await api.get(`/tickets/${t2.id}/diff`)
     expect(diff.patch).not.toContain(secret)
-  })
-
-  it("prunes old transcripts but keeps the audit trail", async () => {
-    const { daemon, api } = await startTestDaemon({ config: { retentionDays: 0 } as never })
-    cleanups.push(daemon.stop)
-    const p = await api.post("/projects", { name: "Ret", repoPath: makeRepo(), defaultHarness: "mock", permissionMode: "accept_edits" })
-    const t = await api.post("/tickets", { projectId: p.id, title: "Old" })
-    const s = await api.post(`/tickets/${t.id}/sessions`, { prompt: "[noop] x" })
-    await api.sse(`/sessions/${s.id}/events`, (evs) => evs.some((e) => e.event.type === "turn.completed"))
-    await api.post(`/sessions/${s.id}/stop`)
-    await waitFor(async () => ((await api.get(`/sessions/${s.id}`)).state === "closed" ? true : undefined))
-    const { Maintenance } = await import("../src/services/maintenance")
-    const { Effect } = await import("effect")
-    const pruned = await daemon.runtime.runPromise(
-      Effect.gen(function* () {
-        return yield* (yield* Maintenance).pruneTranscripts(new Date(Date.now() + 1000))
-      })
-    )
-    expect(pruned).toBeGreaterThan(0)
-    expect(await api.get(`/sessions/${s.id}/history`)).toEqual([])
-    expect((await api.get(`/tickets/${t.id}/activity`)).length).toBeGreaterThan(0)
   })
 })

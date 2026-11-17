@@ -12,7 +12,8 @@ import { agentSessions } from "@agentdesk/db"
 import type { GitError } from "@agentdesk/git"
 import { type HarnessError, type HarnessSession, type RunPolicy, runCommand } from "@agentdesk/harness-core"
 import { and, desc, eq, inArray } from "drizzle-orm"
-import { Context, Effect, Exit, Layer, Option, Scope, Stream } from "effect"
+import { Context, Effect, Exit, FiberMap, Layer, Option, Scope, Stream } from "effect"
+import { ChildProcessSpawner } from "effect/process"
 import { BadRequest, type Conflict, type DbError, NotFound } from "../errors"
 import { newId, nowIso } from "../util"
 import { DaemonConfig } from "../config"
@@ -137,6 +138,10 @@ export const SessionsLive = Layer.effect(
     // All session processes and consumer fibers live in this child scope. The shutdown finalizer
     // below is registered on the parent *after* it, so it runs first and can record state.
     const rootScope = yield* Scope.fork(layerScope)
+    // One supervised consumer fiber per live session, keyed by session id. Completed fibers
+    // remove themselves; closing the scope interrupts any that remain.
+    const consumers = yield* FiberMap.make<string>().pipe(Scope.provide(rootScope))
+    const withProcesses = Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, yield* ChildProcessSpawner.ChildProcessSpawner)
     const live = new Map<string, LiveSession>()
     let shuttingDown = false
 
@@ -168,10 +173,11 @@ export const SessionsLive = Layer.effect(
 
     const setState = (id: string, state: SessionState, extra: Partial<Row> = {}) =>
       Effect.gen(function* () {
+        const updatedAt = yield* nowIso
         const row = yield* use((db) =>
           db
             .update(agentSessions)
-            .set({ state, updatedAt: nowIso(), ...extra })
+            .set({ state, updatedAt, ...extra })
             .where(eq(agentSessions.id, id))
             .returning({ ticketId: agentSessions.ticketId, runId: agentSessions.runId })
             .get()
@@ -247,8 +253,19 @@ export const SessionsLive = Layer.effect(
       }).pipe(Effect.catch((e) => Effect.logError("session finish failed", e)))
 
     /** Launch (or resume) the harness process for an existing session row. */
-    const launch = (row: Row, opts: { prompt?: string; resume: boolean; policy: RunPolicy; lockHolder?: string }) =>
-      Effect.gen(function* () {
+    const launch = Effect.fn("Sessions.launch")(function* (
+      row: Row,
+      opts: { prompt?: string; resume: boolean; policy: RunPolicy; lockHolder?: string }
+    ) {
+        yield* Effect.annotateCurrentSpan({
+          sessionId: row.id,
+          ticketId: row.ticketId,
+          runId: row.runId ?? "",
+          harness: row.harness,
+          resume: opts.resume,
+          permissionMode: opts.policy.permissionMode,
+          sandboxed: !!opts.policy.sandboxPrefix
+        })
         const adapter = yield* harnesses.get(row.harness as HarnessId)
         const scope = yield* Scope.fork(rootScope)
         const startInput = { cwd: row.cwd, policy: opts.policy, prompt: opts.prompt }
@@ -257,6 +274,8 @@ export const SessionsLive = Layer.effect(
           : adapter.start(startInput)
         ).pipe(
           Scope.provide(scope),
+          withProcesses,
+          Effect.withSpan("Harness.start", { attributes: { harness: row.harness, cwd: row.cwd } }),
           Effect.tapError(() => Scope.close(scope, Exit.void))
         )
         const l: LiveSession = {
@@ -272,20 +291,23 @@ export const SessionsLive = Layer.effect(
         yield* setState(row.id, "running", { pid: handle.pid ?? null })
         yield* handle.events.pipe(
           Stream.runForEach((e) => onEvent(row.id, row.ticketId, row.runId, row.stepRunId, e)),
-          Effect.catch((e) =>
-            events.append(row.id, { type: "session.error", message: "message" in e ? String(e.message) : String(e) })
-          ),
+          Effect.catchTag("HarnessError", (e) => events.append(row.id, { type: "session.error", message: e.message })),
           Effect.ensuring(finish(row.id, row.ticketId, l)),
-          Effect.forkIn(rootScope)
+          // A long-lived span covering the whole process lifetime of this agent session.
+          Effect.withSpan("AgentSession", {
+            root: false,
+            attributes: { sessionId: row.id, ticketId: row.ticketId, harness: row.harness, pid: handle.pid ?? -1 }
+          }),
+          FiberMap.run(consumers, row.id, { startImmediately: true })
         )
         return l
       })
 
-    const start = (input: StartSessionInput) =>
-      Effect.gen(function* () {
+    const start = Effect.fn("Sessions.start")(function* (input: StartSessionInput) {
         if (!existsSync(input.cwd)) return yield* new BadRequest({ message: `Working directory missing: ${input.cwd}` })
         const id = newId()
-        const now = nowIso()
+        const now = yield* nowIso
+        yield* Effect.annotateCurrentSpan({ sessionId: id, ticketId: input.ticketId, runId: input.runId ?? "", harness: input.harness })
         const row: Row = {
           id,
           ticketId: input.ticketId,
@@ -325,8 +347,8 @@ export const SessionsLive = Layer.effect(
         return yield* get(id)
       })
 
-    const startForTicket = (ticketId: string, input: StartForTicketInput) =>
-      Effect.gen(function* () {
+    const startForTicket = Effect.fn("Sessions.startForTicket")(function* (ticketId: string, input: StartForTicketInput) {
+        yield* Effect.annotateCurrentSpan({ ticketId })
         const ticket = yield* tickets.get(ticketId)
         if (ticket.activeSessionId && live.has(ticket.activeSessionId)) {
           return yield* new BadRequest({ message: "This ticket already has an active agent session" })
@@ -353,9 +375,9 @@ export const SessionsLive = Layer.effect(
         })
       })
 
-    const prompt = (id: string, text: string, actor = "user") =>
-      Effect.gen(function* () {
+    const prompt = Effect.fn("Sessions.prompt")(function* (id: string, text: string, actor = "user") {
         const l = live.get(id)
+        yield* Effect.annotateCurrentSpan({ sessionId: id, live: !!l, chars: text.length })
         if (l) {
           yield* events.append(id, { type: "user.prompt", text })
           yield* setState(id, "running")
@@ -389,11 +411,12 @@ export const SessionsLive = Layer.effect(
       requireLive(id).pipe(
         Effect.flatMap((l) => l.handle.interrupt),
         Effect.andThen(events.append(id, { type: "session.status", state: "interrupt_requested" })),
-        Effect.asVoid
+        Effect.asVoid,
+        Effect.withSpan("Sessions.interrupt", { attributes: { sessionId: id } })
       )
 
-    const stop = (id: string) =>
-      Effect.gen(function* () {
+    const stop = Effect.fn("Sessions.stop")(function* (id: string) {
+        yield* Effect.annotateCurrentSpan({ sessionId: id })
         const l = live.get(id)
         if (!l) {
           const row = yield* getRow(id)
@@ -405,9 +428,14 @@ export const SessionsLive = Layer.effect(
         yield* Scope.close(l.scope, Exit.void)
       })
 
-    const resolveApproval = (approvalId: string, decision: ApprovalDecision, actor: string, note?: string) =>
-      Effect.gen(function* () {
+    const resolveApproval = Effect.fn("Sessions.resolveApproval")(function* (
+      approvalId: string,
+      decision: ApprovalDecision,
+      actor: string,
+      note?: string
+    ) {
         const approval = yield* approvals.record(approvalId, decision, actor, note)
+        yield* Effect.annotateCurrentSpan({ sessionId: approval.sessionId ?? "", ticketId: approval.ticketId })
         if (!approval.sessionId) return
         const l = live.get(approval.sessionId)
         if (l && approval.providerRequestId) {
@@ -424,8 +452,8 @@ export const SessionsLive = Layer.effect(
         })
       })
 
-    const awaitTurn = (id: string, afterEventId: number) =>
-      Effect.gen(function* () {
+    const awaitTurn = Effect.fn("Sessions.awaitTurn")(function* (id: string, afterEventId: number) {
+        yield* Effect.annotateCurrentSpan({ sessionId: id })
         const texts: Array<string> = []
         let result: TurnResult | undefined
         yield* events.subscribe(id, afterEventId).pipe(
@@ -442,10 +470,13 @@ export const SessionsLive = Layer.effect(
           Stream.takeUntil(() => result !== undefined),
           Stream.runDrain
         )
-        return result ?? { status: "exited" as const, text: texts.join("\n\n"), lastEventId: afterEventId }
+        const turn = result ?? { status: "exited" as const, text: texts.join("\n\n"), lastEventId: afterEventId }
+        yield* Effect.annotateCurrentSpan({ turnStatus: turn.status })
+        return turn
       })
 
     const reconcile = Effect.gen(function* () {
+      const updatedAt = yield* nowIso
       const stale = yield* use((db) =>
         db.select().from(agentSessions).where(inArray(agentSessions.state, [...LIVE_STATES])).all()
       )
@@ -454,7 +485,7 @@ export const SessionsLive = Layer.effect(
         // A detached harness may have survived the previous daemon. Its stdio is gone, so it can't be
         // re-attached; terminate it if the pid still belongs to the same harness binary.
         if (s.pid) {
-          const ps = yield* runCommand("ps", ["-o", "command=", "-p", String(s.pid)], { timeoutMs: 3000 })
+          const ps = yield* withProcesses(runCommand("ps", ["-o", "command=", "-p", String(s.pid)], { timeoutMs: 3000 }))
           if (ps.code === 0 && ps.stdout.includes(s.harness)) {
             yield* Effect.sync(() => {
               try {
@@ -466,7 +497,7 @@ export const SessionsLive = Layer.effect(
           }
         }
         yield* use((db) =>
-          db.update(agentSessions).set({ state: "interrupted", pid: null, updatedAt: nowIso() }).where(eq(agentSessions.id, s.id)).run()
+          db.update(agentSessions).set({ state: "interrupted", pid: null, updatedAt }).where(eq(agentSessions.id, s.id)).run()
         )
         if (s.workspaceId) yield* workspaces.unlock(s.workspaceId, s.id)
         yield* approvals.expireForSession(s.id)
@@ -479,8 +510,9 @@ export const SessionsLive = Layer.effect(
         })
         yield* activity.record({ kind: "session.interrupted", message: "Agent session interrupted by daemon restart", ticketId: s.ticketId })
       }
+      yield* Effect.annotateCurrentSpan({ reconciled: stale.length })
       return stale.length
-    })
+    }).pipe(Effect.withSpan("Sessions.reconcile"))
 
     // Graceful shutdown: mark live sessions interrupted before their scopes close.
     yield* Effect.addFinalizer(() =>
@@ -489,15 +521,16 @@ export const SessionsLive = Layer.effect(
       }).pipe(Effect.andThen(Effect.forEach([...live.entries()], ([id, l]) =>
         Effect.gen(function* () {
           l.stopping = true
+          const updatedAt = yield* nowIso
           yield* use((db) =>
-            db.update(agentSessions).set({ state: "interrupted", pid: null, updatedAt: nowIso() }).where(eq(agentSessions.id, id)).run()
+            db.update(agentSessions).set({ state: "interrupted", pid: null, updatedAt }).where(eq(agentSessions.id, id)).run()
           )
           yield* events.append(id, { type: "session.status", state: "interrupted", detail: "Daemon shutting down" })
         }).pipe(Effect.ignore)
       )))
     )
 
-    return {
+    return Sessions.of({
       start,
       startForTicket,
       get,
@@ -525,6 +558,6 @@ export const SessionsLive = Layer.effect(
       isLive: (id) => live.has(id),
       liveCount: () => live.size,
       reconcile
-    } satisfies SessionsShape
+    })
   })
 )

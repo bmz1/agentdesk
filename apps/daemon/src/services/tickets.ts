@@ -181,11 +181,11 @@ export const TicketsLive = Layer.effect(
         Effect.flatMap((p) => (p ? Effect.void : Effect.fail(new NotFound({ entity: "project", id: projectId }))))
       )
 
-    const create = (body: CreateTicketBody, actor = "user") =>
-      Effect.gen(function* () {
+    const create = Effect.fn("Tickets.create")(function* (body: CreateTicketBody, actor = "user") {
         yield* ensureProject(body.projectId)
         const id = newId()
-        const now = nowIso()
+        const now = yield* nowIso
+        yield* Effect.annotateCurrentSpan({ ticketId: id, projectId: body.projectId })
         yield* tx((db) => {
           const number = nextTicketNumber(database, body.projectId)
           const minOrder =
@@ -221,9 +221,10 @@ export const TicketsLive = Layer.effect(
         return yield* get(id)
       })
 
-    const update = (id: string, body: UpdateTicketBody, actor = "user") =>
-      Effect.gen(function* () {
+    const update = Effect.fn("Tickets.update")(function* (id: string, body: UpdateTicketBody, actor = "user") {
+        yield* Effect.annotateCurrentSpan({ ticketId: id })
         const before = yield* get(id)
+        const updatedAt = yield* nowIso
         if (before.source === "jira" && (body.title !== undefined || body.description !== undefined)) {
           return yield* new BadRequest({ message: "Title and description of Jira tickets are owned by Jira (read-only sync)" })
         }
@@ -243,7 +244,7 @@ export const TicketsLive = Layer.effect(
               ...(body.pinned !== undefined && { pinned: body.pinned }),
               ...(body.sortOrder !== undefined && { sortOrder: body.sortOrder }),
               ...(body.projectId !== undefined && { projectId: body.projectId }),
-              updatedAt: nowIso()
+              updatedAt
             })
             .where(eq(tickets.id, id))
             .run()
@@ -263,8 +264,7 @@ export const TicketsLive = Layer.effect(
         return yield* get(id)
       })
 
-    const remove = (id: string) =>
-      Effect.gen(function* () {
+    const remove = Effect.fn("Tickets.remove")(function* (id: string) {
         const t = yield* get(id)
         if (t.source !== "local") return yield* new BadRequest({ message: "Only local tickets can be deleted" })
         if (t.activeSessionId) return yield* new BadRequest({ message: "Stop the active agent session first" })
@@ -277,6 +277,12 @@ export const TicketsLive = Layer.effect(
         yield* notices.publish({ topic: "tickets", ticketId: id })
       })
 
-    return { list: (f) => loadTickets(database, f), get, create, update, remove } satisfies TicketsShape
+    return Tickets.of({
+      list: (f) => loadTickets(database, f).pipe(Effect.withSpan("Tickets.list", { attributes: { ...f } })),
+      get,
+      create,
+      update,
+      remove
+    })
   })
 )

@@ -6,20 +6,34 @@
 - **Electron main** (`apps/desktop/src/main`) creates the window and exposes a narrow preload bridge (connection info, open http(s) links, reveal path, pick directory). It starts the daemon detached if none is running, and never owns agents.
 - **Renderer** is a static Vite SPA. TanStack Router provides file-based routes with typed search params for filters and tabs, TanStack Query holds server state, and Zustand holds transient UI state only.
 
-## Effect service graph
+## Effect v4 usage
 
-`runtime.ts` composes explicit layers:
+The daemon is an Effect application end to end; Hono is only the transport.
+
+| Concern | How |
+| --- | --- |
+| Services | `Context.Service` classes, implementations returned with `Service.of`, wired as `Layer`s (`runtime.ts`). Infrastructure services carry a `static layer`. |
+| Composition root | `server.ts` resolves config with `Config`, builds one `ManagedRuntime` from the app `Layer`, and disposes it on shutdown (closing every scope: agent processes, pollers, run executors). |
+| HTTP bridge | Each Hono handler is one Effect run on the runtime (`http/respond.ts`): services via `Service.use`, bodies decoded with `Schema`, a server span per route, interruption on client disconnect (`AbortSignal`). |
+| Errors | All expected failures are `Schema.TaggedError`s (`NotFound`, `BadRequest`, `Conflict`, `DbError`, `HarnessError`, `GitError`, `PullRequestError`, `JiraError`, `WorkflowValidationError`, `SchemaError`), unioned as `AppError` and mapped to HTTP by an exhaustive `switch` (`toHttpError`): adding an error without a mapping is a compile error. Defects are logged with their `Cause` and become 500s. The workflow engine is fully typed (`StepError`); typed step failures become failed attempts that feed retries. |
+| Processes | Agent harnesses and short commands run through `effect/process` (`ChildProcess` + `ChildProcessSpawner`, Node implementation from `@effect/platform-node`): detached process groups, SIGTERM→SIGKILL escalation on scope close. Services capture the spawner in their layer, so their interfaces stay free of it. |
+| Concurrency | Session consumers and Jira pollers are supervised in `FiberMap`s. The workflow scheduler admits runs FIFO through a per-project `Semaphore` and then a global one, executors in a `FiberMap` (cancel = remove). Codex prompts flow through a `Queue` drained by a scoped turn-loop fiber; mock turns live in a `FiberHandle` so interrupt is real fiber interruption. |
+| Time | All timestamps come from `Clock` (`util.nowIso`); polling and retention are `Schedule`s (Jira backoff via `Schedule.modifyDelay`), so tests drive them with `TestClock`. |
+| Config & secrets | `Config.all` over the environment (validated ints/ports, options, defaults); the API token and Jira tokens are `Redacted` across service boundaries. |
+| Caching | Harness detection uses `Cache` with a 5 minute TTL. |
+| Observability | `Effect.fn("Service.method")` spans with domain attributes (ticketId, runId, stepId, sessionId, harness, outcome, exitCode, prUrl…), a long-lived `AgentSession` span per process, and HTTP/SSE server spans. Exported over OTLP (`effect/observability`) when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; logs go to a redacted JSON-lines file. |
+| Testing | `@effect/vitest`: `it.effect` (with `TestClock`), `it.live`, `layer(...)`; the real app `Layer` is built per test on a temp dir (`test/support.ts`); a recording tracer asserts the span tree. |
+
+### Service graph
 
 ```
-DaemonConfig + FileLogger
+DaemonConfig · NodeServices (ChildProcessSpawner…) · Observability
  └─ Database (better-sqlite3, WAL, migrations) · Notices (PubSub)
      └─ EventLog · Activity · CredentialStore
          └─ Projects · Tickets · Approvals · Workspaces · Harnesses · JiraSync · Maintenance
              └─ Sessions
                  └─ Workflows
 ```
-
-Each service is a `Context.Service` with a `Layer` that has typed errors (`NotFound`, `BadRequest`, `Conflict`, `DbError`, `HarnessError`, `GitError`, `JiraError`). The HTTP layer (`http/app.ts`) only decodes input with Effect Schema, calls a service and maps errors to status codes.
 
 ## Harness layer
 

@@ -2,9 +2,9 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { AddressInfo } from "node:net"
 import { serve, type ServerType } from "@hono/node-server"
-import { Effect } from "effect"
-import { connectionFilePath, type ConnectionFile, DaemonConfig, type DaemonConfigShape, makeConfig } from "./config"
-import { makeApp, type RouteRegistrar } from "./http/app"
+import { Effect, Redacted } from "effect"
+import { type ConfigOverrides, connectionFilePath, type ConnectionFile, type DaemonConfigShape, loadConfig } from "./config"
+import { makeApp } from "./http/app"
 import { type AppLayerOptions, type AppRuntime, makeRuntime } from "./runtime"
 import { Sessions } from "./services/sessions"
 import { Workflows } from "./services/workflows"
@@ -17,10 +17,9 @@ export interface RunningDaemon {
 }
 
 export interface StartDaemonOptions extends AppLayerOptions {
+  readonly config?: ConfigOverrides
   /** Write ~/.agentdesk/daemon.json so the desktop shell can discover us. */
   readonly writeConnectionFile?: boolean
-  readonly extraRoutes?: ReadonlyArray<RouteRegistrar>
-  readonly bootstrap?: (runtime: AppRuntime) => Promise<void>
 }
 
 const isAlive = (pid: number) => {
@@ -50,29 +49,33 @@ export const acquireInstanceLock = (dataDir: string) => {
   return () => rmSync(file, { force: true })
 }
 
+/**
+ * Composition root: resolve config (Effect Config), take the single-instance
+ * lock, build the ManagedRuntime from the app Layer, reconcile durable state,
+ * then serve HTTP. `stop` disposes the runtime, which closes every scope
+ * (agent processes, pollers, run executors) in order.
+ */
 export const startDaemon = async (options: StartDaemonOptions = {}): Promise<RunningDaemon> => {
-  const releaseLock = acquireInstanceLock(makeConfig(options.config).dataDir)
-  const runtime = makeRuntime(options)
-  const config = await runtime.runPromise(
-    Effect.gen(function* () {
-      return yield* DaemonConfig
-    })
-  )
-  const reconciled = await runtime.runPromise(
-    Effect.gen(function* () {
-      return yield* (yield* Sessions).reconcile
-    })
-  )
-  if (reconciled > 0) console.log(`[agentdesk] reconciled ${reconciled} interrupted session(s)`)
-  const runs = await runtime.runPromise(
-    Effect.gen(function* () {
-      return yield* (yield* Workflows).reconcile
-    })
-  )
-  if (runs > 0) console.log(`[agentdesk] marked ${runs} workflow run(s) interrupted`)
-  await options.bootstrap?.(runtime)
+  const config = await Effect.runPromise(loadConfig(options.config))
+  const releaseLock = acquireInstanceLock(config.dataDir)
+  const runtime = makeRuntime(config, options)
+  try {
+    const { sessions, runs } = await runtime.runPromise(
+      Effect.gen(function* () {
+        const sessions = yield* Sessions.use((s) => s.reconcile)
+        const runs = yield* Workflows.use((w) => w.reconcile)
+        return { sessions, runs }
+      }).pipe(Effect.withSpan("Daemon.startup"))
+    )
+    if (sessions > 0) console.log(`[agentdesk] reconciled ${sessions} interrupted session(s)`)
+    if (runs > 0) console.log(`[agentdesk] marked ${runs} workflow run(s) interrupted`)
+  } catch (e) {
+    await runtime.dispose()
+    releaseLock()
+    throw e
+  }
 
-  const app = makeApp(runtime, config, options.extraRoutes)
+  const app = makeApp(runtime, config)
   const server: ServerType = await new Promise((resolve) => {
     const s = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, () => resolve(s))
   })
@@ -80,7 +83,7 @@ export const startDaemon = async (options: StartDaemonOptions = {}): Promise<Run
   const url = `http://${config.host}:${port}`
   const connFile = connectionFilePath(config.dataDir)
   if (options.writeConnectionFile) {
-    const conn: ConnectionFile = { url, token: config.token, pid: process.pid, version: config.version }
+    const conn: ConnectionFile = { url, token: Redacted.value(config.token), pid: process.pid, version: config.version }
     writeFileSync(connFile, JSON.stringify(conn, null, 2), { mode: 0o600 })
   }
 

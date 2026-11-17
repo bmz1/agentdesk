@@ -5,6 +5,7 @@ import { projects, workspaces } from "@agentdesk/db"
 import * as Git from "@agentdesk/git"
 import { and, desc, eq, isNull, or } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
+import { ChildProcessSpawner } from "effect/process"
 import { DaemonConfig } from "../config"
 import { BadRequest, Conflict, type DbError, NotFound } from "../errors"
 import { newId, nowIso, shortId } from "../util"
@@ -58,6 +59,7 @@ export const WorkspacesLive = Layer.effect(
     const database = yield* Database
     const { use } = database
     const activity = yield* Activity
+    const withProcesses = Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, yield* ChildProcessSpawner.ChildProcessSpawner)
     const projectRepo = (projectId: string) =>
       use(
         (db) => db.select({ repoPath: projects.repoPath }).from(projects).where(eq(projects.id, projectId)).get()?.repoPath
@@ -68,9 +70,9 @@ export const WorkspacesLive = Layer.effect(
         Effect.flatMap((r) => (r ? Effect.succeed(toWorkspace(r)) : Effect.fail(new NotFound({ entity: "workspace", id }))))
       )
 
-    const allocate = (input: AllocateInput) =>
-      Effect.gen(function* () {
+    const allocate = Effect.fn("Workspaces.allocate")(function* (input: AllocateInput) {
         const { project } = input
+        yield* Effect.annotateCurrentSpan({ ticketId: input.ticketId, runId: input.runId ?? "", projectId: project.id })
         if (!(yield* Git.isRepository(project.repoPath))) {
           return yield* new BadRequest({ message: `Project repository is missing: ${project.repoPath}` })
         }
@@ -94,9 +96,10 @@ export const WorkspacesLive = Layer.effect(
           baseCommit: base,
           cleanupState: "active",
           lockedBy: null,
-          createdAt: nowIso()
+          createdAt: yield* nowIso
         }
         yield* use((db) => db.insert(workspaces).values(row).run())
+        yield* Effect.annotateCurrentSpan({ branch, workspaceId: id })
         yield* activity.record({
           kind: "workspace.created",
           message: `Worktree created on branch ${branch}`,
@@ -105,7 +108,7 @@ export const WorkspacesLive = Layer.effect(
           data: { path, branch, baseCommit: base }
         })
         return toWorkspace(row)
-      })
+      }, withProcesses)
 
     const latestRow = (ticketId: string) =>
       use((db) =>
@@ -118,8 +121,7 @@ export const WorkspacesLive = Layer.effect(
           .get()
       )
 
-    const forTicket = (input: AllocateInput) =>
-      Effect.gen(function* () {
+    const forTicket = Effect.fn("Workspaces.forTicket")(function* (input: AllocateInput) {
         const existing = yield* latestRow(input.ticketId)
         if (existing && !existing.lockedBy && existsSync(existing.path)) return toWorkspace(existing)
         return yield* allocate(input)
@@ -147,8 +149,8 @@ export const WorkspacesLive = Layer.effect(
           .run()
       ).pipe(Effect.asVoid)
 
-    const diff = (id: string) =>
-      Effect.gen(function* () {
+    const diff = Effect.fn("Workspaces.diff")(function* (id: string) {
+        yield* Effect.annotateCurrentSpan({ workspaceId: id })
         const ws = yield* get(id)
         if (!existsSync(ws.path)) {
           // Worktree removed: fall back to the branch in the main repo.
@@ -162,10 +164,10 @@ export const WorkspacesLive = Layer.effect(
           )
         }
         return yield* Git.diffAgainst(ws.path, ws.baseCommit)
-      })
+      }, withProcesses)
 
-    const cleanup = (id: string, force = false) =>
-      Effect.gen(function* () {
+    const cleanup = Effect.fn("Workspaces.cleanup")(function* (id: string, force = false) {
+        yield* Effect.annotateCurrentSpan({ workspaceId: id, force })
         const ws = yield* get(id)
         if (ws.cleanupState === "removed") return ws
         const row = yield* use((db) => db.select().from(workspaces).where(eq(workspaces.id, id)).get())
@@ -185,9 +187,9 @@ export const WorkspacesLive = Layer.effect(
           runId: ws.runId
         })
         return { ...ws, cleanupState: "removed" as const }
-      })
+      }, withProcesses)
 
-    return {
+    return Workspaces.of({
       allocate,
       forTicket,
       get,
@@ -196,6 +198,6 @@ export const WorkspacesLive = Layer.effect(
       unlock,
       diff,
       cleanup
-    } satisfies WorkspacesShape
+    })
   })
 )

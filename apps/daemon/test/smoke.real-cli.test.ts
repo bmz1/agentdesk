@@ -8,7 +8,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { AgentEvent, HarnessId } from "@agentdesk/contracts"
 import { Effect, Stream } from "effect"
-import { describe, expect, it } from "vitest"
+import { NodeProcessLayer } from "@agentdesk/harness-core"
+import { describe, expect, it } from "@effect/vitest"
 import { defaultAdapters } from "../src/services/harnesses"
 
 const enabled = (process.env.AGENTDESK_SMOKE ?? "").split(",").filter(Boolean) as Array<HarnessId>
@@ -37,7 +38,7 @@ describe.skipIf(enabled.length === 0)("real harness smoke tests", () => {
             )
             return { seen, providerSessionId: yield* s.providerSessionId }
           })
-        )
+        ).pipe(Effect.provide(NodeProcessLayer))
       )
       const types = result.seen.map((e) => e.type)
       console.log(`[smoke:${id}]`, types.join(" "), result.seen.filter((e) => e.type === "session.error"))

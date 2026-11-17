@@ -1,23 +1,22 @@
 import {
   ApprovalDecisionBody,
+  type BoardStatus,
   CreateJiraConnectionBody,
-  UpdateJiraConnectionBody,
   CreateProjectBody,
   CreateTicketBody,
   PromptBody,
   SaveWorkflowBody,
   StartRunBody,
   StartSessionBody,
+  type TicketSource,
+  UpdateJiraConnectionBody,
   UpdateProjectBody,
-  UpdateTicketBody,
-  type BoardStatus,
-  type TicketSource
+  UpdateTicketBody
 } from "@agentdesk/contracts"
 import { redactSecrets } from "@agentdesk/harness-core"
-import { type Context, Effect, Stream } from "effect"
+import { Effect, Stream } from "effect"
 import { Hono } from "hono"
 import { DaemonConfig, type DaemonConfigShape } from "../config"
-import { BadRequest } from "../errors"
 import type { AppRuntime } from "../runtime"
 import { Activity } from "../services/activity"
 import { Approvals } from "../services/approvals"
@@ -34,32 +33,18 @@ import { body, makeResponder } from "./respond"
 import { securityMiddleware } from "./security"
 import { sseFromStream } from "./sse"
 
-const streamUnwrap = Stream.unwrap
-
-/** Access a service and continue with an effect using it. */
-export const withSvc = <I, S, A, E, R>(tag: Context.Service<I, S>, f: (s: S) => Effect.Effect<A, E, R>) =>
-  Effect.gen(function* () {
-    const s = yield* tag
-    return yield* f(s)
-  })
-export const mapSvc = <I, S, A>(tag: Context.Service<I, S>, f: (s: S) => A) =>
-  Effect.gen(function* () {
-    return f(yield* tag)
-  })
-
-export type RouteRegistrar = (app: Hono, ctx: RouteContext) => void
-export interface RouteContext {
-  readonly runtime: AppRuntime
-  readonly respond: ReturnType<typeof makeResponder>
-}
-
-export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape, extraRoutes: ReadonlyArray<RouteRegistrar> = []) => {
+/**
+ * Thin Hono transport. Every handler is a single Effect run on the daemon's
+ * ManagedRuntime; services are reached with `Service.use`, bodies are decoded
+ * with Effect Schema, and failures stay typed until `respond` maps them.
+ */
+export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
   const app = new Hono()
   const respond = makeResponder(runtime)
   const startedAt = new Date().toISOString()
+  const id = (c: { req: { param: (k: string) => string } }) => c.req.param("id")
 
   app.use("*", securityMiddleware(config))
-
   app.get("/health", (c) => c.json({ ok: true, version: config.version }))
 
   app.get("/info", (c) =>
@@ -67,14 +52,13 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape, extraRou
       c,
       Effect.gen(function* () {
         const cfg = yield* DaemonConfig
-        const sessions = yield* Sessions
         return {
           version: cfg.version,
           pid: process.pid,
           startedAt,
           dataDir: cfg.dataDir,
           persistent: cfg.persistent,
-          activeSessions: sessions.liveCount(),
+          activeSessions: (yield* Sessions).liveCount(),
           activeRuns: (yield* Workflows).activeCount()
         }
       })
@@ -83,33 +67,29 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape, extraRou
 
   // ---- live invalidation notices -------------------------------------------------
   app.get("/events", (c) =>
-    sseFromStream(
-      c,
-      runtime,
-      streamUnwrap(mapSvc(Notices, (n) => n.stream)),
-      (n) => ({ event: "notice", data: JSON.stringify(n) })
-    )
+    sseFromStream(c, runtime, Stream.unwrap(Notices.use((n) => Effect.succeed(n.stream))), (n) => ({
+      event: "notice",
+      data: JSON.stringify(n)
+    }))
   )
 
   // ---- projects --------------------------------------------------------------------
-  app.get("/projects", (c) => respond(c, withSvc(Projects, (p) => p.list)))
-  app.post("/projects", async (c) => {
-    const input = await body(c, CreateProjectBody)
-    return respond(c, Effect.flatMap(input, (b) => withSvc(Projects, (p) => p.create(b))), 201)
-  })
-  app.get("/projects/:id", (c) => respond(c, withSvc(Projects, (p) => p.get(c.req.param("id")))))
-  app.patch("/projects/:id", async (c) => {
-    const input = await body(c, UpdateProjectBody)
-    return respond(c, Effect.flatMap(input, (b) => withSvc(Projects, (p) => p.update(c.req.param("id"), b))))
-  })
-  app.delete("/projects/:id", (c) => respond(c, withSvc(Projects, (p) => p.remove(c.req.param("id")))))
+  app.get("/projects", (c) => respond(c, Projects.use((p) => p.list)))
+  app.post("/projects", (c) =>
+    respond(c, body(c, CreateProjectBody).pipe(Effect.flatMap((b) => Projects.use((p) => p.create(b)))), 201)
+  )
+  app.get("/projects/:id", (c) => respond(c, Projects.use((p) => p.get(id(c)))))
+  app.patch("/projects/:id", (c) =>
+    respond(c, body(c, UpdateProjectBody).pipe(Effect.flatMap((b) => Projects.use((p) => p.update(id(c), b)))))
+  )
+  app.delete("/projects/:id", (c) => respond(c, Projects.use((p) => p.remove(id(c)))))
 
   // ---- tickets ---------------------------------------------------------------------
   app.get("/tickets", (c) => {
     const q = c.req.query()
     return respond(
       c,
-      withSvc(Tickets, (t) =>
+      Tickets.use((t) =>
         t.list({
           projectId: q.projectId || undefined,
           source: (q.source as TicketSource) || undefined,
@@ -120,169 +100,110 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape, extraRou
       )
     )
   })
-  app.post("/tickets", async (c) => {
-    const input = await body(c, CreateTicketBody)
-    return respond(c, Effect.flatMap(input, (b) => withSvc(Tickets, (t) => t.create(b))), 201)
-  })
-  app.get("/tickets/:id", (c) => respond(c, withSvc(Tickets, (t) => t.get(c.req.param("id")))))
-  app.patch("/tickets/:id", async (c) => {
-    const input = await body(c, UpdateTicketBody)
-    return respond(c, Effect.flatMap(input, (b) => withSvc(Tickets, (t) => t.update(c.req.param("id"), b))))
-  })
-  app.delete("/tickets/:id", (c) => respond(c, withSvc(Tickets, (t) => t.remove(c.req.param("id")))))
-  app.get("/tickets/:id/activity", (c) =>
-    respond(c, withSvc(Activity, (a) => a.list({ ticketId: c.req.param("id"), limit: 300 })))
+  app.post("/tickets", (c) => respond(c, body(c, CreateTicketBody).pipe(Effect.flatMap((b) => Tickets.use((t) => t.create(b)))), 201))
+  app.get("/tickets/:id", (c) => respond(c, Tickets.use((t) => t.get(id(c)))))
+  app.patch("/tickets/:id", (c) =>
+    respond(c, body(c, UpdateTicketBody).pipe(Effect.flatMap((b) => Tickets.use((t) => t.update(id(c), b)))))
   )
-  app.get("/tickets/:id/sessions", (c) =>
-    respond(c, withSvc(Sessions, (s) => s.list({ ticketId: c.req.param("id") })))
+  app.delete("/tickets/:id", (c) => respond(c, Tickets.use((t) => t.remove(id(c)))))
+  app.get("/tickets/:id/activity", (c) => respond(c, Activity.use((a) => a.list({ ticketId: id(c), limit: 300 }))))
+  app.get("/tickets/:id/sessions", (c) => respond(c, Sessions.use((s) => s.list({ ticketId: id(c) }))))
+  app.post("/tickets/:id/sessions", (c) =>
+    respond(c, body(c, StartSessionBody).pipe(Effect.flatMap((b) => Sessions.use((s) => s.startForTicket(id(c), b)))), 201)
   )
-  app.post("/tickets/:id/sessions", async (c) => {
-    const input = await body(c, StartSessionBody)
-    return respond(
-      c,
-      Effect.flatMap(input, (b) => withSvc(Sessions, (s) => s.startForTicket(c.req.param("id"), b))),
-      201
-    )
-  })
-  app.get("/tickets/:id/approvals", (c) =>
-    respond(c, withSvc(Approvals, (a) => a.list({ ticketId: c.req.param("id") })))
-  )
+  app.get("/tickets/:id/approvals", (c) => respond(c, Approvals.use((a) => a.list({ ticketId: id(c) }))))
   app.get("/tickets/:id/diff", (c) =>
     respond(
       c,
-      Effect.gen(function* () {
-        const ws = yield* (yield* Workspaces).latestForTicket(c.req.param("id"))
-        if (!ws) return { branch: null, baseCommit: null, headCommit: null, files: [], patch: "", commits: [] }
-        const diff = yield* (yield* Workspaces).diff(ws.id)
-        return { ...diff, patch: redactSecrets(diff.patch) }
-      })
-    )
-  )
-  app.get("/tickets/:id/workspace", (c) =>
-    respond(
-      c,
-      Effect.gen(function* () {
-        return (yield* (yield* Workspaces).latestForTicket(c.req.param("id"))) ?? null
-      })
-    )
-  )
-  app.post("/workspaces/:id/cleanup", (c) =>
-    respond(
-      c,
-      withSvc(Workspaces, (w) => w.cleanup(c.req.param("id"), c.req.query("force") === "1"))
-    )
-  )
-
-  // ---- sessions --------------------------------------------------------------------
-  app.get("/sessions", (c) =>
-    respond(c, withSvc(Sessions, (s) => s.list({ active: c.req.query("active") === "1", limit: 100 })))
-  )
-  app.get("/sessions/:id", (c) => respond(c, withSvc(Sessions, (s) => s.get(c.req.param("id")))))
-  app.get("/sessions/:id/history", (c) =>
-    respond(
-      c,
-      withSvc(EventLog, (e) =>
-        e.history(c.req.param("id"), { after: Number(c.req.query("after") ?? 0) || 0, limit: 5000 })
-      )
-    )
-  )
-  app.get("/sessions/:id/events", (c) => {
-    const after = Number(c.req.query("after") ?? c.req.header("last-event-id") ?? 0) || 0
-    const id = c.req.param("id")
-    return sseFromStream(
-      c,
-      runtime,
-      streamUnwrap(mapSvc(EventLog, (e) => e.subscribe(id, after))),
-      (e) => ({ id: String(e.id), event: "agent", data: JSON.stringify(e) })
-    )
-  })
-  app.post("/sessions/:id/prompt", async (c) => {
-    const input = await body(c, PromptBody)
-    return respond(
-      c,
-      Effect.flatMap(input, (b) => withSvc(Sessions, (s) => s.prompt(c.req.param("id"), b.text)))
-    )
-  })
-  app.post("/sessions/:id/interrupt", (c) =>
-    respond(c, withSvc(Sessions, (s) => s.interrupt(c.req.param("id"))))
-  )
-  app.post("/sessions/:id/stop", (c) => respond(c, withSvc(Sessions, (s) => s.stop(c.req.param("id")))))
-
-  // ---- approvals -------------------------------------------------------------------
-  app.get("/approvals", (c) =>
-    respond(c, withSvc(Approvals, (a) => a.list({ pending: c.req.query("pending") === "1" })))
-  )
-
-  // ---- jira (read-only sync) ---------------------------------------------------------
-  app.get("/jira/connections", (c) => respond(c, withSvc(JiraSync, (j) => j.list)))
-  app.post("/jira/connections", async (c) => {
-    const input = await body(c, CreateJiraConnectionBody)
-    return respond(c, Effect.flatMap(input, (b) => withSvc(JiraSync, (j) => j.create(b))), 201)
-  })
-  app.patch("/jira/connections/:id", async (c) => {
-    const input = await body(c, UpdateJiraConnectionBody)
-    return respond(c, Effect.flatMap(input, (b) => withSvc(JiraSync, (j) => j.update(c.req.param("id"), b))))
-  })
-  app.delete("/jira/connections/:id", (c) => respond(c, withSvc(JiraSync, (j) => j.remove(c.req.param("id")))))
-  app.post("/jira/connections/:id/sync", (c) =>
-    respond(c, withSvc(JiraSync, (j) => j.sync(c.req.param("id"), { full: c.req.query("full") === "1" })))
-  )
-  app.post("/jira/connections/:id/test", (c) => respond(c, withSvc(JiraSync, (j) => j.test(c.req.param("id")))))
-
-  // ---- workflows ---------------------------------------------------------------------
-  app.get("/workflows", (c) => respond(c, withSvc(Workflows, (w) => w.definitions)))
-  app.post("/workflows", async (c) => {
-    const input = await body(c, SaveWorkflowBody)
-    return respond(c, Effect.flatMap(input, (b) => withSvc(Workflows, (w) => w.save(b.yaml))), 201)
-  })
-  app.post("/workflows/validate", async (c) => {
-    const input = await body(c, SaveWorkflowBody)
-    return respond(c, Effect.flatMap(input, (b) => withSvc(Workflows, (w) => w.validate(b.yaml))))
-  })
-  app.get("/workflows/:id", (c) => respond(c, withSvc(Workflows, (w) => w.definition(c.req.param("id")))))
-  app.post("/tickets/:id/start-run", async (c) => {
-    const input = await body(c, StartRunBody)
-    return respond(c, Effect.flatMap(input, (b) => withSvc(Workflows, (w) => w.start(c.req.param("id"), b))), 201)
-  })
-  app.get("/tickets/:id/runs", (c) => respond(c, withSvc(Workflows, (w) => w.list({ ticketId: c.req.param("id") }))))
-  app.get("/runs", (c) => respond(c, withSvc(Workflows, (w) => w.list({ status: c.req.query("status") || undefined }))))
-  app.get("/runs/:id", (c) => respond(c, withSvc(Workflows, (w) => w.get(c.req.param("id")))))
-  app.post("/runs/:id/cancel", (c) => respond(c, withSvc(Workflows, (w) => w.cancel(c.req.param("id")))))
-  app.post("/runs/:id/resume", (c) => respond(c, withSvc(Workflows, (w) => w.resume(c.req.param("id")))))
-  app.post("/runs/:id/retry", (c) => respond(c, withSvc(Workflows, (w) => w.retry(c.req.param("id")))))
-  app.get("/artifacts/:id", (c) => respond(c, withSvc(Workflows, (w) => w.artifact(c.req.param("id")))))
-
-  // ---- misc ------------------------------------------------------------------------
-  app.get("/harnesses/detect", (c) =>
-    respond(c, withSvc(Harnesses, (h) => h.detect(c.req.query("refresh") === "1")))
-  )
-  app.get("/activity", (c) =>
-    respond(c, withSvc(Activity, (a) => a.list({ limit: Number(c.req.query("limit") ?? 100) })))
-  )
-
-  for (const register of extraRoutes) register(app, { runtime, respond })
-
-  // Default approval decision route; workflow-aware routing is registered by extraRoutes when present.
-  app.post("/approvals/:id/decision", async (c) => {
-    const input = await body(c, ApprovalDecisionBody)
-    return respond(
-      c,
-      Effect.flatMap(input, (b) =>
+      Workspaces.use((w) =>
         Effect.gen(function* () {
-          const approval = yield* (yield* Approvals).get(c.req.param("id"))
-          // Tool approvals go back to the agent harness; workflow gates resume the run.
-          if (approval.kind === "tool") {
-            return yield* (yield* Sessions).resolveApproval(approval.id, b.decision, "user", b.note)
-          }
-          return yield* (yield* Workflows).resolveApproval(approval.id, b.decision, "user", b.note)
+          const ws = yield* w.latestForTicket(id(c))
+          if (!ws) return { branch: null, baseCommit: null, headCommit: null, files: [], patch: "", commits: [] }
+          const diff = yield* w.diff(ws.id)
+          return { ...diff, patch: redactSecrets(diff.patch) }
         })
       )
     )
+  )
+  app.get("/tickets/:id/workspace", (c) =>
+    respond(c, Workspaces.use((w) => w.latestForTicket(id(c)).pipe(Effect.map((ws) => ws ?? null))))
+  )
+  app.post("/workspaces/:id/cleanup", (c) =>
+    respond(c, Workspaces.use((w) => w.cleanup(id(c), c.req.query("force") === "1")))
+  )
+
+  // ---- sessions --------------------------------------------------------------------
+  app.get("/sessions", (c) => respond(c, Sessions.use((s) => s.list({ active: c.req.query("active") === "1", limit: 100 }))))
+  app.get("/sessions/:id", (c) => respond(c, Sessions.use((s) => s.get(id(c)))))
+  app.get("/sessions/:id/history", (c) =>
+    respond(c, EventLog.use((e) => e.history(id(c), { after: Number(c.req.query("after") ?? 0) || 0, limit: 5000 })))
+  )
+  app.get("/sessions/:id/events", (c) => {
+    const after = Number(c.req.query("after") ?? c.req.header("last-event-id") ?? 0) || 0
+    const sessionId = id(c)
+    return sseFromStream(
+      c,
+      runtime,
+      Stream.unwrap(EventLog.use((e) => Effect.succeed(e.subscribe(sessionId, after)))),
+      (e) => ({ id: String(e.id), event: "agent", data: JSON.stringify(e) })
+    )
   })
+  app.post("/sessions/:id/prompt", (c) =>
+    respond(c, body(c, PromptBody).pipe(Effect.flatMap((b) => Sessions.use((s) => s.prompt(id(c), b.text)))))
+  )
+  app.post("/sessions/:id/interrupt", (c) => respond(c, Sessions.use((s) => s.interrupt(id(c)))))
+  app.post("/sessions/:id/stop", (c) => respond(c, Sessions.use((s) => s.stop(id(c)))))
+
+  // ---- approvals -------------------------------------------------------------------
+  app.get("/approvals", (c) => respond(c, Approvals.use((a) => a.list({ pending: c.req.query("pending") === "1" }))))
+  app.post("/approvals/:id/decision", (c) =>
+    respond(
+      c,
+      Effect.gen(function* () {
+        const b = yield* body(c, ApprovalDecisionBody)
+        const approval = yield* Approvals.use((a) => a.get(id(c)))
+        // Tool approvals go back to the agent harness; workflow gates resume the run.
+        if (approval.kind === "tool") return yield* Sessions.use((s) => s.resolveApproval(approval.id, b.decision, "user", b.note))
+        return yield* Workflows.use((w) => w.resolveApproval(approval.id, b.decision, "user", b.note))
+      })
+    )
+  )
+
+  // ---- jira (read-only sync) ---------------------------------------------------------
+  app.get("/jira/connections", (c) => respond(c, JiraSync.use((j) => j.list)))
+  app.post("/jira/connections", (c) =>
+    respond(c, body(c, CreateJiraConnectionBody).pipe(Effect.flatMap((b) => JiraSync.use((j) => j.create(b)))), 201)
+  )
+  app.patch("/jira/connections/:id", (c) =>
+    respond(c, body(c, UpdateJiraConnectionBody).pipe(Effect.flatMap((b) => JiraSync.use((j) => j.update(id(c), b)))))
+  )
+  app.delete("/jira/connections/:id", (c) => respond(c, JiraSync.use((j) => j.remove(id(c)))))
+  app.post("/jira/connections/:id/sync", (c) => respond(c, JiraSync.use((j) => j.sync(id(c), { full: c.req.query("full") === "1" }))))
+  app.post("/jira/connections/:id/test", (c) => respond(c, JiraSync.use((j) => j.test(id(c)))))
+
+  // ---- workflows ---------------------------------------------------------------------
+  app.get("/workflows", (c) => respond(c, Workflows.use((w) => w.definitions)))
+  app.post("/workflows", (c) => respond(c, body(c, SaveWorkflowBody).pipe(Effect.flatMap((b) => Workflows.use((w) => w.save(b.yaml)))), 201))
+  app.post("/workflows/validate", (c) =>
+    respond(c, body(c, SaveWorkflowBody).pipe(Effect.flatMap((b) => Workflows.use((w) => w.validate(b.yaml)))))
+  )
+  app.get("/workflows/:id", (c) => respond(c, Workflows.use((w) => w.definition(id(c)))))
+  app.post("/tickets/:id/start-run", (c) =>
+    respond(c, body(c, StartRunBody).pipe(Effect.flatMap((b) => Workflows.use((w) => w.start(id(c), b)))), 201)
+  )
+  app.get("/tickets/:id/runs", (c) => respond(c, Workflows.use((w) => w.list({ ticketId: id(c) }))))
+  app.get("/runs", (c) => respond(c, Workflows.use((w) => w.list({ status: c.req.query("status") || undefined }))))
+  app.get("/runs/:id", (c) => respond(c, Workflows.use((w) => w.get(id(c)))))
+  app.post("/runs/:id/cancel", (c) => respond(c, Workflows.use((w) => w.cancel(id(c)))))
+  app.post("/runs/:id/resume", (c) => respond(c, Workflows.use((w) => w.resume(id(c)))))
+  app.post("/runs/:id/retry", (c) => respond(c, Workflows.use((w) => w.retry(id(c)))))
+  app.get("/artifacts/:id", (c) => respond(c, Workflows.use((w) => w.artifact(id(c)))))
+
+  // ---- misc ------------------------------------------------------------------------
+  app.get("/harnesses/detect", (c) => respond(c, Harnesses.use((h) => h.detect(c.req.query("refresh") === "1"))))
+  app.get("/activity", (c) => respond(c, Activity.use((a) => a.list({ limit: Number(c.req.query("limit") ?? 100) }))))
 
   app.notFound((c) => c.json({ error: "NotFound", message: `No route for ${c.req.method} ${c.req.path}` }, 404))
   app.onError((err, c) => c.json({ error: "InternalError", message: err.message }, 500))
-  void BadRequest
   return app
 }
-

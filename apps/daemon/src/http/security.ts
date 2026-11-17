@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto"
+import { Redacted } from "effect"
 import type { MiddlewareHandler } from "hono"
 import type { DaemonConfigShape } from "../config"
 
@@ -35,7 +36,7 @@ export const securityMiddleware = (config: DaemonConfigShape): MiddlewareHandler
   if (c.req.path === "/health") return next()
   const auth = c.req.header("authorization") ?? ""
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : ""
-  if (!token || !safeEqual(token, config.token)) {
+  if (!token || !safeEqual(token, Redacted.value(config.token))) {
     return c.json({ error: "Unauthorized", message: "Missing or invalid API token" }, 401)
   }
   c.header("Cache-Control", "no-store")

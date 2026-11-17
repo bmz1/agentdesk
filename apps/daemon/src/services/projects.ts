@@ -5,6 +5,7 @@ import { projects, tickets } from "@agentdesk/db"
 import * as Git from "@agentdesk/git"
 import { asc, count, eq } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
+import { ChildProcessSpawner } from "effect/process"
 import { BadRequest, Conflict, type DbError, NotFound } from "../errors"
 import { newId, nowIso } from "../util"
 import { Activity } from "./activity"
@@ -50,6 +51,8 @@ export const ProjectsLive = Layer.effect(
     const { use } = yield* Database
     const activity = yield* Activity
     const notices = yield* Notices
+    // Git runs through effect/process; capture the spawner so the service interface stays free of it.
+    const withProcesses = Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, yield* ChildProcessSpawner.ChildProcessSpawner)
 
     const get = (id: string) =>
       use((db) => db.select().from(projects).where(eq(projects.id, id)).get()).pipe(
@@ -57,23 +60,22 @@ export const ProjectsLive = Layer.effect(
       )
 
     const validateRepo = (repoPath: string) =>
-      Effect.gen(function* () {
+      withProcesses(Effect.gen(function* () {
         const path = resolve(repoPath.replace(/^~(?=\/|$)/, process.env.HOME ?? "~"))
         if (!existsSync(path)) return yield* new BadRequest({ message: `Path does not exist: ${path}` })
         if (!(yield* Git.isRepository(path))) return yield* new BadRequest({ message: `Not a git repository: ${path}` })
         return yield* Git.repoRoot(path).pipe(Effect.orElseSucceed(() => path))
-      })
+      })).pipe(Effect.withSpan("Projects.validateRepo", { attributes: { repoPath } }))
 
-    const create = (body: CreateProjectBody) =>
-      Effect.gen(function* () {
+    const create = Effect.fn("Projects.create")(function* (body: CreateProjectBody) {
         const repoPath = yield* validateRepo(body.repoPath)
         const key = (body.key?.trim() || deriveKey(body.name)).toUpperCase().replace(/[^A-Z0-9]/g, "")
         if (!key) return yield* new BadRequest({ message: "Project key must contain letters or digits" })
         const existing = yield* use((db) => db.select().from(projects).where(eq(projects.key, key)).get())
         if (existing) return yield* new Conflict({ message: `Project key ${key} is already used` })
-        const defaultBranch = body.defaultBranch || (yield* Git.defaultBranch(repoPath))
-        const gitProvider = body.gitProvider ?? Git.detectProvider(yield* Git.remoteUrl(repoPath))
-        const now = nowIso()
+        const defaultBranch = body.defaultBranch || (yield* withProcesses(Git.defaultBranch(repoPath)))
+        const gitProvider = body.gitProvider ?? Git.detectProvider(yield* withProcesses(Git.remoteUrl(repoPath)))
+        const now = yield* nowIso
         const row: ProjectRow = {
           id: newId(),
           key,
@@ -92,12 +94,13 @@ export const ProjectsLive = Layer.effect(
         yield* use((db) => db.insert(projects).values(row).run())
         yield* activity.record({ kind: "project.created", message: `Project ${body.name} registered`, actor: "user" })
         yield* notices.publish({ topic: "projects" })
+        yield* Effect.annotateCurrentSpan({ projectId: row.id, key })
         return toProject(row)
       })
 
-    const update = (id: string, body: UpdateProjectBody) =>
-      Effect.gen(function* () {
+    const update = Effect.fn("Projects.update")(function* (id: string, body: UpdateProjectBody) {
         yield* get(id)
+        const updatedAt = yield* nowIso
         const repoPath = body.repoPath ? yield* validateRepo(body.repoPath) : undefined
         yield* use((db) =>
           db
@@ -111,7 +114,7 @@ export const ProjectsLive = Layer.effect(
               ...(body.defaultWorkflowId !== undefined && { defaultWorkflowId: body.defaultWorkflowId }),
               ...(body.permissionMode !== undefined && { permissionMode: body.permissionMode }),
               ...(body.testCommand !== undefined && { testCommand: body.testCommand }),
-              updatedAt: nowIso()
+              updatedAt
             })
             .where(eq(projects.id, id))
             .run()
@@ -120,8 +123,7 @@ export const ProjectsLive = Layer.effect(
         return yield* get(id)
       })
 
-    const remove = (id: string) =>
-      Effect.gen(function* () {
+    const remove = Effect.fn("Projects.remove")(function* (id: string) {
         yield* get(id)
         const n = yield* use((db) => db.select({ n: count() }).from(tickets).where(eq(tickets.projectId, id)).get()?.n ?? 0)
         if (n > 0) return yield* new Conflict({ message: "Project still has tickets; move or delete them first" })
@@ -129,12 +131,12 @@ export const ProjectsLive = Layer.effect(
         yield* notices.publish({ topic: "projects" })
       })
 
-    return {
+    return Projects.of({
       list: use((db) => db.select().from(projects).orderBy(asc(projects.name)).all().map(toProject)),
       get,
       create,
       update,
       remove
-    } satisfies ProjectsShape
+    })
   })
 )

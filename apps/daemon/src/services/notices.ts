@@ -7,15 +7,15 @@ export interface NoticesShape {
   readonly stream: Stream.Stream<ChangeNotice>
 }
 
-export class Notices extends Context.Service<Notices, NoticesShape>()("agentdesk/Notices") {}
-
-export const NoticesLive = Layer.effect(
-  Notices,
-  Effect.gen(function* () {
-    const pubsub = yield* PubSub.sliding<ChangeNotice>(1024)
-    return {
-      publish: (n) => PubSub.publish(pubsub, n).pipe(Effect.asVoid),
-      stream: Stream.fromPubSub(pubsub)
-    } satisfies NoticesShape
-  })
-)
+export class Notices extends Context.Service<Notices, NoticesShape>()("agentdesk/Notices") {
+  static readonly layer = Layer.effect(
+    Notices,
+    Effect.gen(function* () {
+      const pubsub = yield* PubSub.sliding<ChangeNotice>(1024)
+      return Notices.of({
+        publish: (n) => PubSub.publish(pubsub, n).pipe(Effect.asVoid),
+        stream: Stream.fromPubSub(pubsub)
+      })
+    })
+  )
+}

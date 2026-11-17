@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "@effect/vitest"
 import { makeRepo, startTestDaemon, waitFor } from "./helpers"
 
 const cleanups: Array<() => Promise<void>> = []

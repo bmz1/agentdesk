@@ -4,9 +4,9 @@ import { streamSSE } from "hono/streaming"
 import type { AppRuntime, AppServices } from "../runtime"
 
 /**
- * Pipe an Effect Stream into a Server-Sent Events response. The stream is
- * interrupted when the client disconnects. A heartbeat comment keeps proxies
- * and idle timers from closing the connection.
+ * Pipe an Effect Stream into a Server-Sent Events response on the
+ * ManagedRuntime. The stream fiber is interrupted when the client disconnects;
+ * a heartbeat (scheduled on the Effect clock) keeps idle connections open.
  */
 export const sseFromStream = <A, E>(
   c: Context,
@@ -17,18 +17,16 @@ export const sseFromStream = <A, E>(
   streamSSE(c, async (sse) => {
     const controller = new AbortController()
     sse.onAbort(() => controller.abort())
-    const heartbeat = setInterval(() => {
-      void sse.write(": ping\n\n").catch(() => controller.abort())
-    }, 15_000)
-    try {
-      await sse.writeSSE({ event: "ready", data: "{}" })
-      await runtime.runPromise(
-        stream.pipe(Stream.runForEach((a) => Effect.promise(() => sse.writeSSE(encode(a))))),
+    const write = (m: { id?: string; event?: string; data: string }) => Effect.promise(() => sse.writeSSE(m))
+    const heartbeat = Stream.tick("15 seconds").pipe(Stream.mapEffect(() => Effect.promise(() => sse.write(": ping\n\n"))))
+    await runtime
+      .runPromiseExit(
+        write({ event: "ready", data: "{}" }).pipe(
+          Effect.andThen(
+            Stream.merge(stream.pipe(Stream.mapEffect((a) => write(encode(a)))), heartbeat, { haltStrategy: "left" }).pipe(Stream.runDrain)
+          ),
+          Effect.withSpan(`SSE ${c.req.routePath}`, { kind: "server", attributes: { "http.route": c.req.routePath } })
+        ),
         { signal: controller.signal }
       )
-    } catch {
-      /* client went away or stream failed; connection closes */
-    } finally {
-      clearInterval(heartbeat)
-    }
   })

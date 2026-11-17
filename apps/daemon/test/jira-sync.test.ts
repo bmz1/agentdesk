@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "@effect/vitest"
 import { makeFakeJira } from "../../../packages/jira/test/fake-jira"
 import { makeRepo, startTestDaemon } from "./helpers"
 

@@ -1,12 +1,15 @@
-import type { HarnessDetection } from "@agentdesk/contracts"
+import type { HarnessDetection, HarnessId } from "@agentdesk/contracts"
 import { makeClaudeAdapter } from "@agentdesk/harness-claude"
 import { makeCodexAdapter } from "@agentdesk/harness-codex"
+import { type HarnessAdapter, type HarnessError, makeMockAdapter, makeRegistry } from "@agentdesk/harness-core"
 import { makeOpenCodeAdapter } from "@agentdesk/harness-opencode"
-import { type HarnessAdapter, type HarnessRegistryShape, makeMockAdapter, makeRegistry } from "@agentdesk/harness-core"
-import { Context, Duration, Effect, Layer } from "effect"
+import { Cache, Context, Duration, Effect, Layer } from "effect"
+import { ChildProcessSpawner } from "effect/process"
 
-export interface HarnessesShape extends HarnessRegistryShape {
-  /** Cached detection (CLI version probes are slow-ish). */
+export interface HarnessesShape {
+  readonly list: ReadonlyArray<HarnessAdapter>
+  readonly get: (id: HarnessId) => Effect.Effect<HarnessAdapter, HarnessError>
+  /** Detected harness CLIs, cached for 5 minutes (version probes spawn processes). */
   readonly detect: (refresh?: boolean) => Effect.Effect<ReadonlyArray<HarnessDetection>>
 }
 
@@ -24,17 +27,23 @@ export const HarnessesLive = (adapters: ReadonlyArray<HarnessAdapter> = defaultA
     Harnesses,
     Effect.gen(function* () {
       const registry = makeRegistry(adapters)
-      let cached: { at: number; value: ReadonlyArray<HarnessDetection> } | undefined
-      const ttl = Duration.toMillis(Duration.minutes(5))
-      return {
-        ...registry,
-        detect: (refresh = false) =>
-          Effect.gen(function* () {
-            if (!refresh && cached && Date.now() - cached.at < ttl) return cached.value
-            const value = yield* registry.detectAll
-            cached = { at: Date.now(), value }
-            return value
-          })
-      } satisfies HarnessesShape
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const cache = yield* Cache.make({
+        capacity: 1,
+        timeToLive: Duration.minutes(5),
+        lookup: (_: "all") =>
+          registry.detectAll.pipe(
+            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+            Effect.withSpan("Harnesses.detectAll")
+          )
+      })
+      return Harnesses.of({
+        list: registry.list,
+        get: registry.get,
+        detect: Effect.fn("Harnesses.detect")(function* (refresh = false) {
+          if (refresh) yield* Cache.invalidate(cache, "all")
+          return yield* Cache.get(cache, "all")
+        })
+      })
     })
   )

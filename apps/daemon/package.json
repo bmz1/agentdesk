@@ -25,6 +25,7 @@
     "@agentdesk/harness-opencode": "workspace:*",
     "@agentdesk/jira": "workspace:*",
     "@agentdesk/workflows": "workspace:*",
+    "@effect/platform-node": "4.1.4",
     "@hono/node-server": "2.1.8",
     "better-sqlite3": "^12.11.1",
     "drizzle-orm": "0.45.4",

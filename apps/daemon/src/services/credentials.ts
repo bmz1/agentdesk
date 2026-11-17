@@ -1,27 +1,31 @@
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { findExecutable, runCommand } from "@agentdesk/harness-core"
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Redacted } from "effect"
+import { ChildProcessSpawner } from "effect/process"
 import { DaemonConfig } from "../config"
 import { BadRequest } from "../errors"
 
 /**
  * Secrets (Jira tokens) live in the OS credential store, never in SQLite or
- * logs. SQLite only stores an opaque `credentialRef`.
+ * logs. SQLite only stores an opaque `credentialRef`. Values cross this
+ * boundary as `Redacted`, so they can't leak through logging or spans.
  */
 export interface CredentialStoreShape {
   readonly kind: "keychain" | "secret-service" | "file" | "memory" | "none"
-  readonly set: (ref: string, secret: string) => Effect.Effect<void, BadRequest>
-  readonly get: (ref: string) => Effect.Effect<string | undefined>
+  readonly set: (ref: string, secret: Redacted.Redacted<string>) => Effect.Effect<void, BadRequest>
+  readonly get: (ref: string) => Effect.Effect<Redacted.Redacted<string> | undefined>
   readonly remove: (ref: string) => Effect.Effect<void>
 }
 
 export class CredentialStore extends Context.Service<CredentialStore, CredentialStoreShape>()("agentdesk/CredentialStore") {}
 
 const SERVICE = "agentdesk"
+type Run = typeof runCommand
+type RunNoDeps = (...args: Parameters<Run>) => Effect.Effect<Effect.Success<ReturnType<Run>>>
 
 export const makeMemoryStore = (): CredentialStoreShape => {
-  const m = new Map<string, string>()
+  const m = new Map<string, Redacted.Redacted<string>>()
   return {
     kind: "memory",
     set: (ref, secret) => Effect.sync(() => void m.set(ref, secret)),
@@ -31,39 +35,38 @@ export const makeMemoryStore = (): CredentialStoreShape => {
 }
 
 const quote = (s: string) => `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
+const present = (stdout: string) => (stdout ? Redacted.make(stdout.replace(/\n$/, "")) : undefined)
 
 /** macOS Keychain via `security`. The secret is passed on stdin (`security -i`), never argv. */
-const makeKeychainStore = (bin: string): CredentialStoreShape => ({
+const makeKeychainStore = (bin: string, run: RunNoDeps): CredentialStoreShape => ({
   kind: "keychain",
   set: (ref, secret) =>
-    runCommand(bin, ["-i"], {
-      input: `add-generic-password -U -s ${SERVICE} -a ${quote(ref)} -l ${quote(`AgentDesk ${ref}`)} -w ${quote(secret)}\n`
+    run(bin, ["-i"], {
+      input: `add-generic-password -U -s ${SERVICE} -a ${quote(ref)} -l ${quote(`AgentDesk ${ref}`)} -w ${quote(Redacted.value(secret))}\n`
     }).pipe(
       Effect.flatMap((r) =>
         r.code === 0 && !/error/i.test(r.stderr) ? Effect.void : Effect.fail(new BadRequest({ message: `Keychain write failed: ${r.stderr.trim()}` }))
       )
     ),
   get: (ref) =>
-    runCommand(bin, ["find-generic-password", "-s", SERVICE, "-a", ref, "-w"]).pipe(
-      Effect.map((r) => (r.code === 0 ? r.stdout.replace(/\n$/, "") : undefined))
+    run(bin, ["find-generic-password", "-s", SERVICE, "-a", ref, "-w"]).pipe(
+      Effect.map((r) => (r.code === 0 ? present(r.stdout) : undefined))
     ),
-  remove: (ref) => runCommand(bin, ["delete-generic-password", "-s", SERVICE, "-a", ref]).pipe(Effect.asVoid)
+  remove: (ref) => run(bin, ["delete-generic-password", "-s", SERVICE, "-a", ref]).pipe(Effect.asVoid)
 })
 
 /** Linux Secret Service via libsecret's `secret-tool`. Secret is passed on stdin. */
-const makeSecretToolStore = (bin: string): CredentialStoreShape => ({
+const makeSecretToolStore = (bin: string, run: RunNoDeps): CredentialStoreShape => ({
   kind: "secret-service",
   set: (ref, secret) =>
-    runCommand(bin, ["store", `--label=AgentDesk ${ref}`, "service", SERVICE, "account", ref], { input: secret }).pipe(
+    run(bin, ["store", `--label=AgentDesk ${ref}`, "service", SERVICE, "account", ref], { input: Redacted.value(secret) }).pipe(
       Effect.flatMap((r) =>
         r.code === 0 ? Effect.void : Effect.fail(new BadRequest({ message: `Secret Service write failed: ${r.stderr.trim()}` }))
       )
     ),
   get: (ref) =>
-    runCommand(bin, ["lookup", "service", SERVICE, "account", ref]).pipe(
-      Effect.map((r) => (r.code === 0 && r.stdout ? r.stdout.replace(/\n$/, "") : undefined))
-    ),
-  remove: (ref) => runCommand(bin, ["clear", "service", SERVICE, "account", ref]).pipe(Effect.asVoid)
+    run(bin, ["lookup", "service", SERVICE, "account", ref]).pipe(Effect.map((r) => (r.code === 0 ? present(r.stdout) : undefined))),
+  remove: (ref) => run(bin, ["clear", "service", SERVICE, "account", ref]).pipe(Effect.asVoid)
 })
 
 /** Explicit opt-in fallback (AGENTDESK_ALLOW_FILE_CREDENTIALS=1): a 0600 file outside SQLite. */
@@ -76,8 +79,8 @@ const makeFileStore = (dataDir: string): CredentialStoreShape => {
   }
   return {
     kind: "file",
-    set: (ref, secret) => Effect.sync(() => write({ ...read(), [ref]: secret })),
-    get: (ref) => Effect.sync(() => read()[ref]),
+    set: (ref, secret) => Effect.sync(() => write({ ...read(), [ref]: Redacted.value(secret) })),
+    get: (ref) => Effect.sync(() => present(read()[ref] ?? "")),
     remove: (ref) =>
       Effect.sync(() => {
         const d = read()
@@ -106,12 +109,14 @@ export const CredentialStoreLive = (mode: "auto" | "memory" = "auto") =>
     Effect.gen(function* () {
       if (mode === "memory") return makeMemoryStore()
       const config = yield* DaemonConfig
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const run: RunNoDeps = (...args) => runCommand(...args).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner))
       if (process.platform === "darwin") {
         const bin = findExecutable("security", ["/usr/bin"])
-        if (bin) return makeKeychainStore(bin)
+        if (bin) return makeKeychainStore(bin, run)
       }
       const secretTool = findExecutable("secret-tool")
-      if (secretTool && process.env.DBUS_SESSION_BUS_ADDRESS) return makeSecretToolStore(secretTool)
+      if (secretTool && process.env.DBUS_SESSION_BUS_ADDRESS) return makeSecretToolStore(secretTool, run)
       if (process.env.AGENTDESK_ALLOW_FILE_CREDENTIALS === "1") return makeFileStore(config.dataDir)
       return unavailable
     })

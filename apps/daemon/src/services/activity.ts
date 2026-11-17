@@ -22,46 +22,48 @@ export interface ActivityShape {
   readonly list: (options: { ticketId?: string; limit?: number }) => Effect.Effect<ReadonlyArray<ActivityEvent>, DbError>
 }
 
-export class Activity extends Context.Service<Activity, ActivityShape>()("agentdesk/Activity") {}
+export class Activity extends Context.Service<Activity, ActivityShape>()("agentdesk/Activity") {
+  static readonly layer = Layer.effect(
+    Activity,
+    Effect.gen(function* () {
+      const { use, tx } = yield* Database
+      const notices = yield* Notices
 
-export const ActivityLive = Layer.effect(
-  Activity,
-  Effect.gen(function* () {
-    const { use, tx } = yield* Database
-    const notices = yield* Notices
-    return {
-      record: (input) =>
-        Effect.gen(function* () {
-          const at = nowIso()
-          yield* tx((db) => {
-            db.insert(activityEvents)
-              .values({
-                ticketId: input.ticketId ?? null,
-                runId: input.runId ?? null,
-                kind: input.kind,
-                actor: input.actor ?? "system",
-                message: input.message,
-                data: input.data ?? null,
-                at
-              })
-              .run()
-            if (input.ticketId) {
-              db.update(tickets).set({ lastActivityAt: at }).where(eq(tickets.id, input.ticketId)).run()
-            }
-          })
-          yield* notices.publish({ topic: "activity", ticketId: input.ticketId ?? undefined })
-        }),
-      list: ({ ticketId, limit }) =>
-        use((db) =>
-          db
-            .select()
-            .from(activityEvents)
-            .where(ticketId ? eq(activityEvents.ticketId, ticketId) : undefined)
-            .orderBy(desc(activityEvents.id))
-            .limit(limit ?? 200)
-            .all()
-            .map((r) => ({ ...r, data: r.data ?? null }))
-        )
-    } satisfies ActivityShape
-  })
-)
+      const record = Effect.fnUntraced(function* (input: RecordInput) {
+        const at = yield* nowIso
+        yield* tx((db) => {
+          db.insert(activityEvents)
+            .values({
+              ticketId: input.ticketId ?? null,
+              runId: input.runId ?? null,
+              kind: input.kind,
+              actor: input.actor ?? "system",
+              message: input.message,
+              data: input.data ?? null,
+              at
+            })
+            .run()
+          if (input.ticketId) db.update(tickets).set({ lastActivityAt: at }).where(eq(tickets.id, input.ticketId)).run()
+        })
+        // Audit records are also span events, so traces show what happened inside an operation.
+        yield* Effect.annotateCurrentSpan(`activity.${input.kind}`, input.message)
+        yield* notices.publish({ topic: "activity", ticketId: input.ticketId ?? undefined })
+      })
+
+      return Activity.of({
+        record,
+        list: ({ ticketId, limit }) =>
+          use((db) =>
+            db
+              .select()
+              .from(activityEvents)
+              .where(ticketId ? eq(activityEvents.ticketId, ticketId) : undefined)
+              .orderBy(desc(activityEvents.id))
+              .limit(limit ?? 200)
+              .all()
+              .map((r) => ({ ...r, data: r.data ?? null }))
+          )
+      })
+    })
+  )
+}
