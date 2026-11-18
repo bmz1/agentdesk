@@ -163,3 +163,6 @@ out/
 *.db
 *.db-wal
 *.db-shm
+
+# Claude Code agent worktrees (checkouts of this repo, never committed)
+.claude/worktrees/
