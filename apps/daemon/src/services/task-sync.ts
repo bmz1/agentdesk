@@ -176,7 +176,15 @@ export const upsertTasks = (database: DatabaseShape, conn: UpsertConnection, tas
         changes.push({ ticketId: id, message: `Imported from ${conn.providerName} ${task.key}`, data: { remoteStatus: task.status } })
         continue
       }
-      const unchanged = link.remoteUpdatedAt === task.updatedAt && link.remoteState === "active" && link.displayKey === task.key
+      // Content is compared too, so a sync after a converter change (e.g. Jira ADF → Markdown)
+      // rewrites stored descriptions even when the remote issue itself did not change.
+      const local = db.select({ title: tickets.title, description: tickets.description }).from(tickets).where(eq(tickets.id, link.ticketId)).get()
+      const unchanged =
+        link.remoteUpdatedAt === task.updatedAt &&
+        link.remoteState === "active" &&
+        link.displayKey === task.key &&
+        local?.title === task.title &&
+        local?.description === task.description
       db.update(ticketExternalLinks)
         .set({
           displayKey: task.key,

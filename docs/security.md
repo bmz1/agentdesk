@@ -9,7 +9,7 @@
 ## Desktop
 - `contextIsolation`, `sandbox`, no `nodeIntegration`, strict CSP (`connect-src` limited to loopback), blocked navigation and `window.open`, and permission requests denied.
 - The preload exposes four narrow functions. The renderer cannot run arbitrary file or process operations.
-- Untrusted Jira and agent text is always rendered as text. No `innerHTML` is used, and ADF is converted to inert text.
+- Untrusted Jira and agent text is never rendered as HTML. No `innerHTML` is used. Jira ADF is converted to escaped Markdown, and synced issue descriptions are rendered with TanStack Markdown with raw HTML disabled (shown as text) and executable URLs dropped. Links open in the system browser, and images are shown as links, so viewing a ticket fetches nothing remote.
 
 ## Credentials
 - Task source tokens (Jira, Linear) are stored in the macOS Keychain or Linux Secret Service, passed on stdin and never on argv. SQLite stores only an opaque reference. A 0600 file store exists only behind `AGENTDESK_ALLOW_FILE_CREDENTIALS=1`.

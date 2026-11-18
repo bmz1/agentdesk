@@ -236,6 +236,12 @@ describe("global task sources", () => {
     expect((await api.get(`/tickets?projectId=${pay.id}`)).map((t: any) => t.identifier).sort()).toEqual(["OPS-3", "OPS-4", "PAY-7"])
     expect((await api.get("/sources/connections"))[0].unrouted).toEqual({})
 
+    // Stored text is refreshed when the converted content changes, even if Jira's `updated` did not
+    // (e.g. after an ADF → Markdown converter change).
+    fake.state.issues[0] = { ...fake.state.issues[0]!, summary: "Fraud **rules**" }
+    expect(await api.post(`/sources/connections/${conn.id}/sync?full=1`)).toMatchObject({ updated: 1 })
+    expect((await api.get(`/tickets?projectId=${seon.id}`))[0].title).toBe("Fraud **rules**")
+
     // A default project catches every other Jira project.
     fake.state.issues.push({ id: "5", key: "MISC-1", summary: "Misc" })
     await api.patch(`/sources/connections/${conn.id}`, { projectId: seon.id })

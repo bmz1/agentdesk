@@ -35,7 +35,7 @@ import { api } from "@/lib/api"
 import { bridge, openExternal } from "@/lib/connection"
 import { q } from "@/lib/queries"
 import { cn, relativeTime } from "@/lib/utils"
-import { RichText } from "../session/rich-text"
+import { IssueMarkdown } from "./issue-markdown"
 import { ActivityTimeline } from "./activity-timeline"
 import { effortsFor } from "../session/model-picker"
 import type { TicketTab } from "./ticket-detail"
@@ -78,9 +78,7 @@ export const Overview = ({ ticket, onUpdate, onTab }: { ticket: Ticket; onUpdate
                 className="min-h-24 text-[14px] leading-relaxed"
               />
             ) : ticket.description ? (
-              <div className="text-[14px] leading-relaxed">
-                <RichText text={ticket.description} />
-              </div>
+              <IssueMarkdown text={ticket.description} className="text-[14px] leading-relaxed" />
             ) : (
               <p className="text-sm text-fg-subtle">No description</p>
             )}
