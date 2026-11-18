@@ -6,7 +6,7 @@ import type {
   SyncResult,
   UpdateSourceConnectionBody
 } from "@agentdesk/contracts"
-import { projects, sourceConnections, sourceSyncState, ticketExternalLinks, tickets } from "@agentdesk/db"
+import { sourceConnections, sourceSyncState, ticketExternalLinks, tickets } from "@agentdesk/db"
 import { jiraSource } from "@agentdesk/jira"
 import { linearSource } from "@agentdesk/linear"
 import {
@@ -27,7 +27,6 @@ import { Activity } from "./activity"
 import { CredentialStore } from "./credentials"
 import { Database, type DatabaseShape } from "./database"
 import { Notices } from "./notices"
-import { nextTicketNumber } from "./tickets"
 
 // ---------------------------------------------------------------------------------------------
 // Registry of available sources (adapters), as an Effect service.
@@ -71,17 +70,20 @@ const WATERMARK_OVERLAP = Duration.toMillis(Duration.hours(26))
 const initialStatus = (cat: RemoteTask["statusCategory"]): BoardStatus =>
   cat === "done" ? "done" : cat === "in_progress" ? "in_progress" : "todo"
 
+export interface UpsertConnection {
+  readonly id: string
+  readonly provider: string
+  readonly providerName: string
+}
+
 /**
  * Upsert one page of remote tasks inside a single transaction, keyed by the
- * stable remote id per (provider, connection). Remote status/assignee update
- * the link only; the local board status is never overwritten after creation.
+ * stable remote id per (provider, connection). Connections are global: new
+ * tickets are imported without a project and assigned on demand. Remote
+ * status/assignee update the link only; the local board status, project and
+ * other local fields are never overwritten.
  */
-export const upsertTasks = (
-  database: DatabaseShape,
-  conn: { id: string; provider: string; providerName: string; projectId: string },
-  tasks: ReadonlyArray<RemoteTask>,
-  now: string
-) =>
+export const upsertTasks = (database: DatabaseShape, conn: UpsertConnection, tasks: ReadonlyArray<RemoteTask>, now: string) =>
   database.tx((db) => {
     let created = 0
     let updated = 0
@@ -104,8 +106,8 @@ export const upsertTasks = (
         db.insert(tickets)
           .values({
             id,
-            projectId: conn.projectId,
-            number: nextTicketNumber(database, conn.projectId),
+            projectId: null,
+            number: 0,
             title: task.title,
             description: task.description,
             acceptanceCriteria: "",
@@ -143,7 +145,15 @@ export const upsertTasks = (
         changes.push({ ticketId: id, message: `Imported from ${conn.providerName} ${task.key}`, data: { remoteStatus: task.status } })
         continue
       }
-      const unchanged = link.remoteUpdatedAt === task.updatedAt && link.remoteState === "active" && link.displayKey === task.key
+      // Content is compared too, so a sync after a converter change (e.g. Jira ADF → Markdown)
+      // rewrites stored descriptions even when the remote issue itself did not change.
+      const local = db.select({ title: tickets.title, description: tickets.description }).from(tickets).where(eq(tickets.id, link.ticketId)).get()
+      const unchanged =
+        link.remoteUpdatedAt === task.updatedAt &&
+        link.remoteState === "active" &&
+        link.displayKey === task.key &&
+        local?.title === task.title &&
+        local?.description === task.description
       db.update(ticketExternalLinks)
         .set({
           displayKey: task.key,
@@ -207,7 +217,6 @@ export const TaskSyncLive = (options: TaskSyncOptions = {}) =>
             id: row.id,
             provider: row.provider,
             name: row.name,
-            projectId: row.projectId,
             settings: row.settings,
             pollIntervalSec: row.pollIntervalSec,
             enabled: row.enabled,
@@ -261,8 +270,8 @@ export const TaskSyncLive = (options: TaskSyncOptions = {}) =>
           const full = opts.full || !state?.highWatermark || nowMs - lastFull > FULL_SYNC_EVERY
           const since = full ? undefined : new Date(Date.parse(state!.highWatermark!) - WATERMARK_OVERLAP)
           const startedAt = new Date(nowMs).toISOString()
-          yield* Effect.annotateCurrentSpan({ provider: row.provider, full, projectId: row.projectId })
-          const conn = { id: row.id, provider: row.provider, providerName: adapter.displayName, projectId: row.projectId }
+          yield* Effect.annotateCurrentSpan({ provider: row.provider, full })
+          const conn: UpsertConnection = { id: row.id, provider: row.provider, providerName: adapter.displayName }
 
           let fetched = 0
           let created = 0
@@ -393,12 +402,10 @@ export const TaskSyncLive = (options: TaskSyncOptions = {}) =>
       const create = Effect.fn("TaskSync.create")(function* (body: CreateSourceConnectionBody) {
         const adapter = yield* registry.get(body.provider)
         const settings = yield* registry.decodeSettings(body.provider, body.settings)
-        const project = yield* use((db) => db.select().from(projects).where(eq(projects.id, body.projectId)).get())
-        if (!project) return yield* new NotFound({ entity: "project", id: body.projectId })
         const id = newId()
         const createdAt = yield* nowIso
         const credentialRef = `${body.provider}:${id}`
-        yield* Effect.annotateCurrentSpan({ connectionId: id, provider: body.provider, projectId: body.projectId })
+        yield* Effect.annotateCurrentSpan({ connectionId: id, provider: body.provider })
         if (body.token) yield* credentials.set(credentialRef, Redacted.make(body.token))
         yield* use((db) => {
           db.insert(sourceConnections)
@@ -406,7 +413,6 @@ export const TaskSyncLive = (options: TaskSyncOptions = {}) =>
               id,
               provider: body.provider,
               name: body.name,
-              projectId: body.projectId,
               settings,
               credentialRef,
               pollIntervalSec: Math.max(60, body.pollIntervalSec ?? 300),

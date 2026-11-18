@@ -69,7 +69,11 @@ export const UpdateTicketBody = Schema.Struct({
   pinned: Schema.optional(Schema.Boolean),
   tracked: Schema.optional(Schema.Boolean),
   sortOrder: Schema.optional(Schema.Number),
-  projectId: Schema.optional(Schema.String)
+  /**
+   * Assign or move the ticket to a project (it gets the next number there). Null unassigns
+   * a ticket imported from a task source. Refused while an agent or workflow is active.
+   */
+  projectId: Schema.optional(Schema.NullOr(Schema.String))
 })
 export type UpdateTicketBody = typeof UpdateTicketBody.Type
 
@@ -130,7 +134,6 @@ export type ApprovalDecisionBody = typeof ApprovalDecisionBody.Type
 export const CreateSourceConnectionBody = Schema.Struct({
   provider: Schema.NonEmptyString,
   name: Schema.NonEmptyString,
-  projectId: Schema.String,
   /** Provider settings; validated by the source adapter's schema. */
   settings: Schema.Unknown,
   /** API token / key. Stored in the OS credential store, never SQLite. */
@@ -157,7 +160,8 @@ export const CreateJiraConnectionBody = Schema.Struct({
   /** API token (Cloud) or PAT (Data Center). Stored in the OS credential store, never SQLite. */
   token: Schema.optional(Schema.String),
   jql: Schema.NonEmptyString,
-  projectId: Schema.String,
+  /** Ignored: connections are global and imported tickets are assigned to projects on demand. */
+  projectId: Schema.optional(Schema.String),
   pollIntervalSec: Schema.optional(Schema.Number)
 })
 export type CreateJiraConnectionBody = typeof CreateJiraConnectionBody.Type

@@ -57,7 +57,9 @@ export type RunSummary = typeof RunSummary.Type
 
 export const Ticket = Schema.Struct({
   id: Schema.String,
-  projectId: Schema.String,
+  /** Null for a ticket imported from a task source that is not assigned to a project yet. */
+  projectId: NullableString,
+  /** Per-project number; 0 while unassigned. */
   number: Schema.Number,
   /** Human identifier: Jira key when linked, `<PROJECT>-<n>` otherwise. */
   identifier: Schema.String,
@@ -284,7 +286,6 @@ export const SourceConnection = Schema.Struct({
   id: Schema.String,
   provider: Schema.String,
   name: Schema.String,
-  projectId: Schema.String,
   settings: Schema.Unknown,
   pollIntervalSec: Schema.Number,
   enabled: Schema.Boolean,

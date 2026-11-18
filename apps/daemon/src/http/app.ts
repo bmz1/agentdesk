@@ -107,6 +107,7 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
       Tickets.use((t) =>
         t.list({
           projectId: q.projectId || undefined,
+          unassigned: q.unassigned === "1" || undefined,
           source: (q.source as TicketSource) || undefined,
           status: (q.status as BoardStatus) || undefined,
           q: q.q || undefined,

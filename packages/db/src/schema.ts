@@ -25,7 +25,9 @@ export const tickets = sqliteTable(
   "tickets",
   {
     id: text("id").primaryKey(),
-    projectId: text("project_id").notNull().references(() => projects.id),
+    /** Null for tickets imported from a task source and not yet assigned to a project. */
+    projectId: text("project_id").references(() => projects.id),
+    /** Per-project number; 0 while unassigned. */
     number: integer("number").notNull(),
     title: text("title").notNull(),
     description: text("description").notNull().default(""),
@@ -68,12 +70,14 @@ export const ticketExternalLinks = sqliteTable(
   (t) => [uniqueIndex("ext_provider_remote").on(t.provider, t.connectionId, t.remoteId)]
 )
 
-/** One configured task source (Jira site + JQL, Linear team, …). Secrets live in the OS credential store. */
+/**
+ * One configured task source (Jira site + JQL, Linear team, …). Connections are global:
+ * imported tickets have no project until someone assigns them. Secrets live in the OS credential store.
+ */
 export const sourceConnections = sqliteTable("source_connections", {
   id: text("id").primaryKey(),
   provider: text("provider").notNull(),
   name: text("name").notNull(),
-  projectId: text("project_id").notNull().references(() => projects.id),
   /** Provider settings, validated by the adapter's schema. Never contains secrets. */
   settings: json<unknown>("settings").notNull(),
   credentialRef: text("credential_ref").notNull(),

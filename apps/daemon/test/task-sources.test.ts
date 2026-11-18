@@ -43,8 +43,10 @@ describe("Jira via the deprecated /jira/* aliases (read-only sync)", () => {
     const first = await api.post(`/jira/connections/${conn.id}/sync`)
     expect(first).toMatchObject({ fetched: 3, created: 3, updated: 0, full: true })
 
-    let tickets = await api.get(`/tickets?projectId=${project.id}`)
+    // Imports are global: they wait unassigned next to the project's local ticket.
+    let tickets = await api.get("/tickets")
     expect(tickets).toHaveLength(4)
+    expect(tickets.filter((t: any) => t.projectId === null)).toHaveLength(3)
     const seon1 = tickets.find((t: any) => t.identifier === "SEON-1")
     expect(seon1).toMatchObject({ source: "jira", status: "in_progress", labels: ["fraud"] })
     expect(seon1.external).toMatchObject({ remoteStatus: "In Progress", url: "https://seon.atlassian.net/browse/SEON-1", remoteState: "active" })
@@ -62,7 +64,7 @@ describe("Jira via the deprecated /jira/* aliases (read-only sync)", () => {
     fake.state.issues.splice(1, 1)
     const second = await api.post(`/jira/connections/${conn.id}/sync?full=1`)
     expect(second).toMatchObject({ created: 0, updated: 1, missing: 1 })
-    tickets = await api.get(`/tickets?projectId=${project.id}`)
+    tickets = await api.get("/tickets")
     const s1 = tickets.find((t: any) => t.identifier === "SEON-1")
     expect(s1).toMatchObject({ title: "Fraud rule editor v2", status: "in_review" })
     expect(s1.external.remoteStatus).toBe("In Review")
@@ -159,7 +161,7 @@ describe("generic task sources API", () => {
     expect(await api.post(`/sources/connections/${lin.id}/sync`)).toMatchObject({ fetched: 2, created: 2, full: true })
     expect(await api.post(`/sources/connections/${jc.id}/sync`)).toMatchObject({ fetched: 1, created: 1 })
 
-    const tickets = await api.get(`/tickets?projectId=${project.id}`)
+    const tickets = await api.get("/tickets?unassigned=1")
     const byKey = Object.fromEntries(tickets.map((t: any) => [t.identifier, t]))
     expect(Object.keys(byKey).sort()).toEqual(["ENG-1", "ENG-2", "SEON-1"])
     expect(byKey["ENG-1"]).toMatchObject({ source: "linear", status: "in_progress" })
@@ -186,5 +188,77 @@ describe("generic task sources API", () => {
     const legacy = await api.get("/jira/connections")
     expect(legacy).toHaveLength(1)
     expect(legacy[0]).toMatchObject({ id: jc.id, jql: "project = SEON", deployment: "cloud" })
+  })
+})
+
+describe("global task-source tickets", () => {
+  const setup = async () => {
+    const fake = makeFakeJira({
+      deployment: "cloud",
+      issues: [
+        { id: "1", key: "SEON-1", summary: "Fraud rules" },
+        { id: "2", key: "PAY-7", summary: "Refunds" },
+        { id: "3", key: "SEON-2", summary: "Rule export" }
+      ]
+    })
+    const { daemon, api } = await startTestDaemon({ sources: { fetch: fake.fetch, retryBaseMs: 1 }, credentialStore: "memory" })
+    cleanups.push(daemon.stop)
+    const a = await api.post("/projects", { name: "Alpha", key: "AL", repoPath: makeRepo(), defaultHarness: "mock" })
+    const b = await api.post("/projects", { name: "Beta", key: "BE", repoPath: makeRepo(), defaultHarness: "mock" })
+    const conn = await api.post("/sources/connections", {
+      provider: "jira",
+      name: "All my Jira",
+      token: "t",
+      settings: { deployment: "cloud", baseUrl: "https://acme.atlassian.net", principal: "me@acme.io", jql: "assignee = currentUser()" }
+    })
+    await api.post(`/sources/connections/${conn.id}/sync`)
+    const byKey = async () => Object.fromEntries((await api.get("/tickets")).map((t: any) => [t.identifier, t]))
+    return { api, fake, conn, a, b, byKey }
+  }
+
+  it("imports tickets without a project and assigns, moves and unassigns them on demand", async () => {
+    const { api, fake, conn, a, b, byKey } = await setup()
+    expect(conn).not.toHaveProperty("projectId")
+    let t = await byKey()
+    expect(Object.values(t).map((x: any) => x.projectId)).toEqual([null, null, null])
+    expect((await api.get("/tickets?unassigned=1")).length).toBe(3)
+
+    // Tickets from one Jira project can go to different local projects, and numbers are per project.
+    const seon1 = await api.patch(`/tickets/${t["SEON-1"].id}`, { projectId: a.id })
+    expect(seon1).toMatchObject({ projectId: a.id, number: 1, identifier: "SEON-1" })
+    expect(await api.patch(`/tickets/${t["SEON-2"].id}`, { projectId: b.id })).toMatchObject({ projectId: b.id, number: 1 })
+    const local = await api.post("/tickets", { projectId: a.id, title: "Local" })
+    expect(local.number).toBe(2)
+    expect((await api.get(`/tickets?projectId=${a.id}`)).map((x: any) => x.identifier).sort()).toEqual(["AL-2", "SEON-1"])
+    expect((await api.get("/tickets?unassigned=1")).map((x: any) => x.identifier)).toEqual(["PAY-7"])
+
+    // Moving takes the next number in the target project, so it never collides there.
+    expect(await api.patch(`/tickets/${t["SEON-1"].id}`, { projectId: b.id })).toMatchObject({ projectId: b.id, number: 2 })
+    // Imported tickets can go back to unassigned; local tickets always keep a project.
+    expect(await api.patch(`/tickets/${t["SEON-1"].id}`, { projectId: null })).toMatchObject({ projectId: null, number: 0 })
+    await expect(api.patch(`/tickets/${local.id}`, { projectId: null })).rejects.toMatchObject({ status: 400 })
+    await expect(api.patch(`/tickets/${t["PAY-7"].id}`, { projectId: "nope" })).rejects.toMatchObject({ status: 404 })
+    const history = await api.get(`/tickets/${t["SEON-1"].id}/activity`)
+    expect(history.map((h: any) => h.message)).toEqual(expect.arrayContaining(["Assigned to Alpha", "Moved from Alpha to Beta", "Unassigned from Beta"]))
+
+    // Syncing again never touches the local assignment.
+    await api.patch(`/tickets/${t["PAY-7"].id}`, { projectId: a.id })
+    fake.state.issues[1] = { ...fake.state.issues[1]!, summary: "Refunds v2", updated: "2026-11-03T10:00:00.000+0000" }
+    expect(await api.post(`/sources/connections/${conn.id}/sync?full=1`)).toMatchObject({ created: 0, updated: 1 })
+    t = await byKey()
+    expect(t["PAY-7"]).toMatchObject({ projectId: a.id, title: "Refunds v2" })
+  })
+
+  it("refuses agents and workflows until a ticket has a project, and moves while an agent works", async () => {
+    const { api, a, b, byKey } = await setup()
+    const t = (await byKey())["SEON-1"]
+    await expect(api.post(`/tickets/${t.id}/sessions`, { prompt: "go" })).rejects.toMatchObject({ status: 400, body: { message: expect.stringContaining("not assigned to a project") } })
+    await expect(api.post(`/tickets/${t.id}/start-run`, {})).rejects.toMatchObject({ status: 400 })
+
+    await api.patch(`/tickets/${t.id}`, { projectId: a.id })
+    const s = await api.post(`/tickets/${t.id}/sessions`, { prompt: "go" })
+    await expect(api.patch(`/tickets/${t.id}`, { projectId: b.id })).rejects.toMatchObject({ status: 400, body: { message: expect.stringContaining("Stop the active agent") } })
+    await api.post(`/sessions/${s.id}/stop`)
+    expect(await api.patch(`/tickets/${t.id}`, { projectId: b.id })).toMatchObject({ projectId: b.id })
   })
 })

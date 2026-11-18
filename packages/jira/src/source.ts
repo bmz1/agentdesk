@@ -44,7 +44,7 @@ const toSourceError = (e: JiraError) => new TaskSourceError({ source: "jira", ki
 export const jiraSource: TaskSourceAdapter<JiraSettings> = {
   id: "jira",
   displayName: "Jira",
-  description: "Import issues matching a JQL query from Jira Cloud or Data Center (read-only).",
+  description: "Import issues matching a JQL query from Jira Cloud or Data Center (read-only). One connection can span many Jira projects.",
   settings: JiraSettings,
   fields: [
     {
@@ -67,7 +67,7 @@ export const jiraSource: TaskSourceAdapter<JiraSettings> = {
       type: "textarea",
       required: true,
       default: "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC",
-      hint: "Only issues matching this query are imported. Keep it narrow."
+      hint: "Only issues matching this query are imported. It may span several Jira projects; you assign each imported ticket to an AgentDesk project."
     }
   ],
   credential: { label: "API token / personal access token", hint: "Stored in the OS credential store.", required: true },

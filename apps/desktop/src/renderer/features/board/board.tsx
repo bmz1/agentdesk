@@ -34,6 +34,10 @@ export const sortKeyBetween = (prev: number | undefined, next: number | undefine
   return (prev + next) / 2
 }
 
+/** Project shown on a card when the view spans projects; imported tickets may have none yet. */
+export const projectLabel = (names: ReadonlyMap<string, string> | undefined, projectId: string | null) =>
+  names ? (projectId ? names.get(projectId) : "Unassigned") : undefined
+
 export const groupByStatus = (tickets: ReadonlyArray<Ticket>) => {
   const groups = new Map<BoardStatus, Array<Ticket>>(BOARD_COLUMNS.map((c) => [c.id, []]))
   for (const t of tickets) groups.get(t.status)?.push(t)
@@ -132,7 +136,7 @@ export const Board = ({
         ))}
       </div>
       <DragOverlay>
-        {active ? <TicketCard ticket={active} session={ticketSession(active, sessions)} dragging projectName={projectNames?.get(active.projectId)} /> : null}
+        {active ? <TicketCard ticket={active} session={ticketSession(active, sessions)} dragging projectName={projectLabel(projectNames, active.projectId)} /> : null}
       </DragOverlay>
     </DndContext>
   )
@@ -182,7 +186,7 @@ const Column = ({
       >
         <SortableContext items={tickets.map((t) => t.id)} strategy={verticalListSortingStrategy}>
           {tickets.map((t) => (
-            <SortableCard key={t.id} ticket={t} session={ticketSession(t, sessions)} projectName={projectNames?.get(t.projectId)} />
+            <SortableCard key={t.id} ticket={t} session={ticketSession(t, sessions)} projectName={projectLabel(projectNames, t.projectId)} />
           ))}
         </SortableContext>
       </div>

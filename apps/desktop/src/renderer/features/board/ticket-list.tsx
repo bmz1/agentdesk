@@ -4,7 +4,7 @@ import { BOARD_COLUMNS, NeedsInputDot, PriorityIcon, RunStatusBadge, SessionStat
 import { EmptyState } from "@/components/ui/misc"
 import { ticketSession } from "@/lib/agent-state"
 import { relativeTime } from "@/lib/utils"
-import { groupByStatus } from "./board"
+import { groupByStatus, projectLabel } from "./board"
 
 export const TicketList = ({ tickets, projectNames, sessions = [] }: { tickets: ReadonlyArray<Ticket>; projectNames?: Map<string, string>; sessions?: ReadonlyArray<AgentSession> }) => {
   const groups = groupByStatus(tickets)
@@ -36,7 +36,7 @@ export const TicketList = ({ tickets, projectNames, sessions = [] }: { tickets: 
                 {session && <SessionStateBadge state={session.state} />}
                 {t.latestRun && <RunStatusBadge status={t.latestRun.status} />}
                 <SourceBadge ticket={t} />
-                {projectNames && <span className="w-28 truncate text-xs text-fg-subtle">{projectNames.get(t.projectId)}</span>}
+                {projectNames && <span className="w-28 truncate text-xs text-fg-subtle">{projectLabel(projectNames, t.projectId)}</span>}
                 <span className="w-16 text-right text-[11px] text-fg-subtle">{relativeTime(t.lastActivityAt)}</span>
               </Link>
             )})}

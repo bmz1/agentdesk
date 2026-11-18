@@ -1,12 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { IssuesView, validateIssuesSearch } from "@/features/board/issues-view"
+import { IssuesView, projectFilter, validateIssuesSearch } from "@/features/board/issues-view"
 import { q } from "@/lib/queries"
 
 export const Route = createFileRoute("/issues/")({
   validateSearch: validateIssuesSearch,
   loaderDeps: ({ search }) => ({ project: search.project, source: search.source, q: search.q }),
   loader: ({ context, deps }) =>
-    context.queryClient.ensureQueryData(q.tickets({ projectId: deps.project, source: deps.source, q: deps.q, pinned: undefined, tracked: true })),
+    context.queryClient.ensureQueryData(q.tickets({ ...projectFilter(deps.project), source: deps.source, q: deps.q, pinned: undefined, tracked: true })),
   component: AllIssues
 })
 

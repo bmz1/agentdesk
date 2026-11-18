@@ -63,7 +63,7 @@ describe("Jira client", () => {
 })
 
 describe("ADF to text", () => {
-  it("renders paragraphs, lists, code and marks as plain text", () => {
+  it("renders paragraphs, lists, code and marks as Markdown", () => {
     const doc = {
       type: "doc",
       content: [
@@ -91,3 +91,43 @@ describe("ADF to text", () => {
     expect(adfToText(null)).toBe("")
   })
 })
+
+describe("ADF to Markdown", () => {
+  const p = (...content: Array<object>) => ({ type: "doc", content: [{ type: "paragraph", content }] })
+  const t = (text: string, ...marks: Array<string | { type: string; attrs: object }>) => ({
+    type: "text",
+    text,
+    marks: marks.map((m) => (typeof m === "string" ? { type: m } : m))
+  })
+
+  it("keeps bold, italic, strike and links", () => {
+    expect(adfToText(p(t("Ship "), t("this ", "strong"), t("now", "em"), t(" or "), t("never", "strike")))).toBe("Ship **this** *now* or ~~never~~")
+    expect(adfToText(p(t("see "), t("the spec", { type: "link", attrs: { href: "https://x.io/a (b)" } })))).toBe(
+      "see [the spec](https://x.io/a%20%28b%29)"
+    )
+    expect(adfToText(p(t("bold link", "strong", { type: "link", attrs: { href: "https://x.io" } })))).toBe("[**bold link**](https://x.io)")
+    expect(adfToText({ type: "doc", content: [{ type: "paragraph", content: [{ type: "inlineCard", attrs: { url: "https://x.io/i_1" } }] }] })).toBe(
+      "[https://x.io/i\\_1](https://x.io/i_1)"
+    )
+  })
+
+  it("escapes text so it is not mistaken for formatting", () => {
+    expect(adfToText(p(t("snake_case_name and *ptr [x] a|b")))).toBe("snake\\_case\\_name and \\*ptr \\[x\\] a\\|b")
+    expect(adfToText(p(t("# not a heading")))).toBe("\\# not a heading")
+    expect(adfToText(p(t("1. not a list")))).toBe("1\\. not a list")
+    // Code is verbatim, inline and in blocks.
+    expect(adfToText(p(t("a_b*c", "code")))).toBe("`a_b*c`")
+    expect(adfToText(p(t("x `y` z", "code")))).toBe("`` x `y` z ``")
+    expect(adfToText({ type: "doc", content: [{ type: "codeBlock", content: [{ type: "text", text: "a_b *c*" }] }] })).toBe("```\na_b *c*\n```")
+  })
+
+  it("gives tables a header row", () => {
+    const cell = (text: string) => ({ type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text }] }] })
+    const doc = {
+      type: "doc",
+      content: [{ type: "table", content: [{ type: "tableRow", content: [cell("Key"), cell("Value")] }, { type: "tableRow", content: [cell("a"), cell("1")] }] }]
+    }
+    expect(adfToText(doc)).toBe("| Key | Value |\n| --- | --- |\n| a | 1 |")
+  })
+})
+

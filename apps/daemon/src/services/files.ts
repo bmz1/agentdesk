@@ -21,7 +21,7 @@ const ticketRoot = (ticketId: string) =>
     const ticket = yield* Tickets.use((t) => t.get(ticketId))
     const ws = yield* Workspaces.use((w) => w.latestForTicket(ticketId))
     if (ws && existsSync(ws.path)) return { root: ws.path, origin: "worktree" as const }
-    const project = yield* Projects.use((p) => p.get(ticket.projectId))
+    const project = yield* Projects.use((p) => p.forTicket(ticket))
     return { root: project.repoPath, origin: "repository" as const }
   })
 

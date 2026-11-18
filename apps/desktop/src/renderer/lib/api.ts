@@ -115,6 +115,8 @@ const qs = (params: Record<string, string | number | boolean | undefined | null>
 
 export interface TicketQuery {
   projectId?: string
+  /** Only tickets imported from a task source and not assigned to a project yet. */
+  unassigned?: boolean
   source?: string
   status?: string
   q?: string
@@ -136,7 +138,7 @@ export const api = {
   deleteProject: (id: string) => request<void>("DELETE", `/projects/${id}`),
 
   tickets: (q: TicketQuery = {}) =>
-    request<ReadonlyArray<Ticket>>("GET", `/tickets${qs({ ...q, pinned: q.pinned ? 1 : undefined, tracked: q.tracked === undefined ? undefined : q.tracked ? 1 : 0 })}`),
+    request<ReadonlyArray<Ticket>>("GET", `/tickets${qs({ ...q, unassigned: q.unassigned ? 1 : undefined, pinned: q.pinned ? 1 : undefined, tracked: q.tracked === undefined ? undefined : q.tracked ? 1 : 0 })}`),
   ticket: (id: string) => request<Ticket>("GET", `/tickets/${id}`),
   createTicket: (b: CreateTicketBody) => request<Ticket>("POST", "/tickets", b),
   updateTicket: (id: string, b: UpdateTicketBody) => request<Ticket>("PATCH", `/tickets/${id}`, b),

@@ -1,11 +1,13 @@
 import type { SourceConnection, SourceDescriptor, SourceField } from "@agentdesk/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2, Plus, RefreshCw, Trash2, XCircle } from "lucide-react"
+import { Link } from "@tanstack/react-router"
 import { useEffect, useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Field, Input, Select, Textarea } from "@/components/ui/input"
 import { Section, Spinner } from "@/components/ui/misc"
+import { UNASSIGNED } from "@/features/board/issues-view"
 import { api } from "@/lib/api"
 import { q, qk } from "@/lib/queries"
 import { relativeTime } from "@/lib/utils"
@@ -13,6 +15,8 @@ import { relativeTime } from "@/lib/utils"
 /**
  * Generic settings for every task source (Jira, Linear, …). Forms are rendered
  * from each source's descriptor, so adding a source needs no UI changes.
+ * Connections are global: imported tickets wait unassigned until someone puts
+ * them in a project.
  */
 export const SourcesSettings = () => {
   const sources = useQuery(q.sources())
@@ -29,8 +33,12 @@ export const SourcesSettings = () => {
       }
     >
       <p className="mb-3 text-[11px] text-fg-subtle">
-        AgentDesk imports tasks from {(sources.data ?? []).map((s) => s.displayName).join(", ") || "external trackers"} into
-        your boards. It never creates, edits, comments on or transitions remote tasks; moving a card changes the local board
+        AgentDesk imports tasks from {(sources.data ?? []).map((s) => s.displayName).join(", ") || "external trackers"}. A
+        connection is not tied to a project: imported tickets wait in{" "}
+        <Link to="/issues" search={{ project: UNASSIGNED }} className="text-accent hover:underline">
+          Unassigned
+        </Link>{" "}
+        until you assign each one to a project. It never creates, edits, comments on or transitions remote tasks; moving a card changes the local board
         only. Tokens are stored in the OS credential store, never in the database.
       </p>
       {adding && sources.data && <NewConnection sources={sources.data} onDone={() => setAdding(false)} />}
@@ -61,7 +69,6 @@ const ConnectionRow = ({ c, source }: { c: SourceConnection; source: SourceDescr
     onSuccess: () => setToken(""),
     onSettled: invalidate
   })
-  const projects = useQuery(q.projects())
   const settings = (c.settings ?? {}) as Record<string, unknown>
   return (
     <div className="rounded-md border bg-bg p-3 text-xs" data-testid="source-connection">
@@ -97,7 +104,6 @@ const ConnectionRow = ({ c, source }: { c: SourceConnection; source: SourceDescr
             </Row>
           ) : null
         )}
-        <Row label="Project">{projects.data?.find((p) => p.id === c.projectId)?.name}</Row>
         <Row label="Last sync">
           {relativeTime(c.lastSyncAt)} · polls every {Math.round(c.pollIntervalSec / 60)} min
         </Row>
@@ -140,12 +146,10 @@ const Row = ({ label, children }: { label: string; children: React.ReactNode }) 
 const defaultsOf = (s: SourceDescriptor) => Object.fromEntries(s.fields.map((f) => [f.key, f.default ?? ""]))
 
 const NewConnection = ({ sources, onDone }: { sources: ReadonlyArray<SourceDescriptor>; onDone: () => void }) => {
-  const projects = useQuery(q.projects())
   const qc = useQueryClient()
   const [provider, setProvider] = useState(sources[0]?.id ?? "")
   const source = sources.find((s) => s.id === provider)
   const [name, setName] = useState("")
-  const [projectId, setProjectId] = useState("")
   const [token, setToken] = useState("")
   const [pollMinutes, setPollMinutes] = useState(5)
   const [settings, setSettings] = useState<Record<string, string>>({})
@@ -158,7 +162,6 @@ const NewConnection = ({ sources, onDone }: { sources: ReadonlyArray<SourceDescr
       api.createSourceConnection({
         provider,
         name,
-        projectId: projectId || projects.data?.[0]?.id || "",
         token: token || undefined,
         pollIntervalSec: pollMinutes * 60,
         // Empty optional fields are omitted so the adapter's schema sees them as absent.
@@ -202,15 +205,6 @@ const NewConnection = ({ sources, onDone }: { sources: ReadonlyArray<SourceDescr
         </Field>
       )}
       <div className="grid grid-cols-2 gap-2">
-        <Field label="Import into project">
-          <Select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-            {(projects.data ?? []).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
         <Field label="Poll interval (minutes)">
           <Input type="number" min={1} value={pollMinutes} onChange={(e) => setPollMinutes(Math.max(1, Number(e.target.value)))} />
         </Field>

@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button"
 import { Input, Select } from "@/components/ui/input"
 import { EmptyState, Spinner } from "@/components/ui/misc"
 import { api } from "@/lib/api"
+import { NeedsProject } from "../ticket/assign-project"
 import { openExternal } from "@/lib/connection"
 import { q, qk } from "@/lib/queries"
 import { cn, relativeTime } from "@/lib/utils"
@@ -62,7 +63,10 @@ export const WorkflowTab = ({ ticket }: { ticket: Ticket }) => {
   )
 }
 
-const StartRun = ({ ticket, hasActive }: { ticket: Ticket; hasActive: boolean }) => {
+const StartRun = (props: { ticket: Ticket; hasActive: boolean }) =>
+  props.ticket.projectId ? <StartRunForm {...props} /> : <NeedsProject ticket={props.ticket} />
+
+const StartRunForm = ({ ticket, hasActive }: { ticket: Ticket; hasActive: boolean }) => {
   const workflows = useQuery(q.workflows())
   const project = useQuery(q.project(ticket.projectId))
   const harnesses = useQuery(q.harnesses())

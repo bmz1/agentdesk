@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs"
 import { resolve } from "node:path"
-import type { CreateProjectBody, Project, UpdateProjectBody } from "@agentdesk/contracts"
+import type { CreateProjectBody, Project, Ticket, UpdateProjectBody } from "@agentdesk/contracts"
 import { projects, tickets } from "@agentdesk/db"
 import * as Git from "@agentdesk/git"
 import { asc, count, eq } from "drizzle-orm"
@@ -35,6 +35,8 @@ export const toProject = (r: ProjectRow): Project => ({
 export interface ProjectsShape {
   readonly list: Effect.Effect<ReadonlyArray<Project>, DbError>
   readonly get: (id: string) => Effect.Effect<Project, NotFound | DbError>
+  /** The ticket's project; tickets imported from a task source must be assigned to one first. */
+  readonly forTicket: (ticket: Pick<Ticket, "projectId" | "identifier">) => Effect.Effect<Project, NotFound | BadRequest | DbError>
   readonly create: (body: CreateProjectBody) => Effect.Effect<Project, BadRequest | Conflict | DbError>
   readonly update: (id: string, body: UpdateProjectBody) => Effect.Effect<Project, NotFound | BadRequest | DbError>
   readonly remove: (id: string) => Effect.Effect<void, NotFound | Conflict | DbError>
@@ -140,9 +142,15 @@ export const ProjectsLive = Layer.effect(
         yield* notices.publish({ topic: "projects" })
       })
 
+    const forTicket = (ticket: Pick<Ticket, "projectId" | "identifier">) =>
+      ticket.projectId
+        ? get(ticket.projectId)
+        : Effect.fail(new BadRequest({ message: `${ticket.identifier} is not assigned to a project yet. Assign it to a project first.` }))
+
     return Projects.of({
       list: use((db) => db.select().from(projects).orderBy(asc(projects.name)).all().map(toProject)),
       get,
+      forTicket,
       create,
       update,
       remove

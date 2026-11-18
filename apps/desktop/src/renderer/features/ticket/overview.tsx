@@ -35,7 +35,8 @@ import { api } from "@/lib/api"
 import { bridge, openExternal } from "@/lib/connection"
 import { q } from "@/lib/queries"
 import { cn, relativeTime } from "@/lib/utils"
-import { RichText } from "../session/rich-text"
+import { AssignProject, NeedsProject } from "./assign-project"
+import { IssueMarkdown } from "./issue-markdown"
 import { ActivityTimeline } from "./activity-timeline"
 import { effortsFor } from "../session/model-picker"
 import type { TicketTab } from "./ticket-detail"
@@ -78,9 +79,7 @@ export const Overview = ({ ticket, onUpdate, onTab }: { ticket: Ticket; onUpdate
                 className="min-h-24 text-[14px] leading-relaxed"
               />
             ) : ticket.description ? (
-              <div className="text-[14px] leading-relaxed">
-                <RichText text={ticket.description} />
-              </div>
+              <IssueMarkdown text={ticket.description} className="text-[14px] leading-relaxed" />
             ) : (
               <p className="text-sm text-fg-subtle">No description</p>
             )}
@@ -141,6 +140,8 @@ const AgentCard = ({ ticket, onTab }: { ticket: Ticket; onTab: (t: TicketTab) =>
   const files = diff.data?.files ?? []
   const added = files.reduce((n, f) => n + f.additions, 0)
   const removed = files.reduce((n, f) => n + f.deletions, 0)
+
+  if (!ticket.projectId) return <NeedsProject ticket={ticket} />
 
   let icon = <Bot />
   let headline: React.ReactNode
@@ -293,7 +294,7 @@ const Sidebar = ({ ticket, onUpdate }: { ticket: Ticket; onUpdate: (b: UpdateBod
             onChange={(e) => onUpdate({ harness: (e.target.value || null) as HarnessId | null })}
             className={ghostSelect}
           >
-            <option value="">Default · {project.data ? HARNESS_LABELS[project.data.defaultHarness] : "…"}</option>
+            <option value="">Default · {project.data ? HARNESS_LABELS[project.data.defaultHarness] : ticket.projectId ? "…" : "project's"}</option>
             {(Object.keys(HARNESS_LABELS) as Array<HarnessId>).map((h) => (
               <option key={h} value={h}>
                 {HARNESS_LABELS[h]}
@@ -324,10 +325,16 @@ const Sidebar = ({ ticket, onUpdate }: { ticket: Ticket; onUpdate: (b: UpdateBod
 
       <SideSection title="Workspace">
         <Prop label="Project">
-          <Link to="/projects/$projectId" params={{ projectId: ticket.projectId }} className="flex min-w-0 items-center gap-1.5 hover:underline">
-            <FolderGit2 className="size-3.5 shrink-0 text-fg-muted" />
-            <span className="truncate">{project.data?.name}</span>
-          </Link>
+          <span className="flex w-full min-w-0 items-center gap-1">
+            {ticket.projectId ? (
+              <Link to="/projects/$projectId" params={{ projectId: ticket.projectId }} title="Open project" className="shrink-0 rounded p-1 text-fg-muted hover:bg-bg-muted hover:text-fg">
+                <FolderGit2 className="size-3.5" />
+              </Link>
+            ) : (
+              <FolderGit2 className="mx-1 size-3.5 shrink-0 text-fg-subtle" />
+            )}
+            <AssignProject ticket={ticket} className={ghostSelect} />
+          </span>
         </Prop>
         {project.data && <PathProp label="Repository" path={project.data.repoPath} />}
         <Prop label="Branch">

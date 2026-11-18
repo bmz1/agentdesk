@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Select, Textarea } from "@/components/ui/input"
 import { EmptyState, Spinner, Tooltip } from "@/components/ui/misc"
 import { api } from "@/lib/api"
+import { NeedsProject } from "../ticket/assign-project"
 import { q, qk } from "@/lib/queries"
 import { useUi } from "@/lib/store"
 import { relativeTime } from "@/lib/utils"
@@ -239,7 +240,10 @@ const SessionView = ({ session, ticket }: { session: AgentSession; ticket: Ticke
   )
 }
 
-export const StartSession = ({ ticket, onStarted }: { ticket: Ticket; onStarted: (s: AgentSession) => void }) => {
+export const StartSession = (props: { ticket: Ticket; onStarted: (s: AgentSession) => void }) =>
+  props.ticket.projectId ? <StartSessionForm {...props} /> : <NeedsProject ticket={props.ticket} />
+
+const StartSessionForm = ({ ticket, onStarted }: { ticket: Ticket; onStarted: (s: AgentSession) => void }) => {
   const harnesses = useQuery(q.harnesses())
   const project = useQuery(q.project(ticket.projectId))
   const [harness, setHarness] = useState<HarnessId | "">("")

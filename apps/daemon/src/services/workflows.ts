@@ -277,7 +277,7 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
 
       const context = Effect.fnUntraced(function* (run: RunRow) {
         const ticket = yield* tickets.get(run.ticketId)
-        const project = yield* projects.get(ticket.projectId)
+        const project = yield* projects.forTicket(ticket)
         const ws = run.workspaceId ? yield* workspaces.get(run.workspaceId) : undefined
         if (!ws) return yield* new BadRequest({ message: "Run has no workspace" })
         return { ticket, project, ws }
@@ -601,7 +601,7 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
           let run = yield* getRunRow(runId)
           yield* Effect.annotateCurrentSpan({ runId, ticketId: run.ticketId, workflow: `${run.workflowId}@${run.workflowVersion}` })
           const ticket = yield* tickets.get(run.ticketId)
-          const project = yield* projects.get(ticket.projectId)
+          const project = yield* projects.forTicket(ticket)
           let ws: Workspace
           if (!run.workspaceId) {
             yield* setRun(runId, { status: "preparing", startedAt: run.startedAt ?? (yield* nowIso) })
@@ -681,14 +681,15 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
           Effect.sync(() => void running++),
           () => runLoop(runId),
           () => Effect.sync(() => void running--)
-        ).pipe(Semaphore.withPermit(globalSlots), Semaphore.withPermit(projectSlot(ticket.projectId)))
+          // Runs only start on assigned tickets, and tickets cannot change project while a run is active.
+        ).pipe(Semaphore.withPermit(globalSlots), Semaphore.withPermit(projectSlot(ticket.projectId ?? "")))
         yield* FiberMap.run(executors, runId, admitted, { onlyIfMissing: true })
       })
 
       // ---- public API ------------------------------------------------------------------
       const start = Effect.fn("Workflows.start")(function* (ticketId: string, body: StartRunBody) {
         const ticket = yield* tickets.get(ticketId)
-        const project = yield* projects.get(ticket.projectId)
+        const project = yield* projects.forTicket(ticket)
         const workflowId = body.workflowId ?? ticket.workflowId ?? project.defaultWorkflowId ?? DEFAULT_WORKFLOW_ID
         const def = yield* latestDefinition(workflowId)
         const active = yield* use((db) =>

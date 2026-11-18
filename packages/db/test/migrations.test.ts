@@ -148,3 +148,88 @@ describe("migration 9: restarts keep conversations", () => {
     sqlite.close()
   })
 })
+
+describe("migration 10: global task sources", () => {
+  it("keeps each connection's project as its default, makes the project optional and keeps sync state", () => {
+    const Database = require("better-sqlite3")
+    const sqlite = new Database(":memory:")
+    sqlite.pragma("foreign_keys = ON")
+    migrate(sqlite, migrations.filter((m) => m.id < 10))
+    sqlite.prepare(`INSERT INTO projects (id,key,name,repo_path,default_branch,git_provider,default_harness,permission_mode,created_at,updated_at) VALUES ('p','P','P','/tmp','main','none','mock','ask','now','now')`).run()
+    sqlite.prepare(`INSERT INTO source_connections (id,provider,name,project_id,settings,credential_ref,poll_interval_sec,enabled,created_at) VALUES ('c1','jira','SEON','p','{"jql":"x"}','jira:c1',300,1,'now')`).run()
+    sqlite.prepare(`INSERT INTO source_sync_state (connection_id, high_watermark, consecutive_failures) VALUES ('c1','2026-01-02',1)`).run()
+
+    expect(migrate(sqlite, migrations.filter((m) => m.id <= 10))).toEqual([10])
+    expect(sqlite.prepare("SELECT id, project_id, project_routes, settings, credential_ref FROM source_connections").get()).toEqual({
+      id: "c1",
+      project_id: "p",
+      project_routes: "{}",
+      settings: '{"jql":"x"}',
+      credential_ref: "jira:c1"
+    })
+    expect(sqlite.prepare("SELECT high_watermark, consecutive_failures, unrouted FROM source_sync_state").get()).toEqual({
+      high_watermark: "2026-01-02",
+      consecutive_failures: 1,
+      unrouted: "{}"
+    })
+    // Connections no longer need a project, but references are still enforced.
+    sqlite.prepare(`INSERT INTO source_connections (id,provider,name,project_id,settings,credential_ref,poll_interval_sec,created_at) VALUES ('c2','jira','All',NULL,'{}','jira:c2',300,'now')`).run()
+    expect(() =>
+      sqlite.prepare(`INSERT INTO source_connections (id,provider,name,project_id,settings,credential_ref,poll_interval_sec,created_at) VALUES ('c3','jira','x','nope','{}','jira:c3',300,'now')`).run()
+    ).toThrow(/FOREIGN KEY/)
+    expect(() => sqlite.prepare(`INSERT INTO source_sync_state (connection_id) VALUES ('ghost')`).run()).toThrow(/FOREIGN KEY/)
+    expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([])
+    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE name = 'source_connections_provider_idx'").get()).toBeDefined()
+    sqlite.close()
+  })
+})
+
+describe("migration 11: global external tickets", () => {
+  it("makes ticket projects optional while keeping ids, rowids, search, links and foreign keys", () => {
+    const Database = require("better-sqlite3")
+    const sqlite = new Database(":memory:")
+    sqlite.pragma("foreign_keys = ON")
+    migrate(sqlite, migrations.filter((m) => m.id < 11))
+    sqlite.prepare(`INSERT INTO projects (id,key,name,repo_path,default_branch,git_provider,default_harness,permission_mode,created_at,updated_at) VALUES ('p','P','P','/tmp','main','none','mock','ask','now','now')`).run()
+    sqlite.prepare(`INSERT INTO tickets (id,project_id,number,title,description,status,priority,source_kind,labels,tracked,effort,created_at,updated_at,last_activity_at) VALUES ('t1','p',1,'Payment gateway','retry logic','todo','high','jira','["x"]',1,'high','now','now','now')`).run()
+    sqlite.prepare(`INSERT INTO ticket_external_links (ticket_id,provider,connection_id,remote_id,display_key,url,last_seen_at) VALUES ('t1','jira','c1','10','SEON-1','https://x','now')`).run()
+    sqlite.prepare(`INSERT INTO source_connections (id,provider,name,project_id,project_routes,settings,credential_ref,poll_interval_sec,created_at) VALUES ('c1','jira','J','p','{"SEON":"p"}','{}','jira:c1',300,'now')`).run()
+    sqlite.prepare(`INSERT INTO source_sync_state (connection_id, high_watermark) VALUES ('c1','2026-01-02')`).run()
+    const rowid = (sqlite.prepare("SELECT rowid FROM tickets WHERE id='t1'").get() as any).rowid
+
+    expect(migrate(sqlite, migrations.filter((m) => m.id <= 11))).toEqual([11])
+    expect(sqlite.pragma("foreign_keys", { simple: true })).toBe(1)
+    expect(sqlite.prepare("SELECT rowid, id, project_id, number, labels, effort, tracked FROM tickets").get()).toEqual({
+      rowid, id: "t1", project_id: "p", number: 1, labels: '["x"]', effort: "high", tracked: 1
+    })
+    expect(sqlite.prepare("SELECT ticket_id FROM ticket_external_links").get()).toEqual({ ticket_id: "t1" })
+    expect(sqlite.prepare("SELECT rowid FROM tickets_fts WHERE tickets_fts MATCH 'retry'").all()).toEqual([{ rowid }])
+    expect(sqlite.prepare("PRAGMA table_info(source_connections)").all().map((c: any) => c.name)).toEqual([
+      "id", "provider", "name", "settings", "credential_ref", "poll_interval_sec", "enabled", "created_at"
+    ])
+    expect(sqlite.prepare("SELECT high_watermark FROM source_sync_state").get()).toEqual({ high_watermark: "2026-01-02" })
+
+    // Unassigned tickets: no project, number 0, any number of them; search follows new rows.
+    const insert = sqlite.prepare(`INSERT INTO tickets (id,project_id,number,title,status,priority,source_kind,created_at,updated_at,last_activity_at) VALUES (?,NULL,0,?,'todo','none','jira','now','now','now')`)
+    insert.run("u1", "Unassigned one")
+    insert.run("u2", "Unassigned two")
+    expect(sqlite.prepare("SELECT count(*) AS n FROM tickets_fts WHERE tickets_fts MATCH 'unassigned'").get()).toEqual({ n: 2 })
+    // References are still enforced after the rebuild.
+    expect(() => sqlite.prepare("UPDATE tickets SET project_id = 'nope' WHERE id = 'u1'").run()).toThrow(/FOREIGN KEY/)
+    expect(() => sqlite.prepare(`INSERT INTO ticket_external_links (ticket_id,provider,connection_id,remote_id,display_key,url,last_seen_at) VALUES ('ghost','jira','c1','11','X-1','u','now')`).run()).toThrow(/FOREIGN KEY/)
+    expect(() => sqlite.prepare(`INSERT INTO tickets (id,project_id,number,title,status,priority,source_kind,created_at,updated_at,last_activity_at) VALUES ('dup','p',1,'d','todo','none','local','now','now','now')`).run()).toThrow(/UNIQUE/)
+    sqlite.close()
+  })
+
+  it("refuses to commit a rebuild that leaves broken references", () => {
+    const Database = require("better-sqlite3")
+    const sqlite = new Database(":memory:")
+    sqlite.pragma("foreign_keys = ON")
+    migrate(sqlite, migrations)
+    const bad = { id: 999, name: "bad", foreignKeysOff: true, sql: "INSERT INTO ticket_external_links (ticket_id,provider,connection_id,remote_id,display_key,url,last_seen_at) VALUES ('ghost','jira','c','r','K-1','u','now');" }
+    expect(() => migrate(sqlite, [...migrations, bad])).toThrow(/broke foreign keys/)
+    expect(sqlite.prepare("SELECT count(*) AS n FROM ticket_external_links").get()).toEqual({ n: 0 })
+    expect(sqlite.pragma("foreign_keys", { simple: true })).toBe(1)
+    sqlite.close()
+  })
+})
