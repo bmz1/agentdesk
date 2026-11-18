@@ -28,6 +28,9 @@ export const openCodePermissions = (mode: PermissionMode) => {
       return [rule("edit", "ask"), rule("bash", "ask"), rule("webfetch", "ask")]
     case "accept_edits":
       return [rule("edit", "allow"), rule("bash", "ask"), rule("webfetch", "ask")]
+    // OpenCode has no approval classifier: auto allows edits and fetches, shell still asks.
+    case "auto":
+      return [rule("edit", "allow"), rule("bash", "ask"), rule("webfetch", "allow")]
     case "plan":
       return [rule("edit", "deny"), rule("bash", "ask"), rule("webfetch", "ask")]
     case "unrestricted":

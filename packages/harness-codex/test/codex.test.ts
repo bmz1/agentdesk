@@ -5,7 +5,14 @@ import type { AgentEvent } from "@agentdesk/contracts"
 import { type HarnessSession, NodeProcessLayer, parseJsonLine } from "@agentdesk/harness-core"
 import { Effect, Stream } from "effect"
 import { describe, expect, it, layer } from "@effect/vitest"
-import { CodexNormalizer, makeCodexAdapter } from "../src"
+import { CodexNormalizer, codexPolicy, makeCodexAdapter } from "../src"
+
+describe("codexPolicy", () => {
+  it("routes auto-mode escalations to Codex's auto reviewer inside the workspace sandbox", () => {
+    expect(codexPolicy("auto")).toEqual({ approvalPolicy: "on-request", sandbox: "workspace-write", approvalsReviewer: "auto_review" })
+    expect(codexPolicy("accept_edits")).not.toHaveProperty("approvalsReviewer")
+  })
+})
 
 describe("CodexNormalizer", () => {
   it("normalizes a golden app-server transcript", () => {

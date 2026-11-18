@@ -70,5 +70,5 @@ export type ApprovalDecision = typeof ApprovalDecision.Type
 export const WorkspaceMode = Schema.Literals(["worktree", "readonly"])
 export type WorkspaceMode = typeof WorkspaceMode.Type
 
-export const PermissionMode = Schema.Literals(["ask", "accept_edits", "plan", "unrestricted"])
+export const PermissionMode = Schema.Literals(["ask", "accept_edits", "auto", "plan", "unrestricted"])
 export type PermissionMode = typeof PermissionMode.Type

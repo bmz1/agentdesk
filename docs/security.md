@@ -21,6 +21,7 @@
 - Permission modes, set per project:
   - `ask` (default): risky tool calls produce approval cards.
   - `accept_edits`: file edits are allowed, while shell and network still ask (Codex: workspace-write sandbox).
+  - `auto`: the harness reviews its own approvals. Claude runs with `--permission-mode auto` (a classifier approves routine actions and blocks risky ones); Codex routes escalations to its `auto_review` subagent inside the workspace-write sandbox. OpenCode has no reviewer, so edits and web fetches are allowed and shell still asks. Only escalations reach AgentDesk as approval cards. The reviewer is a model, not a sandbox.
   - `plan`: read-only planning.
   - `unrestricted`: refused unless `AGENTDESK_SANDBOX_CMD` configures a real sandbox command prefix, for example `["bwrap","--bind","{cwd}","{cwd}",...]` or a container runner. That prefix wraps the harness process.
 - PRs need explicit approval, are created as drafts and are never merged. Every task source is read-only.
