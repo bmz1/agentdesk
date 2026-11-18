@@ -25,20 +25,20 @@ const editText = (el: HTMLTextAreaElement, insert: string) => {
 }
 
 /**
- * Editor for one file, rendered with the viewer's own code surface and header. `base` is the read the edit started from; `disk` is the
- * latest poll. When the two diverge while there are unsaved changes (an agent wrote the file),
- * or a save is refused as stale, the user picks: overwrite the disk copy or discard their edits.
+ * An editable file: the viewer's own code surface and header, always ready to type in (no edit mode).
+ * `base` is the read the current edits started from; `disk` is the latest poll. While nothing is
+ * changed, new disk versions are adopted quietly. When they diverge from unsaved changes (an agent
+ * wrote the file), or a save is refused as stale, the user picks: overwrite the disk copy or discard
+ * their edits.
  */
 export const FileEditor = ({
   ticketId,
   disk,
-  onDone,
   onDirtyChange,
   header
 }: {
   ticketId: string
   disk: FileContent
-  onDone: () => void
   onDirtyChange: (dirty: boolean) => void
   /** The viewer's header, with these edit actions in its toolbar. */
   header: (actions: React.ReactNode) => React.ReactNode
@@ -61,9 +61,9 @@ export const FileEditor = ({
       void queryClient.invalidateQueries({ queryKey: qk.ticketFiles(ticketId), exact: true })
       setConflict(false)
       setBase(saved)
+      setText(saved.content)
       onDirtyChange(false)
       toast.success(`Saved ${saved.path.split("/").at(-1)}`)
-      onDone()
     },
     onError: (e) => {
       if (e instanceof ApiError && e.code === "StaleFile") setConflict(true)
@@ -82,12 +82,21 @@ export const FileEditor = ({
     if (dismissed !== disk.version) setConflict(true)
   }, [disk, base.version, dirty, text, dismissed, save.isPending])
 
-  const discard = () => {
-    setConflict(false)
-    onDirtyChange(false)
-    void queryClient.invalidateQueries({ queryKey: qk.ticketFile(ticketId, base.path), exact: true })
-    onDone()
-  }
+  /** Drop unsaved changes and show the newest version on disk. */
+  // Read the file fresh: the last poll may predate the write that caused a conflict, and adopting
+  // a stale copy would raise the same conflict again as soon as the next poll arrives.
+  const discard = useMutation({
+    mutationFn: () => api.ticketFile(ticketId, base.path),
+    onSuccess: (fresh) => {
+      queryClient.setQueryData(qk.ticketFile(ticketId, fresh.path), fresh)
+      setConflict(false)
+      save.reset()
+      setBase(fresh)
+      setText(fresh.content)
+      setDismissed(undefined)
+      onDirtyChange(false)
+    }
+  })
 
   const keepEditing = () => {
     setConflict(false)
@@ -99,11 +108,6 @@ export const FileEditor = ({
     if (matchesChord(e, "mod+s")) {
       e.preventDefault()
       if (dirty && !save.isPending) save.mutate(false)
-      return
-    }
-    if (e.key === "Escape" && !dirty) {
-      e.preventDefault()
-      onDone()
       return
     }
     if (e.key === "Tab" && !e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -132,9 +136,11 @@ export const FileEditor = ({
             </span>
           )}
           {dirty && <span className="text-warning">Unsaved</span>}
-          <Button size="sm" variant="ghost" disabled={save.isPending} onClick={() => (dirty ? discard() : onDone())}>
-            {dirty ? "Discard" : "Done"}
-          </Button>
+          {dirty && (
+            <Button size="sm" variant="ghost" disabled={save.isPending || discard.isPending} onClick={() => discard.mutate()} data-testid="file-discard">
+              Discard
+            </Button>
+          )}
           <Button size="sm" disabled={!dirty || save.isPending} onClick={() => save.mutate(false)} data-testid="file-save">
             {save.isPending && <Spinner />}Save <kbd className="ml-1 text-[10px] opacity-60">{formatChord("mod+s")}</kbd>
           </Button>
@@ -144,7 +150,7 @@ export const FileEditor = ({
         text={text}
         path={base.path}
         edit={{ label: `Edit ${base.path}`, onChange: setText, onKeyDown }}
-        data-testid="file-editor"
+        data-testid="file-content"
       />
       <Dialog open={conflict} onOpenChange={(open) => !open && !save.isPending && keepEditing()}>
         <DialogContent
@@ -161,7 +167,7 @@ export const FileEditor = ({
               <Button variant="ghost" disabled={save.isPending} onClick={keepEditing}>
                 Keep editing
               </Button>
-              <Button variant="secondary" disabled={save.isPending} onClick={discard} data-testid="file-conflict-discard">
+              <Button variant="secondary" disabled={save.isPending || discard.isPending} onClick={() => discard.mutate()} data-testid="file-conflict-discard">
                 Discard my changes
               </Button>
               <Button variant="danger" disabled={save.isPending} onClick={() => save.mutate(true)} data-testid="file-conflict-overwrite">

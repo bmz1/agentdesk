@@ -1,242 +1,235 @@
-import type { AgentEvent, AgentQuestion, PlanItem, TokenUsage } from "@agentdesk/contracts"
-import { asInlineImage, imageEvents, isRecord, num, str, type Normalizer } from "@agentdesk/harness-core"
+import type { AgentEvent, PlanItem, TokenUsage } from "@agentdesk/contracts"
+import { asInlineImage, imageEvents, isRecord, num, str } from "@agentdesk/harness-core"
+import { formQuestions } from "./protocol"
+
+/** An OpenCode v2 bus event, as `GET /api/event` sends it. */
+export interface OpenCodeEvent {
+  readonly type: string
+  readonly data: Record<string, unknown>
+}
+
+/** Decode one SSE `data:` payload. Unknown or malformed events are skipped, never fatal. */
+export const parseEvent = (raw: string): OpenCodeEvent | undefined => {
+  try {
+    let v: unknown = JSON.parse(raw)
+    if (typeof v === "string") v = JSON.parse(v)
+    return isRecord(v) && typeof v.type === "string" ? { type: v.type, data: isRecord(v.data) ? v.data : {} } : undefined
+  } catch {
+    return undefined
+  }
+}
 
 const PLAN_STATUSES: ReadonlyArray<PlanItem["status"]> = ["pending", "in_progress", "completed", "cancelled"]
 
-/** OpenCode questions → canonical ones. Answers go back as a list in question order, so ids are indexes. */
-export const openCodeQuestions = (questions: unknown): Array<AgentQuestion> =>
-  (Array.isArray(questions) ? questions.filter(isRecord) : []).flatMap((q, i) => {
-    const question = str(q.question)
-    if (!question) return []
-    const options = (Array.isArray(q.options) ? q.options.filter(isRecord) : []).flatMap((o) =>
-      str(o.label) ? [{ label: str(o.label)!, ...(str(o.description) && { description: str(o.description) }) }] : []
-    )
-    return [{ id: String(i), ...(str(q.header) && { header: str(q.header) }), question, options, multiSelect: q.multiple === true, allowOther: q.custom !== false }]
-  })
-
-interface MessageUsage {
-  readonly usage: TokenUsage
-  readonly cost: number | undefined
-  readonly model: string | undefined
+/** A request the user answers on a session: its own, or a subagent's. */
+export interface PendingRequest {
+  readonly kind: "permission" | "form"
+  readonly sessionID: string
+  /** The form, kept to turn labels back into field values. */
+  readonly form?: unknown
 }
 
+const usageOf = (tokens: unknown): TokenUsage | undefined => {
+  if (!isRecord(tokens)) return undefined
+  const cache = isRecord(tokens.cache) ? tokens.cache : {}
+  return {
+    inputTokens: num(tokens.input) ?? 0,
+    outputTokens: num(tokens.output) ?? 0,
+    cacheReadTokens: num(cache.read) ?? 0,
+    cacheWriteTokens: num(cache.write) ?? 0,
+    reasoningTokens: num(tokens.reasoning) ?? 0
+  }
+}
+
+const textOf = (content: unknown) =>
+  (Array.isArray(content) ? content.filter(isRecord) : []).flatMap((c) => (c.type === "text" && str(c.text) ? [str(c.text)!] : [])).join("\n")
+
 /**
- * Normalizes `opencode serve` bus events (GET /event) for one OpenCode session.
- * Events for other sessions on the same server are ignored.
+ * Normalizes OpenCode v2 bus events for one session. Its subagents' sessions are followed too, but only
+ * for what needs the user (permissions and forms); their text and tools stay inside the subagent.
  */
-export class OpenCodeNormalizer implements Normalizer {
-  private roles = new Map<string, string>()
+export class OpenCodeNormalizer {
+  private readonly sessions = new Set<string>()
+  private toolNames = new Map<string, string>()
   private toolsStarted = new Set<string>()
-  private toolsDone = new Set<string>()
-  private finishedParts = new Set<string>()
-  private aborted = false
-  private errored = false
-  private busy = false
   private busySince = 0
-  /** Completed assistant messages of the current turn, by id (updates repeat). */
-  private turnMessages = new Map<string, MessageUsage>()
-  /** Pending question request ids: they are answered on a different endpoint than permissions. */
-  readonly questionIds = new Set<string>()
+  private steps: Array<{ usage: TokenUsage; cost: number | undefined }> = []
+  private model: string | undefined
+  /** Open permission and form requests by id: replies go to the session that asked. */
+  readonly pending = new Map<string, PendingRequest>()
 
-  constructor(public sessionId: string) {}
-
-  /** Mark that a prompt was sent so the next idle reports a completed turn. */
-  markBusy() {
-    if (!this.busy) {
-      this.busySince = Date.now()
-      this.turnMessages.clear()
-    }
-    this.busy = true
+  constructor(public readonly sessionId: string) {
+    this.sessions.add(sessionId)
   }
 
-  push(msg: unknown): ReadonlyArray<AgentEvent> {
-    if (!isRecord(msg) || !isRecord(msg.properties)) return []
-    const p = msg.properties
-    const sid = str(p.sessionID) ?? (isRecord(p.part) ? str(p.part.sessionID) : undefined) ?? (isRecord(p.info) ? str(p.info.sessionID) : undefined)
-    if (sid !== this.sessionId) return []
-    switch (msg.type) {
-      case "message.updated": {
-        const info = isRecord(p.info) ? p.info : {}
-        const id = str(info.id)
-        if (id && str(info.role)) this.roles.set(id, str(info.role)!)
-        const time = isRecord(info.time) ? info.time : {}
-        if (id && info.role === "assistant" && time.completed !== undefined && isRecord(info.tokens)) {
-          const t = info.tokens
-          const cache = isRecord(t.cache) ? t.cache : {}
-          this.turnMessages.set(id, {
-            usage: {
-              inputTokens: num(t.input) ?? 0,
-              outputTokens: num(t.output) ?? 0,
-              cacheReadTokens: num(cache.read) ?? 0,
-              cacheWriteTokens: num(cache.write) ?? 0,
-              reasoningTokens: num(t.reasoning) ?? 0
-            },
-            cost: num(info.cost),
-            model: str(info.providerID) && str(info.modelID) ? `${str(info.providerID)}/${str(info.modelID)}` : undefined
-          })
-        }
+  push(e: OpenCodeEvent): ReadonlyArray<AgentEvent> {
+    const d = e.data
+    const sid = str(d.sessionID)
+    if (e.type === "session.created" && sid && this.sessions.has(str(d.parentID) ?? "")) this.sessions.add(sid)
+    // A form names its session inside the form.
+    if (e.type === "form.created") return this.form(d.form)
+    if (!sid || !this.sessions.has(sid)) return []
+    const own = sid === this.sessionId
+    switch (e.type) {
+      case "permission.asked":
+        return this.permission(d, sid)
+      case "permission.replied":
+        this.pending.delete(str(d.requestID) ?? "")
+        return []
+      case "form.replied":
+      case "form.cancelled":
+        this.pending.delete(str(d.id) ?? "")
+        return []
+    }
+    if (!own) return []
+    switch (e.type) {
+      case "session.execution.started":
+        this.busySince = Date.now()
+        this.steps = []
+        return []
+      case "session.step.started": {
+        const m = isRecord(d.model) ? d.model : {}
+        if (str(m.providerID) && str(m.id)) this.model = `${str(m.providerID)}/${str(m.id)}`
         return []
       }
-      case "message.part.delta": {
-        if (p.field !== "text" || this.roles.get(str(p.messageID) ?? "") === "user") return []
-        const delta = str(p.delta)
-        return delta ? [{ type: "message.delta", messageId: str(p.partID), text: delta }] : []
+      case "session.step.ended":
+      case "session.step.failed": {
+        const usage = usageOf(d.tokens)
+        if (usage) this.steps.push({ usage, cost: num(d.cost) })
+        return []
       }
-      case "message.part.updated":
-        return isRecord(p.part) ? this.part(p.part, str(p.delta)) : []
-      case "permission.asked":
-      case "permission.updated": {
-        const id = str(p.id)
+      case "session.text.delta": {
+        const delta = str(d.delta)
+        return delta ? [{ type: "message.delta", messageId: `${str(d.assistantMessageID)}:${num(d.ordinal) ?? 0}`, text: delta }] : []
+      }
+      case "session.text.ended":
+        return [{ type: "message.completed", messageId: `${str(d.assistantMessageID)}:${num(d.ordinal) ?? 0}`, text: str(d.text) ?? "" }]
+      case "session.reasoning.ended":
+        return str(d.text) ? [{ type: "reasoning", text: str(d.text)! }] : []
+      case "session.tool.input.started": {
+        const id = str(d.id)
+        if (id && str(d.name)) this.toolNames.set(id, str(d.name)!)
+        return []
+      }
+      case "session.tool.called":
+        return this.toolCalled(d)
+      case "session.tool.success":
+      case "session.tool.failed": {
+        const id = str(d.id)
         if (!id) return []
-        const permission = str(p.permission) ?? str(p.type) ?? "permission"
-        const patterns = Array.isArray(p.patterns) ? p.patterns.join(" ") : (str(p.pattern) ?? str(p.title) ?? "")
+        const failed = e.type === "session.tool.failed"
+        const error = isRecord(d.error) ? str(d.error.message) : undefined
+        const images = (Array.isArray(d.content) ? d.content : []).flatMap((c) => {
+          // Tools attach files (screenshots, images they read) as data URIs.
+          const url = isRecord(c) ? str(c.uri) : undefined
+          return asInlineImage(isRecord(c) && url ? { type: "file", url } : undefined) ?? []
+        })
         return [
-          {
-            type: "approval.requested",
-            approvalId: id,
-            providerRequestId: id,
-            toolName: permission,
-            summary: patterns ? `${permission}: ${patterns}` : permission,
-            details: { input: p.metadata, patterns: p.patterns, always: p.always },
-            // `always` lists the patterns an "always" reply would allow for the session.
-            canAllowForSession: Array.isArray(p.always) && p.always.length > 0
-          }
+          ...(this.toolsStarted.has(id) ? [] : [{ type: "tool.started" as const, toolCallId: id, name: this.toolNames.get(id) ?? "tool", input: undefined }]),
+          { type: "tool.completed", toolCallId: id, result: failed ? (error ?? textOf(d.content)) : textOf(d.content), isError: failed },
+          ...imageEvents(images, id)
         ]
       }
-      case "question.asked":
-      case "question.v2.asked": {
-        const id = str(p.id)
-        if (!id) return []
-        this.questionIds.add(id)
-        const questions = openCodeQuestions(p.questions)
-        return [
-          {
-            type: "approval.requested",
-            approvalId: id,
-            providerRequestId: id,
-            toolName: "question",
-            kind: "question",
-            questions,
-            summary: questions.length === 1 ? questions[0]!.question : `${questions.length} questions`,
-            details: { input: p.questions }
-          }
-        ]
+      case "session.execution.succeeded":
+        return [this.turn("success")]
+      case "session.execution.interrupted":
+        return [this.turn("interrupted")]
+      case "session.execution.failed": {
+        const error = isRecord(d.error) ? d.error : {}
+        return [{ type: "session.error", message: str(error.message) ?? str(error.type) ?? "OpenCode error" }, this.turn("error")]
       }
-      case "todo.updated": {
-        const items = (Array.isArray(p.todos) ? p.todos.filter(isRecord) : []).flatMap((t) => {
-          const text = str(t.content)
+      default:
+        return []
+    }
+  }
+
+  /** A form: the agent asks the user one or more questions. */
+  form(form: unknown): ReadonlyArray<AgentEvent> {
+    const f = isRecord(form) ? form : {}
+    const id = str(f.id)
+    const sid = str(f.sessionID)
+    if (!id || !sid || !this.sessions.has(sid)) return []
+    const questions = formQuestions(form)
+    this.pending.set(id, { kind: "form", sessionID: sid, form })
+    return [
+      {
+        type: "approval.requested",
+        approvalId: id,
+        providerRequestId: id,
+        toolName: "question",
+        kind: "question",
+        questions,
+        summary: questions.length === 1 ? questions[0]!.question : (str(f.title) ?? `${questions.length} questions`),
+        details: { input: form }
+      }
+    ]
+  }
+
+  private permission(d: Record<string, unknown>, sid: string): ReadonlyArray<AgentEvent> {
+    const id = str(d.id)
+    if (!id) return []
+    this.pending.set(id, { kind: "permission", sessionID: sid })
+    const action = str(d.action) ?? "permission"
+    const resources = Array.isArray(d.resources) ? d.resources.filter((r): r is string => typeof r === "string") : []
+    const save = Array.isArray(d.save) ? d.save : []
+    return [
+      {
+        type: "approval.requested",
+        approvalId: id,
+        providerRequestId: id,
+        toolName: action,
+        summary: resources.length ? `${action}: ${resources.join(" ")}` : action,
+        details: { input: d.metadata, resources, save, ...(sid !== this.sessionId && { subagentSession: sid }) },
+        // `save` lists the patterns an "always" reply would allow from now on.
+        canAllowForSession: save.length > 0
+      }
+    ]
+  }
+
+  private toolCalled(d: Record<string, unknown>): ReadonlyArray<AgentEvent> {
+    const id = str(d.id)
+    if (!id || this.toolsStarted.has(id)) return []
+    this.toolsStarted.add(id)
+    const name = this.toolNames.get(id) ?? "tool"
+    const input = d.input
+    const out: Array<AgentEvent> = [{ type: "tool.started", toolCallId: id, name, input }]
+    // The todo tool carries the agent's plan.
+    const todos = isRecord(input) && Array.isArray(input.todos) ? input.todos.filter(isRecord) : undefined
+    if (todos && /todo/i.test(name)) {
+      out.push({
+        type: "plan.updated",
+        items: todos.flatMap((t) => {
+          const text = str(t.content) ?? str(t.text)
           if (!text) return []
           const status = PLAN_STATUSES.includes(str(t.status) as PlanItem["status"]) ? (str(t.status) as PlanItem["status"]) : "pending"
           return [{ text, status }]
         })
-        return [{ type: "plan.updated", items }]
-      }
-      case "permission.v2.asked": {
-        const id = str(p.id)
-        if (!id) return []
-        const action = str(p.action) ?? "permission"
-        const resources = Array.isArray(p.resources) ? p.resources.join(" ") : ""
-        return [
-          {
-            type: "approval.requested",
-            approvalId: id,
-            providerRequestId: id,
-            toolName: action,
-            summary: resources ? `${action}: ${resources}` : action,
-            details: { input: p.metadata, resources: p.resources },
-            canAllowForSession: Array.isArray(p.save) && p.save.length > 0
-          }
-        ]
-      }
-      case "session.error": {
-        const err = isRecord(p.error) ? p.error : {}
-        if (str(err.name) === "MessageAbortedError") {
-          this.aborted = true
-          return []
-        }
-        const data = isRecord(err.data) ? err.data : {}
-        this.errored = true
-        return [{ type: "session.error", message: str(data.message) ?? str(err.name) ?? "OpenCode error" }]
-      }
-      case "session.idle": {
-        if (!this.busy) return []
-        this.busy = false
-        const status = this.aborted ? "interrupted" : this.errored ? "error" : "success"
-        this.aborted = false
-        this.errored = false
-        const messages = [...this.turnMessages.values()]
-        this.turnMessages.clear()
-        const sum = (k: keyof TokenUsage) => messages.reduce((n, m) => n + (m.usage[k] ?? 0), 0)
-        const costs = messages.map((m) => m.cost).filter((c): c is number => c !== undefined)
-        const model = messages.at(-1)?.model
-        return [
-          {
-            type: "turn.completed",
-            providerSessionId: this.sessionId,
-            status,
-            durationMs: Date.now() - this.busySince,
-            ...(messages.length > 0 && {
-              usage: {
-                inputTokens: sum("inputTokens"),
-                outputTokens: sum("outputTokens"),
-                cacheReadTokens: sum("cacheReadTokens"),
-                cacheWriteTokens: sum("cacheWriteTokens"),
-                ...(sum("reasoningTokens") && { reasoningTokens: sum("reasoningTokens") })
-              }
-            }),
-            ...(costs.length > 0 && { costUsd: costs.reduce((a, b) => a + b, 0) }),
-            ...(model && { model })
-          }
-        ]
-      }
-      default:
-        return []
+      })
     }
+    return out
   }
 
-  private part(part: Record<string, unknown>, delta: string | undefined): ReadonlyArray<AgentEvent> {
-    const id = str(part.id) ?? "part"
-    const messageRole = this.roles.get(str(part.messageID) ?? "")
-    switch (part.type) {
-      case "text": {
-        if (messageRole === "user" || part.synthetic === true) return []
-        const time = isRecord(part.time) ? part.time : {}
-        if (time.end !== undefined && !this.finishedParts.has(id)) {
-          this.finishedParts.add(id)
-          return [{ type: "message.completed", messageId: id, text: str(part.text) ?? "" }]
+  private turn(status: "success" | "error" | "interrupted"): AgentEvent {
+    const steps = this.steps
+    this.steps = []
+    const sum = (k: keyof TokenUsage) => steps.reduce((n, s) => n + (s.usage[k] ?? 0), 0)
+    const costs = steps.map((s) => s.cost).filter((c): c is number => c !== undefined)
+    return {
+      type: "turn.completed",
+      providerSessionId: this.sessionId,
+      status,
+      durationMs: this.busySince ? Date.now() - this.busySince : 0,
+      ...(steps.length > 0 && {
+        usage: {
+          inputTokens: sum("inputTokens"),
+          outputTokens: sum("outputTokens"),
+          cacheReadTokens: sum("cacheReadTokens"),
+          cacheWriteTokens: sum("cacheWriteTokens"),
+          ...(sum("reasoningTokens") && { reasoningTokens: sum("reasoningTokens") })
         }
-        return delta ? [{ type: "message.delta", messageId: id, text: delta }] : []
-      }
-      case "reasoning": {
-        const time = isRecord(part.time) ? part.time : {}
-        if (time.end === undefined || this.finishedParts.has(id) || !str(part.text)) return []
-        this.finishedParts.add(id)
-        return [{ type: "reasoning", text: str(part.text)! }]
-      }
-      case "tool": {
-        const callId = str(part.callID) ?? id
-        const state = isRecord(part.state) ? part.state : {}
-        const out: Array<AgentEvent> = []
-        if (!this.toolsStarted.has(callId)) {
-          this.toolsStarted.add(callId)
-          out.push({ type: "tool.started", toolCallId: callId, name: str(part.tool) ?? "tool", input: state.input })
-        }
-        if ((state.status === "completed" || state.status === "error") && !this.toolsDone.has(callId)) {
-          this.toolsDone.add(callId)
-          out.push({
-            type: "tool.completed",
-            toolCallId: callId,
-            result: state.status === "error" ? state.error : state.output,
-            isError: state.status === "error"
-          })
-          // Tools (e.g. screenshots, reading an image) attach files as data URLs.
-          const attachments = Array.isArray(state.attachments) ? state.attachments : []
-          out.push(...imageEvents(attachments.flatMap((a) => asInlineImage(a) ?? []), callId))
-        }
-        return out
-      }
-      default:
-        return []
+      }),
+      ...(costs.length > 0 && { costUsd: costs.reduce((a, b) => a + b, 0) }),
+      ...(this.model && { model: this.model })
     }
   }
 }

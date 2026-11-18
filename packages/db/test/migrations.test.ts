@@ -104,12 +104,47 @@ describe("migration 7: worktree setup", () => {
     sqlite.prepare(`INSERT INTO projects (id,key,name,repo_path,default_branch,git_provider,default_harness,permission_mode,created_at,updated_at) VALUES ('p','P','P','/tmp','main','none','mock','ask','now','now')`).run()
     sqlite.prepare(`INSERT INTO tickets (id,project_id,number,title,status,priority,source_kind,labels,workspace_mode,created_at,updated_at,last_activity_at) VALUES ('t','p',1,'T','todo','none','local','[]','readonly','now','now','now')`).run()
     sqlite.prepare(`INSERT INTO workspaces (id,project_id,ticket_id,branch,path,base_commit,cleanup_state,created_at) VALUES ('w','p','t','b','/tmp/w','abc','active','now')`).run()
-    expect(migrate(sqlite, migrations)).toEqual([7])
+    expect(migrate(sqlite, migrations.filter((m) => m.id <= 7))).toEqual([7])
     expect(sqlite.prepare("SELECT setup_command FROM projects WHERE id='p'").get()).toEqual({ setup_command: null })
     expect(sqlite.prepare("SELECT setup_state FROM workspaces WHERE id='w'").get()).toEqual({ setup_state: "done" })
     const columns = sqlite.prepare("PRAGMA table_info(tickets)").all().map((c: { name: string }) => c.name)
     expect(columns).not.toContain("workspace_mode")
     expect(sqlite.prepare("SELECT id FROM tickets").all()).toEqual([{ id: "t" }])
+    sqlite.close()
+  })
+})
+
+describe("migration 8: ticket permission mode", () => {
+  it("leaves existing tickets following their project", () => {
+    const Database = require("better-sqlite3")
+    const sqlite = new Database(":memory:")
+    migrate(sqlite, migrations.filter((m) => m.id < 8))
+    sqlite.prepare(`INSERT INTO projects (id,key,name,repo_path,default_branch,git_provider,default_harness,permission_mode,created_at,updated_at) VALUES ('p','P','P','/tmp','main','none','mock','ask','now','now')`).run()
+    sqlite.prepare(`INSERT INTO tickets (id,project_id,number,title,status,priority,source_kind,labels,created_at,updated_at,last_activity_at) VALUES ('t','p',1,'T','todo','none','local','[]','now','now','now')`).run()
+    expect(migrate(sqlite, migrations.filter((m) => m.id <= 8))).toEqual([8])
+    expect(sqlite.prepare("SELECT permission_mode FROM tickets WHERE id='t'").get()).toEqual({ permission_mode: null })
+    sqlite.close()
+  })
+})
+
+describe("migration 9: restarts keep conversations", () => {
+  it("returns conversations interrupted by a restart to idle, but not workflow steps or unresumable ones", () => {
+    const Database = require("better-sqlite3")
+    const sqlite = new Database(":memory:")
+    migrate(sqlite, migrations.filter((m) => m.id < 9))
+    const cols = sqlite.prepare("PRAGMA table_info(agent_sessions)").all().map((c: { name: string }) => c.name)
+    const insert = (id: string, runId: string | null, provider: string | null) => {
+      const row: Record<string, unknown> = { id, ticket_id: "t", harness: "mock", state: "interrupted", cwd: "/tmp", run_id: runId, provider_session_id: provider, created_at: "now", updated_at: "now" }
+      const keys = Object.keys(row).filter((k) => cols.includes(k))
+      sqlite.pragma("foreign_keys = OFF")
+      sqlite.prepare(`INSERT INTO agent_sessions (${keys.join(",")}) VALUES (${keys.map(() => "?").join(",")})`).run(...keys.map((k) => row[k]))
+    }
+    insert("chat", null, "p1")
+    insert("step", "run", "p2")
+    insert("unresumable", null, null)
+    expect(migrate(sqlite, migrations.filter((m) => m.id <= 9))).toEqual([9])
+    const states = Object.fromEntries(sqlite.prepare("SELECT id, state FROM agent_sessions").all().map((r: { id: string; state: string }) => [r.id, r.state]))
+    expect(states).toEqual({ chat: "idle", step: "interrupted", unresumable: "interrupted" })
     sqlite.close()
   })
 })

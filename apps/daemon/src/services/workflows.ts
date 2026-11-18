@@ -351,7 +351,8 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
             config.sandboxPrefix,
             ticketModel(ticket, project, harness),
             (yield* harnessSettings.get).harnesses[harness],
-            ticketEffort(ticket, project, harness)
+            ticketEffort(ticket, project, harness),
+            ticket.permissionMode
           ),
           prompt: buildTicketPrompt(ticket, parts.join("\n\n"))
         })

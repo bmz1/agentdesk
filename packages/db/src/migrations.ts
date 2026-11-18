@@ -315,5 +315,18 @@ ALTER TABLE projects ADD COLUMN setup_command TEXT;
 ALTER TABLE workspaces ADD COLUMN setup_state TEXT NOT NULL DEFAULT 'done';
 ALTER TABLE tickets DROP COLUMN workspace_mode;
 `
+  },
+  {
+    id: 8,
+    name: "ticket_permission_mode",
+    // Null follows the project, so existing tickets keep their behaviour.
+    sql: /* sql */ `ALTER TABLE tickets ADD COLUMN permission_mode TEXT;`
+  },
+  {
+    id: 9,
+    name: "restart_keeps_conversations",
+    // Only daemon restarts set "interrupted". Conversations outside workflows now wait for a
+    // follow-up across restarts instead, so earlier ones get the same state.
+    sql: /* sql */ `UPDATE agent_sessions SET state = 'idle' WHERE state = 'interrupted' AND run_id IS NULL AND provider_session_id IS NOT NULL;`
   }
 ]

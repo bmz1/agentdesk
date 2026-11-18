@@ -24,22 +24,23 @@ export interface CodexAdapterOptions {
 }
 
 /**
- * AgentDesk's permission modes on Codex. "untrusted" asks before anything but known-safe
- * reads, like Claude's default mode. Codex has no "accept edits" policy, so AgentDesk
- * approves its edit requests itself (`autoApproveEdits`) and still asks for commands.
- * Codex's plan mode can't be set over the app-server API: "plan" is a read-only sandbox.
+ * AgentDesk's permission modes on Codex. `approval_policy = "untrusted"` is retired upstream (and asked
+ * even for `ls`), so asking modes use a read-only sandbox with `on-request`: reads and read-only commands
+ * run freely, while edits and writing commands escalate to an approval. Codex has no "accept edits"
+ * policy, so AgentDesk approves its edit requests itself (`autoApproveEdits`) and still asks for writing
+ * commands. Codex's plan mode can't be set over the app-server API: "plan" is a read-only sandbox in
+ * which nothing escalates, so no change can be approved by accident.
  */
 export const codexPolicy = (mode: PermissionMode) => {
   switch (mode) {
     case "ask":
-      return { approvalPolicy: "untrusted", sandbox: "workspace-write" } as const
     case "accept_edits":
-      return { approvalPolicy: "untrusted", sandbox: "workspace-write" } as const
-    // Escalations go to Codex's auto-review subagent instead of the user.
+      return { approvalPolicy: "on-request", sandbox: "read-only" } as const
+    // Codex's own "Auto" preset; escalations go to its auto-review subagent instead of the user.
     case "auto":
       return { approvalPolicy: "on-request", sandbox: "workspace-write", approvalsReviewer: "auto_review" } as const
     case "plan":
-      return { approvalPolicy: "on-request", sandbox: "read-only" } as const
+      return { approvalPolicy: "never", sandbox: "read-only" } as const
     case "unrestricted":
       return { approvalPolicy: "never", sandbox: "danger-full-access" } as const
   }

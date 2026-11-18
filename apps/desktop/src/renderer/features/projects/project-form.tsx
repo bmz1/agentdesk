@@ -12,23 +12,25 @@ import { q } from "@/lib/queries"
 
 /** How a harness actually enforces a mode, when it differs from the mode's description. */
 export const modeCaveat = (mode: PermissionMode, capabilities: HarnessCapabilities | undefined) => {
-  if (mode === "plan" && capabilities?.planMode === "read_only") return "This harness has no plan mode AgentDesk can turn on: plan runs it in a read-only sandbox."
+  if (mode === "plan" && capabilities?.planMode === "read_only") return "This harness has no plan mode AgentDesk can turn on: plan only blocks changes (Codex runs read-only; OpenCode can't run shell commands while planning)."
   if (mode === "accept_edits" && capabilities?.acceptEdits === "auto_approved") return "This harness has no accept-edits mode: AgentDesk approves its edit requests for you."
   return undefined
 }
 
-export const PERMISSION_MODES: ReadonlyArray<{ id: PermissionMode; label: string; hint: string }> = [
-  { id: "ask", label: "Ask for risky tools", hint: "Agent tool calls that need permission show approval cards (recommended)." },
-  { id: "accept_edits", label: "Auto-accept file edits", hint: "File edits in the worktree are allowed; shell commands still ask." },
+export const PERMISSION_MODES: ReadonlyArray<{ id: PermissionMode; label: string; short: string; hint: string }> = [
+  { id: "ask", label: "Ask for risky tools", short: "Ask", hint: "Agent tool calls that need permission show approval cards (recommended)." },
+  { id: "accept_edits", label: "Auto-accept file edits", short: "Accept edits", hint: "File edits in the worktree are allowed; shell commands still ask." },
   {
     id: "auto",
     label: "Auto (agent reviews approvals)",
-    hint: "Claude's auto mode and Codex's auto-review approve routine actions and block risky ones; only escalations ask. OpenCode still asks for shell commands."
+    short: "Auto",
+    hint: "Claude's auto mode and Codex's auto-review approve routine actions and block risky ones; only escalations ask. OpenCode has no reviewer: it allows edits, web lookups and subagents, and asks for shell commands."
   },
-  { id: "plan", label: "Plan only", hint: "The agent may read and plan but not modify files." },
+  { id: "plan", label: "Plan only", short: "Plan", hint: "The agent may read and plan but not modify files." },
   {
     id: "unrestricted",
     label: "Unrestricted (sandbox only)",
+    short: "Unrestricted",
     hint: "No approvals. A worktree is NOT a sandbox — only use inside an isolated sandbox."
   }
 ]

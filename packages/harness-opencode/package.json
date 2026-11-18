@@ -12,6 +12,7 @@
   "dependencies": {
     "@agentdesk/contracts": "workspace:*",
     "@agentdesk/harness-core": "workspace:*",
+    "@opencode/client": "2.2.6",
     "effect": "4.1.4"
   }
 }

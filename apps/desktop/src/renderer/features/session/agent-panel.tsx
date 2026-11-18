@@ -1,4 +1,4 @@
-import type { AgentSession, HarnessId, Ticket } from "@agentdesk/contracts"
+import type { AgentSession, HarnessId, PermissionMode, Ticket } from "@agentdesk/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Bot, Play, Power, Wifi, WifiOff } from "lucide-react"
 import { useEffect, useState } from "react"
@@ -11,7 +11,7 @@ import { q, qk } from "@/lib/queries"
 import { useUi } from "@/lib/store"
 import { relativeTime } from "@/lib/utils"
 import { Composer } from "./composer"
-import { ComposerModelPicker } from "./model-picker"
+import { ComposerModelPicker, ComposerPermissionPicker, usePermissionDefault } from "./model-picker"
 import { type DecideFn, Transcript } from "./transcript"
 import { useSessionEvents } from "./use-session-events"
 import { useShortcut } from "@/lib/keymap"
@@ -115,14 +115,19 @@ const SessionView = ({ session, ticket }: { session: AgentSession; ticket: Ticke
   // until switched here. `picked` is a switch not yet sent.
   const ticketHarness = ticket.harness ?? project.data?.defaultHarness
   const own = session.harness === ticketHarness
-  const [switched, setSwitched] = useState<{ model?: string | null; effort?: string | null }>({})
-  const [picked, setPicked] = useState<{ model?: string | null; effort?: string | null }>({})
+  type Switches = { model?: string | null; effort?: string | null; permissionMode?: PermissionMode | null }
+  const [switched, setSwitched] = useState<Switches>({})
+  const [picked, setPicked] = useState<Switches>({})
   const current = {
     model: switched.model !== undefined ? switched.model : own ? ticket.model : null,
-    effort: switched.effort !== undefined ? switched.effort : own ? ticket.effort : null
+    effort: switched.effort !== undefined ? switched.effort : own ? ticket.effort : null,
+    // Permission modes mean the same to every harness: the ticket's applies to all its sessions.
+    permissionMode: switched.permissionMode !== undefined ? switched.permissionMode : ticket.permissionMode
   }
   const model = picked.model !== undefined ? picked.model : current.model
   const effort = picked.effort !== undefined ? picked.effort : current.effort
+  const permissionMode = picked.permissionMode !== undefined ? picked.permissionMode : current.permissionMode
+  const permissionDefault = usePermissionDefault(project.data, session.harness)
   const markRead = useUi((s) => s.markSessionRead)
   useEffect(() => {
     const read = () => {
@@ -195,7 +200,8 @@ const SessionView = ({ session, ticket }: { session: AgentSession; ticket: Ticke
         onSend={async (text, images) => {
           const change = {
             ...(model !== current.model && { model }),
-            ...(effort !== current.effort && { effort })
+            ...(effort !== current.effort && { effort }),
+            ...(permissionMode !== current.permissionMode && { permissionMode })
           }
           await api.prompt(session.id, text, images, change)
           setSwitched((s) => ({ ...s, ...change }))
@@ -213,6 +219,12 @@ const SessionView = ({ session, ticket }: { session: AgentSession; ticket: Ticke
               // A new model has its own effort levels: start from its default.
               onModel={(m) => setPicked({ model: m, effort: null })}
               onEffort={(e) => setPicked((p) => ({ ...p, effort: e }))}
+              disabled={!live && !resumable}
+            />
+            <ComposerPermissionPicker
+              value={permissionMode}
+              projectDefault={permissionDefault}
+              onChange={(m) => setPicked((p) => ({ ...p, permissionMode: m }))}
               disabled={!live && !resumable}
             />
             <span className="truncate">· {session.state === "idle" ? "awaiting follow-up" : session.state.replace(/_/g, " ")}</span>

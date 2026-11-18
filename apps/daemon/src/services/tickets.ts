@@ -146,6 +146,7 @@ export const loadTickets = (database: DatabaseShape, filter: TicketFilter = {}) 
         harness: (t.harness as Ticket["harness"]) ?? null,
         model: t.model ?? null,
         effort: t.effort ?? null,
+        permissionMode: (t.permissionMode as Ticket["permissionMode"]) ?? null,
         workflowId: t.workflowId,
         labels: t.labels ?? [],
         pinned: t.pinned,
@@ -215,6 +216,7 @@ export const TicketsLive = Layer.effect(
               harness: body.harness ?? null,
               model: body.model ?? null,
               effort: body.effort ?? null,
+              permissionMode: body.permissionMode ?? null,
               workflowId: body.workflowId ?? null,
               labels: [...(body.labels ?? [])],
               pinned: false,
@@ -259,6 +261,7 @@ export const TicketsLive = Layer.effect(
               ...(body.effort !== undefined
                 ? { effort: body.effort }
                 : ((body.harness !== undefined && body.harness !== before.harness) || (body.model !== undefined && body.model !== before.model)) && { effort: null }),
+              ...(body.permissionMode !== undefined && { permissionMode: body.permissionMode }),
               ...(body.workflowId !== undefined && { workflowId: body.workflowId }),
               ...(body.labels !== undefined && { labels: [...body.labels] }),
               ...(body.pinned !== undefined && { pinned: body.pinned }),

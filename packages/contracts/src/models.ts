@@ -72,6 +72,8 @@ export const Ticket = Schema.Struct({
   model: NullableString,
   /** Reasoning effort for the ticket's harness; null uses the model's default. */
   effort: NullableString,
+  /** Permission mode for the ticket's agents; null follows the project (or its harness defaults). */
+  permissionMode: Schema.NullOr(PermissionMode),
   workflowId: NullableString,
   labels: Schema.Array(Schema.String),
   pinned: Schema.Boolean,
@@ -269,8 +271,10 @@ export const HarnessDetection = Schema.Struct({
   detail: Schema.optional(Schema.String),
   /** Models the harness offers; empty or missing means free-form entry only. */
   models: Schema.optional(Schema.Array(HarnessModel)),
-  /** Reasoning effort levels for every model of the harness (Claude). Missing: per model, or unsupported. */
+  /** Reasoning effort levels for every model of the harness. Missing: per model, or unsupported. */
   efforts: Schema.optional(Schema.Array(Schema.String)),
+  /** Name of the model the harness uses when none is chosen ("Opus 5.5"), when it says. */
+  defaultModel: Schema.optional(Schema.String),
   capabilities: Schema.optional(HarnessCapabilities)
 })
 export type HarnessDetection = typeof HarnessDetection.Type

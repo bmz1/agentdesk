@@ -47,3 +47,44 @@ describe("switching model and effort from the composer", () => {
     expect(await api.get(`/tickets/${t.id}`)).toMatchObject({ model: "mock-3", effort: null })
   })
 })
+
+describe("per-ticket permission mode", () => {
+  const permissions = (h: Array<any>) => h.filter((e) => e.event.type === "session.status" && e.event.state === "permissions").map((e) => e.event.detail)
+
+  it("overrides the project at start and switches from the composer by relaunching the conversation", async () => {
+    const { daemon, api } = await startTestDaemon({ adapters: [makeMockAdapter({ delayMs: 1 })] })
+    cleanups.push(daemon.stop)
+    const p = await api.post("/projects", { name: "Perm", key: "PM", repoPath: makeRepo(), defaultHarness: "mock", permissionMode: "ask" })
+    const t = await api.post("/tickets", { projectId: p.id, title: "Edit freely", permissionMode: "accept_edits" })
+    expect(t.permissionMode).toBe("accept_edits")
+
+    // The ticket's mode wins over the project's "ask": the write needs no approval.
+    const s = await api.post(`/tickets/${t.id}/sessions`, { prompt: "First" })
+    let h = await turns(api, s.id, 1)
+    expect(permissions(h)).toEqual(["accept_edits"])
+    expect(h.some((e) => e.event.type === "approval.requested")).toBe(false)
+    expect(h.some((e) => e.event.type === "tool.started" && e.event.name === "Write")).toBe(true)
+
+    // Back to the project default from the composer: same conversation in a new process that asks again.
+    await api.post(`/sessions/${s.id}/prompt`, { text: "Second", permissionMode: null })
+    await waitFor(async () => ((await api.get(`/sessions/${s.id}`)).state === "waiting_for_approval" ? true : undefined))
+    h = await history(api, s.id)
+    expect(permissions(h)).toEqual(["accept_edits", "ask"])
+    const starts = h.filter((e) => e.event.type === "session.started")
+    expect(starts).toHaveLength(2)
+    expect(starts[1].event.providerSessionId).toBe(starts[0].event.providerSessionId)
+    expect(await api.get(`/tickets/${t.id}`)).toMatchObject({ permissionMode: null })
+  })
+
+  it("refuses unrestricted without a sandbox before touching the running agent", async () => {
+    const { daemon, api } = await startTestDaemon({ adapters: [makeMockAdapter({ delayMs: 1 })] })
+    cleanups.push(daemon.stop)
+    const p = await api.post("/projects", { name: "Perm2", key: "PN", repoPath: makeRepo(), defaultHarness: "mock", permissionMode: "accept_edits" })
+    const t = await api.post("/tickets", { projectId: p.id, title: "Stay safe" })
+    const s = await api.post(`/tickets/${t.id}/sessions`, { prompt: "First [noop]" })
+    await turns(api, s.id, 1)
+    await expect(api.post(`/sessions/${s.id}/prompt`, { text: "Second [noop]", permissionMode: "unrestricted" })).rejects.toThrow(/sandbox/)
+    expect(await api.get(`/tickets/${t.id}`)).toMatchObject({ permissionMode: null })
+    expect((await history(api, s.id)).filter((e) => e.event.type === "session.started")).toHaveLength(1)
+  })
+})

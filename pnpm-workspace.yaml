@@ -1,7 +1,10 @@
 packages:
   - apps/*
   - packages/*
-onlyBuiltDependencies:
-  - better-sqlite3
-  - electron
-  - esbuild
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+  electron: true
+overrides:
+  # @opencode/client pins its Effect peer exactly; one Effect copy keeps services and types shared.
+  effect: 4.1.4

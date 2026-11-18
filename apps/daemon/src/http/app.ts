@@ -201,7 +201,8 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
       body(c, PromptBody).pipe(
         Effect.flatMap((b) => Sessions.use((s) => s.prompt(id(c), b.text, "user", b.images, {
           ...(b.model !== undefined && { model: b.model }),
-          ...(b.effort !== undefined && { effort: b.effort })
+          ...(b.effort !== undefined && { effort: b.effort }),
+          ...(b.permissionMode !== undefined && { permissionMode: b.permissionMode })
         }))),
         // Continuing an interrupted workflow step by hand resumes its run around that conversation.
         Effect.tap(() => Workflows.use((w) => w.continueFromSession(id(c))))

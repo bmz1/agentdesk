@@ -7,6 +7,7 @@ import type {
   HarnessDefaults,
   QuestionAnswers,
   HarnessId,
+  PermissionMode,
   Project,
   SessionState,
   Ticket,
@@ -115,6 +116,7 @@ export interface StartForTicketInput {
 export interface PromptSwitches {
   readonly model?: string | null
   readonly effort?: string | null
+  readonly permissionMode?: PermissionMode | null
 }
 
 export interface TurnResult {
@@ -154,7 +156,10 @@ export interface SessionsShape {
   readonly awaitTurn: (id: string, afterEventId: number) => Effect.Effect<TurnResult, DbError>
   readonly isLive: (id: string) => boolean
   readonly liveCount: () => number
-  /** Startup reconciliation: sessions left "live" by a previous daemon are marked interrupted. */
+  /**
+   * Startup reconciliation of sessions left "live" by a previous daemon: user conversations wait
+   * idle for a follow-up (which resumes them); workflow steps are marked interrupted.
+   */
   readonly reconcile: Effect.Effect<number, DbError>
 }
 
@@ -172,6 +177,13 @@ interface LiveSession {
   exitCode: number | null | undefined
 }
 
+/** The permission mode a run gets: the ticket's own choice, else the project's, else the harness defaults. */
+export const effectivePermissionMode = (project: Project, defaults?: HarnessDefaults, ticketMode?: PermissionMode | null): PermissionMode =>
+  ticketMode ?? (project.inheritHarnessPermissions ? defaults?.permissionMode ?? "ask" : project.permissionMode)
+
+const unrestrictedWithoutSandbox = () =>
+  new BadRequest({ message: "Unrestricted permission mode requires a sandbox (set AGENTDESK_SANDBOX_CMD). Choose another permission mode or configure a sandbox." })
+
 /**
  * Build the harness run policy for a project. Unrestricted mode is refused
  * unless a real sandbox is configured: a git worktree is not a sandbox.
@@ -181,11 +193,13 @@ export const projectPolicy = (
   sandboxPrefix: ReadonlyArray<string> | undefined,
   model?: string | null,
   defaults?: HarnessDefaults,
-  effort?: string | null
+  effort?: string | null,
+  /** The ticket's permission mode; null or omitted follows the project. */
+  ticketPermissionMode?: PermissionMode | null
 ) => {
-  const permissionMode = project.inheritHarnessPermissions ? defaults?.permissionMode ?? "ask" : project.permissionMode
+  const permissionMode = effectivePermissionMode(project, defaults, ticketPermissionMode)
   return permissionMode === "unrestricted" && !sandboxPrefix?.length
-    ? Effect.fail(new BadRequest({ message: "Unrestricted permission mode requires a sandbox (set AGENTDESK_SANDBOX_CMD). Choose another permission mode or configure a sandbox." }))
+    ? Effect.fail(unrestrictedWithoutSandbox())
     : Effect.succeed<RunPolicy>({
         permissionMode,
         ...((model ?? defaults?.model) && { model: (model ?? defaults?.model)! }),
@@ -523,6 +537,8 @@ export const SessionsLive = Layer.effect(
           sandboxed: !!opts.policy.sandboxPrefix
         })
         const adapter = yield* harnesses.get(row.harness as HarnessId)
+        // Show what the agent really runs with: ticket, project and harness defaults all feed into it.
+        yield* record(row.id, { type: "session.status", state: "permissions", detail: opts.policy.permissionMode })
         const scope = yield* Scope.fork(rootScope)
         // The agent learns which session it is; `agentdesk` refuses approval decisions from inside one.
         const policy = { ...opts.policy, env: { ...opts.policy.env, AGENTDESK_SESSION_ID: row.id } }
@@ -662,7 +678,7 @@ export const SessionsLive = Layer.effect(
         }
         const project = yield* projects.get(ticket.projectId)
         const harness = input.harness ?? ticket.harness ?? project.defaultHarness
-        const policy = yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, harness), (yield* defaults.get).harnesses[harness], ticketEffort(ticket, project, harness))
+        const policy = yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, harness), (yield* defaults.get).harnesses[harness], ticketEffort(ticket, project, harness), ticket.permissionMode)
         // Every agent works in its own worktree, never in the project's main checkout.
         const ws = yield* workspaces.forTicket({
           project,
@@ -685,7 +701,8 @@ export const SessionsLive = Layer.effect(
 
     /**
      * Model and effort switches from the composer. They stick: the ticket remembers them when the
-     * session runs the ticket's own harness, so resumes and new sessions use them too.
+     * session runs the ticket's own harness, so resumes and new sessions use them too. The permission
+     * mode means the same to every harness, so the ticket always remembers it.
      */
     const applySwitches = (row: Row, switches: PromptSwitches) =>
       Effect.gen(function* () {
@@ -697,6 +714,10 @@ export const SessionsLive = Layer.effect(
           ...(switches.effort !== undefined && switches.effort !== ticket.effort && { effort: switches.effort })
         }
         if (own && Object.keys(update).length > 0) yield* tickets.update(ticket.id, update, "user")
+        if (switches.permissionMode !== undefined && switches.permissionMode !== ticket.permissionMode) {
+          yield* tickets.update(ticket.id, { permissionMode: switches.permissionMode }, "user")
+        }
+        // The relaunch that applies a permission switch records the new mode ("permissions").
         if (switches.model !== undefined) {
           yield* record(row.id, { type: "session.status", state: "model_changed", detail: switches.model ?? "harness default" })
         }
@@ -728,15 +749,32 @@ export const SessionsLive = Layer.effect(
           chars: text.length,
           images: imageIds?.length ?? 0,
           model: switches.model ?? "",
-          effort: switches.effort ?? ""
+          effort: switches.effort ?? "",
+          permissionMode: switches.permissionMode ?? ""
         })
         const images = yield* loadImages(imageIds)
         const promptEvent = { type: "user.prompt" as const, text, ...(images.refs.length && { images: images.refs }) }
         const sessionRow = yield* getRow(id)
         if (!sessionRow.runId) yield* backToWork(sessionRow.ticketId)
-        if (switches.model !== undefined || switches.effort !== undefined) yield* applySwitches(sessionRow, switches)
-        // Harnesses that only take effort at launch (Claude) continue the same conversation in a new process.
-        if (l && switches.effort !== undefined && l.handle.liveEffort === false && sessionRow.providerSessionId) {
+        if (switches.permissionMode !== undefined) {
+          // Refuse before anything changes: a relaunch that then fails would leave the agent stopped.
+          const ticket = yield* tickets.get(sessionRow.ticketId)
+          const project = yield* projects.get(ticket.projectId)
+          const harnessDefaults = (yield* defaults.get).harnesses[sessionRow.harness as HarnessId]
+          if (effectivePermissionMode(project, harnessDefaults, switches.permissionMode) === "unrestricted" && !config.sandboxPrefix?.length) {
+            return yield* unrestrictedWithoutSandbox()
+          }
+          if (l && !sessionRow.providerSessionId) {
+            return yield* new BadRequest({ message: "The agent has not started its conversation yet; change the permission mode once it has" })
+          }
+        }
+        if (switches.model !== undefined || switches.effort !== undefined || switches.permissionMode !== undefined) {
+          yield* applySwitches(sessionRow, switches)
+        }
+        // Permissions are fixed at launch for every harness, and effort is for some (Claude): continue the
+        // same conversation in a new process with the new settings.
+        const relaunch = switches.permissionMode !== undefined || (switches.effort !== undefined && l?.handle.liveEffort === false)
+        if (l && relaunch && sessionRow.providerSessionId) {
           yield* stopForRelaunch(id, l)
           l = live.get(id)
         }
@@ -775,7 +813,7 @@ export const SessionsLive = Layer.effect(
         yield* record(id, promptEvent)
         yield* record(id, { type: "session.status", state: "resuming", detail: "Resuming provider conversation in a new process" })
         const harness = row.harness as HarnessId
-        const basePolicy = yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, harness), (yield* defaults.get).harnesses[harness], ticketEffort(ticket, project, harness))
+        const basePolicy = yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, harness), (yield* defaults.get).harnesses[harness], ticketEffort(ticket, project, harness), ticket.permissionMode)
         // An explicit switch wins over the ticket's settings (it may be for another harness than the ticket's);
         // "default" is already reflected in basePolicy (the ticket's value was cleared).
         const { effort: _ticketEffort, ...withoutEffort } = basePolicy
@@ -900,6 +938,18 @@ export const SessionsLive = Layer.effect(
         return turn
       })
 
+    /**
+     * A conversation the user drives (not a workflow step) with a provider id survives a daemon
+     * restart: it simply waits for a follow-up, which resumes it in a new process. Workflow steps
+     * stay "interrupted" so their run can recover them.
+     */
+    const dormant = (row: { readonly runId: string | null; readonly providerSessionId: string | null }) => !row.runId && !!row.providerSessionId
+    const turnCutShort = {
+      type: "session.status" as const,
+      state: "restarted",
+      detail: "AgentDesk restarted during this turn. Send a follow-up to continue the conversation."
+    }
+
     const reconcile = Effect.gen(function* () {
       const updatedAt = yield* nowIso
       const stale = yield* use((db) =>
@@ -921,11 +971,17 @@ export const SessionsLive = Layer.effect(
             })
           }
         }
+        if (s.workspaceId) yield* workspaces.unlock(s.workspaceId, s.id)
+        yield* approvals.expireForSession(s.id)
+        if (dormant(s)) {
+          // The conversation outlives the process: it waits for a follow-up, which resumes it.
+          yield* use((db) => db.update(agentSessions).set({ state: "idle", pid: null, updatedAt }).where(eq(agentSessions.id, s.id)).run())
+          if (s.state !== "idle") yield* record(s.id, turnCutShort)
+          continue
+        }
         yield* use((db) =>
           db.update(agentSessions).set({ state: "interrupted", pid: null, updatedAt }).where(eq(agentSessions.id, s.id)).run()
         )
-        if (s.workspaceId) yield* workspaces.unlock(s.workspaceId, s.id)
-        yield* approvals.expireForSession(s.id)
         yield* record(s.id, {
           type: "session.status",
           state: "interrupted",
@@ -947,6 +1003,13 @@ export const SessionsLive = Layer.effect(
         Effect.gen(function* () {
           l.stopping = true
           const updatedAt = yield* nowIso
+          const row = yield* getRow(id)
+          if (dormant(row)) {
+            // Nothing to report for a conversation at rest; one cut mid-turn says so, without alarm.
+            yield* use((db) => db.update(agentSessions).set({ state: "idle", pid: null, updatedAt }).where(eq(agentSessions.id, id)).run())
+            if (row.state !== "idle") yield* events.append(id, turnCutShort)
+            return
+          }
           yield* use((db) =>
             db.update(agentSessions).set({ state: "interrupted", pid: null, updatedAt }).where(eq(agentSessions.id, id)).run()
           )

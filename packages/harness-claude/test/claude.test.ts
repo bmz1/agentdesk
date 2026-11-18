@@ -5,7 +5,36 @@ import type { AgentEvent } from "@agentdesk/contracts"
 import { NodeProcessLayer, parseJsonLine } from "@agentdesk/harness-core"
 import { describe, expect, it, layer } from "@effect/vitest"
 import { Effect, Exit, Stream } from "effect"
-import { claudeApprovalResponse, ClaudeNormalizer, makeClaudeAdapter, permissionFlags } from "../src"
+import { claudeApprovalResponse, ClaudeNormalizer, makeClaudeAdapter, parseClaudeModels, permissionFlags } from "../src"
+
+describe("Claude model list", () => {
+  const response = (models: Array<Record<string, unknown>>) =>
+    [
+      JSON.stringify({ type: "system", subtype: "hook_started" }),
+      "not json",
+      JSON.stringify({ type: "control_response", response: { subtype: "success", request_id: "x", response: { models } } })
+    ].join("\n")
+
+  it("uses the CLI's exact names and per-model effort levels, naming the default", () => {
+    const parsed = parseClaudeModels(response([
+      { value: "default", resolvedModel: "claude-opus-5-5", displayName: "Default (recommended)" },
+      { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5", supportedEffortLevels: ["low", "high", "max"] },
+      { value: "claude-haiku-4-5-20251001", resolvedModel: "claude-haiku-4-5-20251001", displayName: "Haiku 4.5" }
+    ]))
+    expect(parsed).toEqual({
+      models: [
+        { id: "opus", label: "Opus 5.5", efforts: ["low", "high", "max"] },
+        { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" }
+      ],
+      defaultModel: "Opus 5.5"
+    })
+  })
+
+  it("reports nothing when the CLI gives no model list, so detection falls back to the aliases", () => {
+    expect(parseClaudeModels("")).toBeUndefined()
+    expect(parseClaudeModels(response([]))).toBeUndefined()
+  })
+})
 
 describe("Claude permission flags", () => {
   it("maps auto to Claude's classifier-reviewed auto mode", () => {

@@ -89,7 +89,7 @@ describe("first milestone: ticket → headless agent in a worktree → live tran
     expect(ok.headers.get("access-control-allow-origin")).toBe("http://localhost:5173")
   })
 
-  it("marks live sessions interrupted after a daemon restart and resumes on follow-up", async () => {
+  it("keeps a conversation waiting for a follow-up across a daemon restart, without error states", async () => {
     const first = await startTestDaemon()
     const repo = makeRepo()
     const project = await first.api.post("/projects", { name: "Restart", repoPath: repo, defaultHarness: "mock", permissionMode: "accept_edits" })
@@ -101,7 +101,9 @@ describe("first milestone: ticket → headless agent in a worktree → live tran
     const second = await startTestDaemon({}, first.dataDir)
     cleanups.push(second.daemon.stop)
     const s = await second.api.get(`/sessions/${session.id}`)
-    expect(["interrupted"]).toContain(s.state)
+    expect(s.state).toBe("idle")
+    const before = await second.api.get(`/sessions/${session.id}/history`)
+    expect(before.some((e: any) => e.event.type === "session.status" && ["interrupted", "restarted"].includes(e.event.state))).toBe(false)
     await second.api.post(`/sessions/${session.id}/prompt`, { text: "continue [noop]" })
     const evs = await second.api.sse(`/sessions/${session.id}/events`, (e) =>
       e.filter((x) => x.event.type === "turn.completed").length >= 2

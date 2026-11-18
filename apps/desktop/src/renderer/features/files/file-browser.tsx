@@ -1,9 +1,9 @@
 import type { FileTree } from "@agentdesk/contracts"
 import { useQuery } from "@tanstack/react-query"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { ChevronRight, Copy, File, FileDiff, Folder, FolderOpen, FolderSearch, Pencil, RefreshCw, Search } from "lucide-react"
+import { ChevronRight, Copy, File, FileDiff, Folder, FolderOpen, FolderSearch, Lock, RefreshCw, Search } from "lucide-react"
 import type * as React from "react"
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -264,8 +264,6 @@ const FileView = ({
   onDirtyChange: (dirty: boolean) => void
 }) => {
   const isImage = IMAGE_EXT.test(path)
-  const [editing, setEditing] = useState(false)
-  const stopEditing = useCallback(() => setEditing(false), [])
   const file = useQuery({ ...q.ticketFile(ticketId, path), enabled: !isImage })
   const image = useQuery({
     queryKey: ["tickets", "detail", ticketId, "files", path, "image"],
@@ -311,8 +309,9 @@ const FileView = ({
     </header>
   )
 
-  if (editing && file.data && !file.data.binary) {
-    return <FileEditor ticketId={ticketId} disk={file.data} onDone={stopEditing} onDirtyChange={onDirtyChange} header={header} />
+  // Editable files are simply editable: click in, type, save.
+  if (!isImage && file.data && !file.data.binary && file.data.editable) {
+    return <FileEditor ticketId={ticketId} disk={file.data} onDirtyChange={onDirtyChange} header={header} />
   }
 
   return (
@@ -320,11 +319,9 @@ const FileView = ({
       {header(
         file.data &&
           !file.data.binary && (
-            <Tooltip content={file.data.editable ? "Edit file" : (file.data.readonlyReason ?? "Read-only")}>
-              <span>
-                <Button size="sm" variant="ghost" disabled={!file.data.editable} onClick={() => setEditing(true)} data-testid="file-edit">
-                  <Pencil /> Edit
-                </Button>
+            <Tooltip content={file.data.readonlyReason ?? "This file can't be edited here"}>
+              <span className="flex items-center gap-1 text-fg-subtle" data-testid="file-readonly">
+                <Lock className="size-3" /> Read-only
               </span>
             </Tooltip>
           )

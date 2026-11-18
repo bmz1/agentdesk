@@ -33,7 +33,7 @@ Keep HTTP handlers thin and business logic in Effect services. Define shared API
 
 ## Testing Guidelines
 
-Use Vitest and `@effect/vitest`; name tests `*.test.ts`. Run focused checks with `pnpm exec vitest run <path>`. Cover behavior, failure paths, persistence, and permission boundaries. No numerical coverage threshold is configured. Real CLI smoke tests require authenticated harnesses: `AGENTDESK_SMOKE=claude,codex,opencode pnpm test:smoke`.
+Use Vitest and `@effect/vitest`; name tests `*.test.ts`. Run focused checks with `pnpm exec vitest run <path>`. Cover behavior, failure paths, persistence, and permission boundaries. No numerical coverage threshold is configured. Real CLI smoke tests require authenticated harnesses: `AGENTDESK_SMOKE=claude,codex,opencode pnpm test:smoke`; `pnpm test:permissions` with the same variable checks every permission mode against the real harnesses.
 
 ## Commit & Pull Request Guidelines
 

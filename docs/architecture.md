@@ -43,7 +43,7 @@ DaemonConfig · NodeServices (ChildProcessSpawner…) · Observability
 | --- | --- | --- | --- | --- |
 | Claude Code | `claude -p --input-format/--output-format stream-json`, stdio | `control_request can_use_tool` (`--permission-prompt-tool stdio`) | control `interrupt` | `--resume <session_id>` |
 | Codex | `codex app-server` JSON-RPC over stdio | server requests `item/*/requestApproval` | `turn/interrupt` | `thread/resume` |
-| OpenCode | `opencode serve` per session, HTTP + SSE `/event` | `permission.asked` → `/permission/:id/reply` | `/session/:id/abort` | existing session id, permission rules re-applied |
+| OpenCode (2.x) | private `opencode serve --stdio` per session (loopback, fresh password), `@opencode/client/effect` for calls, SSE `/api/event` decoded leniently | `permission.asked` → `permission.reply` on the asking session (a subagent's own) | `session.interrupt` | existing session id, permission rules re-applied |
 
 No adapter parses terminal output.
 
@@ -51,16 +51,16 @@ The bridge normalizes the same features across all three:
 
 | Feature | Claude Code | Codex | OpenCode |
 | --- | --- | --- | --- |
-| Questions (`approval.requested` with `kind: "question"`) | `AskUserQuestion` permission request, answered in `updatedInput.answers` (keyed by question text) | `item/tool/requestUserInput`, answered `{answers: {id: {answers}}}` | `question.asked`, answered on `/question/:id/reply` in question order |
+| Questions (`approval.requested` with `kind: "question"`) | `AskUserQuestion` permission request, answered in `updatedInput.answers` (keyed by question text) | `item/tool/requestUserInput`, answered `{answers: {id: {answers}}}` | `form.created`, one question per field, answered with `session.form.reply` (option values, typed values) |
 | Allow for the session (`scope: "session"`) | the request's `permission_suggestions` as `updatedPermissions` | `acceptForSession` (`approved_for_session` on legacy requests) | reply `always` |
-| Plan (`plan.updated`) | `TodoWrite`, or `TaskCreate`/`TaskUpdate` | `turn/plan/updated` | `todo.updated` |
-| Turn usage | `result.usage`; cost is the change in the cumulative `total_cost_usd` | difference of `thread/tokenUsage/updated` totals; no cost | sum of the turn's assistant messages' tokens and cost |
+| Plan (`plan.updated`) | `TodoWrite`, or `TaskCreate`/`TaskUpdate` | `turn/plan/updated` | the todo tool's input |
+| Turn usage | `result.usage`; cost is the change in the cumulative `total_cost_usd` | difference of `thread/tokenUsage/updated` totals; no cost | sum of the turn's `session.step.ended` tokens and cost |
 | Rate limits (`rate_limit`) | `rate_limit_event` (5-hour, weekly) | `account/rateLimits/read` + `account/rateLimits/updated` | not reported |
-| Plan mode | `--permission-mode plan` | read-only sandbox (not settable over app-server) | the `plan` agent, edits denied |
-| Accept edits | `--permission-mode acceptEdits` | `untrusted` policy; AgentDesk approves edit requests itself | `edit: allow` rule |
-| Effort | `--effort` (restart to change) | per turn | model `variant`, per prompt |
+| Plan mode | `--permission-mode plan` | read-only sandbox with approval policy `never` (plan mode is not settable over app-server) | no plan agent in 2.x: edit and shell rules denied (their tools are hidden) |
+| Accept edits | `--permission-mode acceptEdits` | read-only sandbox + `on-request`; AgentDesk approves edit requests itself, writing commands still ask | `edit` rule allowed |
+| Effort | `--effort` (restart to change) | per turn | model reference `variant`, switched with `session.switchModel` |
 
-Adapters declare these as `HarnessCapabilities` (in `/harnesses/detect`), so the UI explains approximations instead of pretending. Requests a harness sends that AgentDesk does not serve are answered at once with an error (Claude `control_request`s other than `can_use_tool`, unknown Codex server requests) so an agent never waits on them. A Codex interrupt sent before `turn/start` has returned a turn id is held and sent as soon as the id arrives.
+Adapters declare these as `HarnessCapabilities` (in `/harnesses/detect`), so the UI explains approximations instead of pretending. Requests a harness sends that AgentDesk does not serve are answered at once with an error (Claude `control_request`s other than `can_use_tool`, unknown Codex server requests) so an agent never waits on them. OpenCode events of types AgentDesk doesn't know are skipped; the typed client's own event stream is not used, because one unknown event type would end it. A Codex interrupt sent before `turn/start` has returned a turn id is held and sent as soon as the id arrives.
 
 `rate_limit` events are account-wide: the `Limits` service keeps the newest per harness (`GET /limits`, pushed as `limits` notices) and they never enter a transcript. Sessions carry `plan` (done/total/current step of the latest `plan.updated`) and `usage` (summed over `turn.completed`; input counts cached reads), loaded from the event log once and then kept current as events are recorded.
 

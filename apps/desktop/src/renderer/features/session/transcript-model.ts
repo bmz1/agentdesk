@@ -1,5 +1,14 @@
 import type { AgentQuestion, ImageRef, PlanItem, QuestionAnswers, StoredAgentEvent, TokenUsage } from "@agentdesk/contracts"
 
+/** Readable permission modes for transcript status lines (the daemon records the mode id). */
+const PERMISSION_LABELS: Record<string, string> = {
+  ask: "ask for risky tools",
+  accept_edits: "auto-accept file edits",
+  auto: "auto (agent reviews approvals)",
+  plan: "plan only",
+  unrestricted: "unrestricted"
+}
+
 export type TranscriptItem =
   | { kind: "user"; key: string; text: string; images: ReadonlyArray<ImageRef>; at: string }
   | { kind: "image"; key: string; image: ImageRef; toolCallId?: string }
@@ -147,6 +156,16 @@ export class TranscriptBuilder {
         this.items.push({ kind: "status", key, text: `Session started${e.model ? ` · ${e.model}` : ""}`, tone: "neutral" })
         break
       case "session.status":
+        // Daemon restarts are not errors: a conversation picks up again with the next follow-up.
+        if (e.state === "interrupted" && e.detail === "Daemon shutting down") break
+        if (e.state === "restarted" || (e.state === "interrupted" && e.detail?.startsWith("The daemon restarted."))) {
+          this.items.push({ kind: "status", key, text: e.state === "restarted" ? e.detail ?? "AgentDesk restarted" : "AgentDesk restarted. Send a follow-up to continue.", tone: "neutral" })
+          break
+        }
+        if (e.state === "permissions") {
+          this.items.push({ kind: "status", key, text: `Permissions · ${(e.detail && PERMISSION_LABELS[e.detail]) ?? e.detail ?? "unknown"}`, tone: "neutral" })
+          break
+        }
         this.items.push({
           kind: "status",
           key,

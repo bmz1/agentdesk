@@ -9,7 +9,7 @@ Electron shell ─ React 19 SPA (TanStack Router/Query, Zustand, Tailwind, dnd-k
         │  HTTP + SSE (token-authenticated, loopback only)
         ▼
 Daemon (Node + Effect v4 + Hono) ── SQLite (Drizzle, WAL) ── durable event log
-        ├─ Harness adapters: Claude stream-json · Codex app-server · OpenCode serve
+        ├─ Harness adapters: Claude stream-json · Codex app-server · OpenCode 2 serve (Effect client)
         ├─ Workflow engine (versioned YAML, durable step attempts, approval gates)
         ├─ Git worktrees, draft PRs via gh/glab
         └─ Read-only task sources: Jira (Cloud & DC), Linear — one adapter interface
@@ -34,7 +34,7 @@ When you run `pnpm dev:web`, open `http://localhost:5173/?daemon=http://127.0.0.
 - **Setup script** (project settings): shell commands that run once in every new worktree before its agent starts, for example `pnpm install` and `cp "$AGENTDESK_ROOT_PATH/.env" .env`. The script runs from the worktree with `AGENTDESK_ROOT_PATH` (your main checkout), `AGENTDESK_WORKSPACE_PATH` and `AGENTDESK_BRANCH` set. The conversation shows it as its first step, and the status line reads `Setup script: …` while it runs. A failing script (or one running over 20 minutes) fails the start. Fix it and start again: the same worktree is reused and the script reruns until it succeeds. Workflow runs use it too.
 - Use the project’s **+** to create a local ticket with any supported harness. **Create & start** launches it immediately; a failed start keeps the ticket available for retry. Closing the dialog preserves the draft until creation succeeds.
 - **One bridge for Claude Code, Codex and OpenCode.** Whatever the harness:
-  - When an agent asks you something (Claude's AskUserQuestion, Codex's input requests, OpenCode's question tool), you answer on a card in the conversation. Pick the options or type your own answer.
+  - When an agent asks you something (Claude's AskUserQuestion, Codex's input requests, OpenCode's forms), you answer on a card in the conversation. Pick the options or type your own answer.
   - Approvals offer **Allow for session**, so the agent stops asking for the same kind of action.
   - The agent's to-do list or plan shows as a checklist above the conversation, and as `3/7` progress on its card and in its status line.
   - Every turn reports tokens and (for Claude and OpenCode) cost; cards show the session's cost so far.

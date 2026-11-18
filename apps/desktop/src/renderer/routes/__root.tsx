@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react"
 import { CommandPalette } from "@/features/shell/command-palette"
 import { CreateTicketDialog } from "@/features/shell/create-ticket-dialog"
 import { GlobalShortcuts } from "@/features/shell/global-shortcuts"
+import { DaemonOfflineBanner } from "@/features/shell/daemon-offline-banner"
 import { Sidebar } from "@/features/shell/sidebar"
 import { useUi } from "@/lib/store"
 
@@ -34,8 +35,11 @@ function RootLayout() {
   return (
     <div className="flex h-full">
       <Sidebar />
-      <main className="min-w-0 flex-1">
-        <Outlet />
+      <main className="flex min-w-0 flex-1 flex-col">
+        <DaemonOfflineBanner />
+        <div className="min-h-0 flex-1">
+          <Outlet />
+        </div>
       </main>
       <GlobalShortcuts />
       <CommandPalette />

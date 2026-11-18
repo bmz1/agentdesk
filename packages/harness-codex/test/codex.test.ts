@@ -150,7 +150,10 @@ layer(NodeProcessLayer, { excludeTestServices: true })("Codex adapter (fake app-
       const asked = yield* run("ask")
       expect(asked.find((e) => e.type === "approval.requested")).toMatchObject({ toolName: "Edit", canAllowForSession: true })
       expect(asked.find((e) => e.type === "message.completed" && e.text.startsWith("edit"))).toMatchObject({ text: "edit: acceptForSession" })
-      expect(codexPolicy("ask")).toEqual({ approvalPolicy: "untrusted", sandbox: "workspace-write" })
+      // `untrusted` is retired upstream: asking modes escalate out of a read-only sandbox instead.
+      expect(codexPolicy("ask")).toEqual({ approvalPolicy: "on-request", sandbox: "read-only" })
+      expect(codexPolicy("accept_edits")).toEqual({ approvalPolicy: "on-request", sandbox: "read-only" })
+      expect(codexPolicy("plan")).toEqual({ approvalPolicy: "never", sandbox: "read-only" })
     })
   )
 

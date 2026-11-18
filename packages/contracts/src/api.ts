@@ -44,6 +44,8 @@ export const CreateTicketBody = Schema.Struct({
   harness: Schema.optional(Schema.NullOr(HarnessId)),
   model: Schema.optional(Schema.NullOr(Schema.String)),
   effort: Schema.optional(Schema.NullOr(Schema.String)),
+  /** Permission mode for this ticket's agents; null follows the project. */
+  permissionMode: Schema.optional(Schema.NullOr(PermissionMode)),
   workflowId: Schema.optional(Schema.NullOr(Schema.String)),
   labels: Schema.optional(Schema.Array(Schema.String)),
   /** False creates a thread, kept off the board. Defaults to true. */
@@ -60,6 +62,8 @@ export const UpdateTicketBody = Schema.Struct({
   harness: Schema.optional(Schema.NullOr(HarnessId)),
   model: Schema.optional(Schema.NullOr(Schema.String)),
   effort: Schema.optional(Schema.NullOr(Schema.String)),
+  /** Permission mode for this ticket's agents; null follows the project. */
+  permissionMode: Schema.optional(Schema.NullOr(PermissionMode)),
   workflowId: Schema.optional(Schema.NullOr(Schema.String)),
   labels: Schema.optional(Schema.Array(Schema.String)),
   pinned: Schema.optional(Schema.Boolean),
@@ -107,7 +111,9 @@ export const PromptBody = Schema.Struct({
   /** Switch the session's model from this turn on; null returns to the harness default. */
   model: Schema.optional(Schema.NullOr(Schema.String)),
   /** Switch the reasoning effort from this turn on; null returns to the model default. */
-  effort: Schema.optional(Schema.NullOr(Schema.String))
+  effort: Schema.optional(Schema.NullOr(Schema.String)),
+  /** Switch the permission mode from this turn on (the agent restarts); null follows the project. */
+  permissionMode: Schema.optional(Schema.NullOr(PermissionMode))
 })
 export type PromptBody = typeof PromptBody.Type
 

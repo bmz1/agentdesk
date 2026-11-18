@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { tmpdir } from "node:os"
 import type { HarnessCapabilities, PermissionMode } from "@agentdesk/contracts"
 import {
   type ApprovalResponse,
@@ -62,6 +63,55 @@ export const CLAUDE_MODELS = [
 
 /** `claude --effort` levels. */
 export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
+
+/** Arguments that make the CLI answer `initialize` and exit at end of input, without hooks or a saved session. */
+export const CLAUDE_MODEL_PROBE_ARGS = [
+  "-p",
+  "--input-format",
+  "stream-json",
+  "--output-format",
+  "stream-json",
+  "--verbose",
+  "--no-session-persistence",
+  "--settings",
+  JSON.stringify({ disableAllHooks: true })
+]
+export const CLAUDE_MODEL_PROBE_INPUT =
+  JSON.stringify({ type: "control_request", request_id: "agentdesk-models", request: { subtype: "initialize" } }) + "\n"
+
+/**
+ * The models the installed CLI offers this account, with exact names ("Opus 5.5") and their effort
+ * levels, from its `initialize` response. "default" is left out (AgentDesk's own "Default" option means
+ * the same) but named as the default. Undefined when the output has no model list.
+ */
+export const parseClaudeModels = (stdout: string) => {
+  for (const line of stdout.split("\n")) {
+    let msg: unknown
+    try {
+      msg = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (!isRecord(msg) || msg.type !== "control_response" || !isRecord(msg.response)) continue
+    const response = msg.response.response
+    if (!isRecord(response) || !Array.isArray(response.models)) continue
+    const entries = response.models.filter(isRecord)
+    const levels = (m: Record<string, unknown>) =>
+      Array.isArray(m.supportedEffortLevels) ? m.supportedEffortLevels.filter((l): l is string => typeof l === "string") : []
+    const models = entries.flatMap((m) => {
+      const id = str(m.value)
+      if (!id || id === "default") return []
+      const efforts = levels(m)
+      return [{ id, label: str(m.displayName) ?? id, ...(efforts.length && { efforts }) }]
+    })
+    if (models.length === 0) return undefined
+    const fallback = entries.find((m) => m.value === "default")
+    const resolved = fallback && str(fallback.resolvedModel)
+    const defaultModel = resolved ? entries.find((m) => m.value !== "default" && str(m.resolvedModel) === resolved) : undefined
+    return { models, defaultModel: defaultModel ? str(defaultModel.displayName) : undefined }
+  }
+  return undefined
+}
 
 export const CLAUDE_CAPABILITIES: HarnessCapabilities = {
   planMode: "native",
@@ -201,14 +251,25 @@ export const makeClaudeAdapter = (options: ClaudeAdapterOptions = {}): HarnessAd
       const binary = resolveBinary()
       if (!binary) return { id: "claude" as const, installed: false, detail: "claude CLI not found on PATH" }
       const r = yield* runCommand(binary, ["--version"], { timeoutMs: 10_000 })
+      // Ask the CLI which models this account has; older CLIs (or a failure) fall back to the aliases.
+      const probe = r.code === 0
+        ? yield* runCommand(binary, CLAUDE_MODEL_PROBE_ARGS, {
+            timeoutMs: 15_000,
+            input: CLAUDE_MODEL_PROBE_INPUT,
+            cwd: tmpdir(),
+            env: { CLAUDE_CODE_ENTRYPOINT: "sdk-ts" }
+          })
+        : undefined
+      const listed = probe ? parseClaudeModels(probe.stdout) : undefined
       return {
         id: "claude" as const,
         installed: r.code === 0,
         binary,
         version: r.stdout.trim().split(/\s+/)[0],
         detail: r.code === 0 ? "Uses the CLI's own login; AgentDesk never reads its credentials." : r.stderr.trim(),
-        models: CLAUDE_MODELS,
-        efforts: CLAUDE_EFFORTS,
+        ...(listed
+          ? { models: listed.models, ...(listed.defaultModel && { defaultModel: listed.defaultModel }) }
+          : { models: CLAUDE_MODELS, efforts: CLAUDE_EFFORTS }),
         capabilities: CLAUDE_CAPABILITIES
       }
     }),

@@ -88,15 +88,20 @@ try {
   // Configure daemon-owned harness defaults before creating a project.
   await page.getByRole("link", { name: "Settings", exact: true }).click()
   await page.selectOption('[data-testid="default-harness"]', "mock")
-  await page.locator('[data-testid="harness-mock"] summary').click()
+  await page.click('[data-testid="harness-tab-mock"]')
   await page.fill('[data-testid="harness-model-mock"]', "mock-default-model")
   await page.fill('[data-testid="harness-instructions-mock"]', "Verify every change.")
-  await page.selectOption('[data-testid="harness-permissions-mock"]', "ask")
+  await page.check('[data-testid="harness-permissions-mock"] input[value="ask"]')
   await page.click('[data-testid="harness-defaults-save-mock"]')
   await page.getByRole("status").filter({ hasText: "Defaults saved." }).waitFor()
   await page.reload()
-  await page.locator('[data-testid="harness-mock"] summary').click()
+  // The harness tab is kept in the URL.
   if (await page.inputValue('[data-testid="harness-model-mock"]') !== "mock-default-model") fail("harness defaults did not persist")
+  await page.click('[data-testid="harness-tab-claude"]')
+  await page.click('[data-testid="settings-nav-appearance"]')
+  await page.locator('[data-testid="theme-dark"]').waitFor()
+  await page.click('[data-testid="settings-nav-harnesses"]')
+  await page.click('[data-testid="harness-tab-mock"]')
   await assertDropdowns()
   await page.setViewportSize({ width: 960, height: 900 })
   await assertDropdowns()
@@ -242,6 +247,10 @@ try {
   await page.keyboard.press("ControlOrMeta+n")
   await page.fill('[data-testid="thread-prompt"]', "How should we structure the release notes? [noop]")
   await page.selectOption('[data-testid="ticket-harness"]', "mock")
+  await page.selectOption('[data-testid="ticket-permission"]', "plan")
+  await page.locator('[data-testid="ticket-permission-hint"]').filter({ hasText: "read and plan" }).waitFor()
+  await page.screenshot({ path: join(home, "new-thread-dialog.png") })
+  await page.focus('[data-testid="thread-prompt"]')
   await page.keyboard.press("ControlOrMeta+Enter")
   await page.waitForSelector('[data-testid="ticket-heading"]:has-text("How should we structure the release notes?")')
   await page.waitForSelector('[data-testid="worktree-branch"]')
@@ -249,6 +258,7 @@ try {
   await page.screenshot({ path: join(home, "thread-setup.png") })
   const thread = (await get("/tickets?tracked=0"))[0]
   if (!thread) fail("thread was not created untracked")
+  if (thread.permissionMode !== "plan") fail(`thread permission mode not kept: ${thread.permissionMode}`)
   const [threadSession] = await get(`/tickets/${thread.id}/sessions`)
   if (!threadSession || threadSession.cwd === repo) fail("thread agent ran in the main checkout")
   if (!readFileSync(join(threadSession.cwd, ".agentdesk-setup-ran"), "utf8").startsWith("set up from /")) fail("setup script did not run in the thread's worktree")
@@ -257,29 +267,34 @@ try {
   await page.waitForSelector('[data-testid="ticket-status"]')
   if (!(await get(`/tickets/${thread.id}`)).tracked) fail("tracking the thread did not put it on the board")
 
+  // A file poll may notice the outside write first and open the conflict dialog by itself.
+  const saveOrConflict = () =>
+    Promise.race([
+      page.click('[data-testid="file-save"]', { timeout: 15_000 }).catch(() => {}),
+      page.locator('[data-testid="file-conflict"]').waitFor()
+    ])
   // Edit a file in the viewer (the thread's worktree); an outside write mid-edit asks to overwrite or discard.
   const threadTree = threadSession.cwd
   await page.click('[data-testid="tab-files"]')
   await page.locator('[data-testid="file-tree"] button[title="README.md"]').click()
-  await page.click('[data-testid="file-edit"]')
+  // No edit mode: the file is editable as soon as it's open.
   await page.fill('[data-testid="file-editor-input"]', "# edited\n")
   await page.keyboard.press("ControlOrMeta+s")
-  await page.locator('[data-testid="file-content"]').filter({ hasText: "# edited" }).waitFor()
+  // Saved: nothing unsaved is left to discard.
+  await page.locator('[data-testid="file-discard"]').waitFor({ state: "detached" })
   if (readFileSync(join(threadTree, "README.md"), "utf8") !== "# edited\n") fail("file edit was not saved")
-  await page.click('[data-testid="file-edit"]')
   await page.fill('[data-testid="file-editor-input"]', "# mine\n")
   writeFileSync(join(threadTree, "README.md"), "# agent\n")
-  await page.click('[data-testid="file-save"]')
+  await saveOrConflict()
   await page.locator('[data-testid="file-conflict"]').waitFor()
   await page.screenshot({ path: join(home, "file-conflict.png") })
   await page.click('[data-testid="file-conflict-discard"]')
   await page.locator('[data-testid="file-content"]').filter({ hasText: "# agent" }).waitFor()
-  await page.click('[data-testid="file-edit"]')
   await page.fill('[data-testid="file-editor-input"]', "# mine\n")
   writeFileSync(join(threadTree, "README.md"), "# agent again\n")
-  await page.click('[data-testid="file-save"]')
+  await saveOrConflict()
   await page.click('[data-testid="file-conflict-overwrite"]')
-  await page.locator('[data-testid="file-content"]').filter({ hasText: "# mine" }).waitFor()
+  await page.locator('[data-testid="file-discard"]').waitFor({ state: "detached" })
   if (readFileSync(join(threadTree, "README.md"), "utf8") !== "# mine\n") fail("overwrite did not replace the changed file")
 
   // The agent asks a question, keeps a plan, then wants to write: answer, then allow for the session.

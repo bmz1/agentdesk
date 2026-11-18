@@ -1,46 +1,37 @@
-import type { AgentEvent, HarnessCapabilities, HarnessModel, PermissionMode } from "@agentdesk/contracts"
+import { randomBytes } from "node:crypto"
+import { tmpdir } from "node:os"
+import { pathToFileURL } from "node:url"
+import type { AgentEvent, HarnessCapabilities, HarnessModel } from "@agentdesk/contracts"
 import {
   type ApprovalResponse,
   findExecutable,
   HarnessError,
   type HarnessAdapter,
   type HarnessSession,
+  isRecord,
   type PromptImage,
   type PromptOptions,
-  isRecord,
   runCommand,
   spawnManaged,
   type StartInput,
   str
 } from "@agentdesk/harness-core"
-import { Cause, Deferred, Effect, Queue, Stream } from "effect"
-import { OpenCodeNormalizer } from "./normalizer"
+import { AbsolutePath, Location, OpenCode, type OpenCodeClient } from "@opencode/client/effect"
+import { Cause, Deferred, Effect, Queue, Scope, Stream } from "effect"
+import { Sse } from "effect/encoding"
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http"
+import type { ChildProcessSpawner } from "effect/process"
+import { type OpenCodeEvent, OpenCodeNormalizer, parseEvent } from "./normalizer"
+import { formAnswer, openCodeModel, openCodePermissions, parseModelLines, parseModels } from "./protocol"
 
 export interface OpenCodeAdapterOptions {
   readonly binary?: string
   readonly startupTimeoutMs?: number
 }
 
-/** OpenCode permission rules derived from the project's policy. */
-export const openCodePermissions = (mode: PermissionMode) => {
-  const rule = (permission: string, action: "allow" | "ask" | "deny") => ({ permission, pattern: "*", action })
-  switch (mode) {
-    case "ask":
-      return [rule("edit", "ask"), rule("bash", "ask"), rule("webfetch", "ask")]
-    case "accept_edits":
-      return [rule("edit", "allow"), rule("bash", "ask"), rule("webfetch", "ask")]
-    // OpenCode has no approval classifier: auto allows edits and fetches, shell still asks.
-    case "auto":
-      return [rule("edit", "allow"), rule("bash", "ask"), rule("webfetch", "allow")]
-    case "plan":
-      return [rule("edit", "deny"), rule("bash", "ask"), rule("webfetch", "ask")]
-    case "unrestricted":
-      return [rule("*", "allow")]
-  }
-}
-
 export const OPENCODE_CAPABILITIES: HarnessCapabilities = {
-  planMode: "native",
+  // OpenCode 2 has no plan agent: plan denies edits instead.
+  planMode: "read_only",
   acceptEdits: "native",
   liveEffort: true,
   allowForSession: true,
@@ -49,74 +40,92 @@ export const OPENCODE_CAPABILITIES: HarnessCapabilities = {
   rateLimits: false
 }
 
+/** Instruction entry holding the user's extra instructions for AgentDesk sessions. */
+const INSTRUCTIONS_KEY = "agentdesk"
+
+const protocolError = (what: string) => (cause: unknown) =>
+  new HarnessError({ harness: "opencode", reason: "protocol", message: `opencode ${what}: ${errorMessage(cause)}`, cause })
+
+const errorMessage = (e: unknown): string =>
+  isRecord(e) ? (str(e.message) ?? (isRecord(e.cause) ? errorMessage(e.cause) : str(e._tag)) ?? String(e)) : String(e)
+
+/** `opencode serve --stdio` reports its address as one JSON line; it serves until its stdin closes. */
+const STDIO_URL = /^\s*\{"url":"([^"]+)"\}\s*$/
+
+interface Server {
+  readonly url: string
+  readonly client: OpenCodeClient
+  /** The authenticated HTTP client, for the event stream. */
+  readonly http: HttpClient.HttpClient
+  readonly pid: number | undefined
+  readonly exited: Effect.Effect<{ code: number | null; signal: string | null }>
+  readonly stderrTail: () => string
+}
+
 /**
- * `opencode models --verbose` prints each `provider/model` id followed by its JSON. A model's
- * `variants` (e.g. low/high/max reasoning) are the effort levels AgentDesk offers for it.
+ * One private OpenCode server per agent session: loopback only, a fresh password, rooted at the worktree,
+ * and bound to the caller's scope (closing it ends the server).
  */
-export const parseVerboseModels = (stdout: string): Array<HarnessModel> => {
-  const models: Array<HarnessModel> = []
-  let id: string | undefined
-  let json: Array<string> = []
-  const flush = () => {
-    const m = openCodeModel(id)
-    if (!id || !m) return
-    let variants: Array<string> = []
-    try {
-      const info = JSON.parse(json.join("\n")) as { variants?: Record<string, unknown>; name?: string }
-      variants = Object.keys(info.variants ?? {})
-    } catch {
-      // Keep the model without efforts.
-    }
-    models.push({ id, label: m.modelID, provider: m.providerID, ...(variants.length && { efforts: variants }) })
-  }
-  for (const line of stdout.split("\n")) {
-    if (/^[^\s{}"]+\/\S+$/.test(line.trim()) && !line.startsWith(" ")) {
-      flush()
-      id = line.trim()
-      json = []
-    } else json.push(line)
-  }
-  flush()
-  return models
-}
+const startServer = (
+  binary: string,
+  input: { cwd: string; env?: Readonly<Record<string, string>>; sandboxPrefix?: ReadonlyArray<string> },
+  startupTimeoutMs: number
+): Effect.Effect<Server, HarnessError, Scope.Scope | ChildProcessSpawner.ChildProcessSpawner> =>
+  Effect.gen(function* () {
+    const password = randomBytes(24).toString("base64url")
+    const proc = yield* spawnManaged({
+      harness: "opencode",
+      sandboxPrefix: input.sandboxPrefix,
+      command: binary,
+      args: ["serve", "--stdio", "--hostname", "127.0.0.1", "--port", "0"],
+      cwd: input.cwd,
+      // OpenCode reads the password, then removes it from the environment its tools see.
+      env: { ...input.env, OPENCODE_SERVER_PASSWORD: password }
+    })
+    const ready = yield* Deferred.make<string, HarnessError>()
+    yield* proc.lines.pipe(
+      Stream.runForEach((line) => {
+        const m = STDIO_URL.exec(line)
+        return m ? Deferred.succeed(ready, m[1]!.replace(/\/$/, "")) : Effect.void
+      }),
+      Effect.andThen(
+        Deferred.fail(ready, new HarnessError({ harness: "opencode", reason: "spawn_failed", message: proc.stderrTail().trim() || "opencode serve exited" }))
+      ),
+      Effect.forkScoped
+    )
+    const url = yield* Deferred.await(ready).pipe(
+      Effect.timeoutOrElse({
+        duration: startupTimeoutMs,
+        orElse: () => Effect.fail(new HarnessError({ harness: "opencode", reason: "timeout", message: "opencode serve did not start" }))
+      })
+    )
+    const authorization = `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`
+    const http = yield* HttpClient.HttpClient.pipe(
+      Effect.map(HttpClient.mapRequest(HttpClientRequest.setHeader("authorization", authorization))),
+      Effect.provide(FetchHttpClient.layer)
+    )
+    const client = yield* OpenCode.make({ baseUrl: url }).pipe(Effect.provideService(HttpClient.HttpClient, http))
+    return { url, client, http, pid: proc.pid, exited: proc.exited, stderrTail: proc.stderrTail }
+  })
 
-/** The body answering a question: one list of answers per question, in order (ids are indexes). */
-export const openCodeAnswers = (answers: Readonly<Record<string, ReadonlyArray<string>>> | undefined) => {
-  const entries = Object.entries(answers ?? {}).filter(([k]) => /^\d+$/.test(k))
-  const out: Array<Array<string>> = []
-  for (const [k, v] of entries) out[Number(k)] = [...v]
-  return { answers: Array.from(out, (a) => a ?? []) }
-}
-
-const LISTENING = /listening on (https?:\/\/[^\s]+)/
-
-/** Parse an SSE byte stream into JSON `data:` payloads. */
-export const sseJson = (body: ReadableStream<Uint8Array>): Stream.Stream<unknown, HarnessError> =>
-  Stream.fromReadableStream({
-    evaluate: () => body,
-    onError: (e) => new HarnessError({ harness: "opencode", reason: "io", message: `Event stream failed: ${String(e)}` })
-  }).pipe(
+/**
+ * The server's event bus. Decoded leniently: event types this version doesn't know (OpenCode adds them
+ * often) are skipped instead of ending the stream.
+ */
+const eventStream = (server: Server): Stream.Stream<OpenCodeEvent, HarnessError> =>
+  server.http.get(`${server.url}/api/event`, { headers: { accept: "text/event-stream" } }).pipe(
+    Effect.map((res) => res.stream),
+    Stream.unwrap,
     Stream.decodeText(),
-    Stream.splitLines,
-    Stream.filter((l) => l.startsWith("data:")),
-    Stream.map((l) => {
-      try {
-        return JSON.parse(l.slice(5).trim()) as unknown
-      } catch {
-        return undefined
-      }
-    }),
-    Stream.filter((u) => u !== undefined)
+    Stream.pipeThroughChannel(Sse.decode()),
+    Stream.map((e) => parseEvent(e.data)),
+    Stream.filter((e): e is OpenCodeEvent => e !== undefined),
+    Stream.mapError((e) => new HarnessError({ harness: "opencode", reason: "io", message: `opencode event stream: ${errorMessage(e)}`, cause: e }))
   )
-
-/** `provider/model` → OpenCode's prompt model selector. Model ids may themselves contain "/". */
-export const openCodeModel = (model: string | undefined) => {
-  const i = model?.indexOf("/") ?? -1
-  return model && i > 0 ? { providerID: model.slice(0, i), modelID: model.slice(i + 1) } : undefined
-}
 
 export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): HarnessAdapter => {
   const resolveBinary = () => options.binary ?? process.env.AGENTDESK_OPENCODE_BIN ?? findExecutable("opencode")
+  const startupTimeoutMs = options.startupTimeoutMs ?? 30_000
 
   const launch = (input: StartInput & { providerSessionId?: string }) =>
     Effect.gen(function* () {
@@ -124,86 +133,54 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
       if (!binary) {
         return yield* new HarnessError({ harness: "opencode", reason: "not_installed", message: "opencode CLI not found on PATH" })
       }
-      // One server per session, bound to loopback, rooted at the worktree.
-      const proc = yield* spawnManaged({
-        harness: "opencode",
-        sandboxPrefix: input.policy.sandboxPrefix,
-        command: binary,
-        args: ["serve", "--port", "0", "--hostname", "127.0.0.1"],
-        cwd: input.cwd,
-        env: input.policy.env
-      })
-      const urlReady = yield* Deferred.make<string, HarnessError>()
-      yield* proc.lines.pipe(
-        Stream.runForEach((line) => {
-          const m = LISTENING.exec(line)
-          return m ? Deferred.succeed(urlReady, m[1]!.replace(/\/$/, "")) : Effect.void
-        }),
-        Effect.andThen(
-          Deferred.fail(urlReady, new HarnessError({ harness: "opencode", reason: "spawn_failed", message: proc.stderrTail().trim() || "opencode serve exited" }))
-        ),
-        Effect.forkScoped
-      )
-      const base = yield* Deferred.await(urlReady).pipe(
-        Effect.timeoutOrElse({
-          duration: options.startupTimeoutMs ?? 30_000,
-          orElse: () => Effect.fail(new HarnessError({ harness: "opencode", reason: "timeout", message: "opencode serve did not start" }))
-        })
-      )
-      const dir = `directory=${encodeURIComponent(input.cwd)}`
+      const server = yield* startServer(binary, { cwd: input.cwd, env: input.policy.env, sandboxPrefix: input.policy.sandboxPrefix }, startupTimeoutMs)
+      const { client } = server
 
-      const http = (method: string, path: string, body?: unknown) =>
-        Effect.tryPromise({
-          try: async (signal) => {
-            const res = await fetch(`${base}${path}${path.includes("?") ? "&" : "?"}${dir}`, {
-              method,
-              signal,
-              headers: body === undefined ? {} : { "content-type": "application/json" },
-              body: body === undefined ? undefined : JSON.stringify(body)
+      // Listen before creating or prompting the session, so nothing it does is missed.
+      const raw = yield* Queue.unbounded<OpenCodeEvent, HarnessError | Cause.Done>()
+      yield* eventStream(server).pipe(Stream.runIntoQueue(raw), Effect.forkScoped)
+
+      const permissions = openCodePermissions(input.policy.permissionMode)
+      const session = input.providerSessionId
+        ? yield* client.session.get({ sessionID: input.providerSessionId as never }).pipe(Effect.mapError(protocolError("session.get")))
+        : yield* client.session
+            .create({
+              title: "AgentDesk",
+              location: Location.PublicRef.make({ directory: AbsolutePath.make(input.cwd) }) as never,
+              permissions: permissions as never,
+              ...(openCodeModel(input.policy.model, input.policy.effort) && { model: openCodeModel(input.policy.model, input.policy.effort) as never })
             })
-            const text = await res.text()
-            if (!res.ok) throw Object.assign(new Error(`${res.status} ${text.slice(0, 200)}`), { status: res.status })
-            return text ? (JSON.parse(text) as unknown) : undefined
-          },
-          catch: (e) => new HarnessError({ harness: "opencode", reason: "protocol", message: `opencode ${method} ${path}: ${(e as Error).message}`, cause: e })
-        })
-
-      // Subscribe to the event bus *before* creating/prompting the session so nothing is missed.
-      const eventRes = yield* Effect.tryPromise({
-        try: (signal) => fetch(`${base}/event?${dir}`, { signal, headers: { accept: "text/event-stream" } }),
-        catch: (e) => new HarnessError({ harness: "opencode", reason: "io", message: `opencode /event: ${String(e)}` })
-      })
-      if (!eventRes.ok || !eventRes.body) {
-        return yield* new HarnessError({ harness: "opencode", reason: "protocol", message: `opencode /event returned ${eventRes.status}` })
+            .pipe(Effect.mapError(protocolError("session.create")))
+      const sessionID = session.id
+      // A resumed session keeps the rules it was created with: apply the current permission mode.
+      if (input.providerSessionId) {
+        yield* client.session.update({ sessionID, permissions: permissions as never }).pipe(Effect.mapError(protocolError("session.update")))
+      }
+      if (input.policy.appendSystemPrompt) {
+        yield* client.experimental.session.instructions.entry
+          .put({ sessionID, key: INSTRUCTIONS_KEY as never, value: input.policy.appendSystemPrompt })
+          .pipe(Effect.ignore)
       }
 
-      const rules = openCodePermissions(input.policy.permissionMode)
-      const session = input.providerSessionId
-        ? yield* http("GET", `/session/${encodeURIComponent(input.providerSessionId)}`)
-        : yield* http("POST", "/session", { title: "AgentDesk", permission: rules })
-      const sessionId = isRecord(session) ? str(session.id) : undefined
-      if (!sessionId) return yield* new HarnessError({ harness: "opencode", reason: "protocol", message: "opencode returned no session id" })
-      // A resumed session keeps the rules it was created with: apply the current permission mode.
-      if (input.providerSessionId) yield* http("PATCH", `/session/${sessionId}`, { permission: rules }).pipe(Effect.ignore)
+      // The model is a reference with the effort as its variant; switching either switches the model.
+      const current = session.model as { id: string; providerID: string; variant?: string } | undefined
+      let model = current ? `${current.providerID}/${current.id}` : input.policy.model
+      let effort = current?.variant ?? input.policy.effort
 
-      let model = openCodeModel(input.policy.model)
-      // Effort is a model "variant" (low/high/max …), sent with every prompt.
-      let effort = input.policy.effort
-      const agent = input.policy.permissionMode === "plan" ? "plan" : undefined
-      const normalizer = new OpenCodeNormalizer(sessionId)
+      const normalizer = new OpenCodeNormalizer(sessionID)
       const events = yield* Queue.unbounded<AgentEvent, HarnessError | Cause.Done>()
       const emit = (e: AgentEvent) => Queue.offer(events, e).pipe(Effect.asVoid)
-      yield* emit({ type: "session.started", providerSessionId: sessionId, cwd: input.cwd, ...(input.policy.model && { model: input.policy.model }) })
+      yield* emit({ type: "session.started", providerSessionId: sessionID, cwd: input.cwd, ...(model && { model }) })
 
-      yield* sseJson(eventRes.body).pipe(
-        Stream.runForEach((m) => Effect.forEach(normalizer.push(m), emit, { discard: true })),
+      yield* Stream.fromQueue(raw).pipe(
+        Stream.runForEach((e) => Effect.forEach(normalizer.push(e), emit, { discard: true })),
         Effect.catch((e) => emit({ type: "session.error", message: e.message })),
         Effect.forkScoped
       )
-      yield* proc.exited.pipe(
+      yield* server.exited.pipe(
         Effect.flatMap((exit) =>
           Effect.gen(function* () {
-            const stderr = proc.stderrTail().trim()
+            const stderr = server.stderrTail().trim()
             if (exit.code && stderr) yield* emit({ type: "session.error", message: stderr.split("\n").slice(-5).join("\n") })
             yield* emit({ type: "session.exited", code: exit.code, signal: exit.signal })
           })
@@ -213,59 +190,79 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
       )
       yield* Effect.addFinalizer(() => Queue.end(events))
 
-      const prompt = (text: string, images: ReadonlyArray<PromptImage> = [], options?: PromptOptions) =>
-        Effect.sync(() => {
-          if (options?.model) model = openCodeModel(options.model) ?? model
-          if (options?.effort) effort = options.effort
-          normalizer.markBusy()
-        }).pipe(
-          Effect.andThen(
-            http("POST", `/session/${sessionId}/prompt_async`, {
-              parts: [
-                { type: "text", text },
-                ...images.map((i) => ({ type: "file", mime: i.mimeType, url: `data:${i.mimeType};base64,${i.data}`, filename: i.path.split("/").at(-1) }))
-              ],
-              ...(model && { model }),
-              ...(effort && { variant: effort }),
-              ...(agent && { agent }),
-              ...(input.policy.appendSystemPrompt && { system: input.policy.appendSystemPrompt })
+      const switchModel = (nextModel: string | undefined, nextEffort: string | undefined) =>
+        Effect.gen(function* () {
+          let ref = openCodeModel(nextModel, nextEffort)
+          if (!ref && nextEffort) {
+            // An effort for the default model: name that model explicitly.
+            const fallback = yield* client.model.default({ location: { directory: input.cwd } }).pipe(Effect.mapError(protocolError("model.default")))
+            ref = fallback.data ? { providerID: fallback.data.providerID, id: fallback.data.id, variant: nextEffort } : undefined
+          }
+          if (ref) yield* client.session.switchModel({ sessionID, model: ref as never }).pipe(Effect.mapError(protocolError("session.switchModel")))
+        })
+
+      const prompt = (text: string, images: ReadonlyArray<PromptImage> = [], opts?: PromptOptions) =>
+        Effect.gen(function* () {
+          const nextModel = opts?.model ?? model
+          const nextEffort = opts?.model && !opts.effort ? undefined : (opts?.effort ?? effort)
+          if (nextModel !== model || nextEffort !== effort) {
+            yield* switchModel(nextModel, nextEffort)
+            model = nextModel
+            effort = nextEffort
+          }
+          yield* client.session
+            .prompt({
+              sessionID,
+              text,
+              ...(images.length > 0 && { files: images.map((i) => ({ uri: pathToFileURL(i.path).href, name: i.path.split("/").at(-1) })) })
             })
-          ),
-          Effect.asVoid
-        )
+            .pipe(Effect.mapError(protocolError("session.prompt")))
+        })
 
       const respondToApproval = (requestId: string, response: ApprovalResponse) => {
-        const id = encodeURIComponent(requestId)
-        if (normalizer.questionIds.has(requestId)) {
-          normalizer.questionIds.delete(requestId)
+        const request = normalizer.pending.get(requestId)
+        const target = (request?.sessionID ?? sessionID) as never
+        if (request?.kind === "form") {
+          normalizer.pending.delete(requestId)
           return (
             response.decision === "allow"
-              ? http("POST", `/question/${id}/reply`, openCodeAnswers(response.answers))
-              : http("POST", `/question/${id}/reject`)
-          ).pipe(Effect.asVoid)
+              ? client.session.form.reply({ sessionID: target, formID: requestId as never, answer: formAnswer(request.form, response.answers) as never })
+              : client.session.form.cancel({ sessionID: target, formID: requestId as never } as never)
+          ).pipe(Effect.mapError(protocolError("form reply")), Effect.asVoid)
         }
-        const reply = response.decision === "deny" ? "reject" : response.scope === "session" ? "always" : "once"
-        return http("POST", `/permission/${id}/reply`, { reply, ...(reply === "reject" && response.note && { message: response.note }) }).pipe(
-          // Older servers only expose the session-scoped endpoint.
-          Effect.catch(() =>
-            http("POST", `/session/${sessionId}/permissions/${encodeURIComponent(requestId)}`, { response: reply })
-          ),
-          Effect.asVoid
-        )
+        const decision = response.decision === "deny" ? "reject" : response.scope === "session" ? "always" : "once"
+        return client.permission
+          .reply({ sessionID: target, requestID: requestId as never, decision, ...(decision === "reject" && response.note && { message: response.note }) })
+          .pipe(Effect.mapError(protocolError("permission.reply")), Effect.asVoid)
       }
 
       if (input.prompt) yield* prompt(input.prompt, input.images)
 
       return {
         harness: "opencode",
-        pid: proc.pid,
-        providerSessionId: Effect.succeed(sessionId),
+        pid: server.pid,
+        providerSessionId: Effect.succeed(sessionID),
         events: Stream.fromQueue(events),
         prompt,
         respondToApproval,
-        interrupt: http("POST", `/session/${sessionId}/abort`).pipe(Effect.asVoid)
+        interrupt: client.session.interrupt({ sessionID }).pipe(Effect.mapError(protocolError("session.interrupt")), Effect.asVoid)
       } satisfies HarnessSession
     })
+
+  /** Models (with their effort variants) from a short-lived server; the plain model list if that fails. */
+  const listModels = (binary: string): Effect.Effect<Array<HarnessModel>, never, ChildProcessSpawner.ChildProcessSpawner> =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const server = yield* startServer(binary, { cwd: tmpdir() }, 15_000)
+        const res = yield* server.client.model.list({ location: { directory: tmpdir() } }).pipe(Effect.mapError(protocolError("model.list")))
+        return parseModels(res.data)
+      })
+    ).pipe(
+      Effect.timeout("20 seconds"),
+      Effect.catch(() =>
+        runCommand(binary, ["models"], { timeoutMs: 30_000 }).pipe(Effect.map((r) => (r.code === 0 ? parseModelLines(r.stdout) : [])))
+      )
+    )
 
   return {
     id: "opencode",
@@ -275,15 +272,14 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
       const binary = resolveBinary()
       if (!binary) return { id: "opencode" as const, installed: false, detail: "opencode CLI not found on PATH" }
       const r = yield* runCommand(binary, ["--version"], { timeoutMs: 15_000 })
-      const list = r.code === 0 ? yield* runCommand(binary, ["models", "--verbose"], { timeoutMs: 30_000 }) : undefined
-      const models = list?.code === 0 ? parseVerboseModels(list.stdout) : []
+      const models = r.code === 0 ? yield* listModels(binary) : []
       return {
         models,
         id: "opencode" as const,
         installed: r.code === 0,
         binary,
         version: r.stdout.trim().split(/\s+/).at(-1),
-        detail: r.code === 0 ? "Runs `opencode serve` per session on 127.0.0.1." : r.stderr.trim(),
+        detail: r.code === 0 ? "Runs a private `opencode serve` per session on 127.0.0.1." : r.stderr.trim(),
         capabilities: OPENCODE_CAPABILITIES
       }
     }),

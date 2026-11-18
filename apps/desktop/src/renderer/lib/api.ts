@@ -13,6 +13,7 @@ import type {
   FileTree,
   HarnessDetection,
   HarnessId,
+  PermissionMode,
   HarnessRateLimits,
   QuestionAnswers,
   HarnessSettings,
@@ -163,7 +164,7 @@ export const api = {
   sessionTail: (id: string, tail: number, before?: number) =>
     request<ReadonlyArray<StoredAgentEvent>>("GET", `/sessions/${id}/history${qs({ tail, before })}`),
   /** `switches` change the session's model/effort from this message on (null: default); omitted keys stay. */
-  prompt: (id: string, text: string, images?: ReadonlyArray<string>, switches: { model?: string | null; effort?: string | null } = {}) =>
+  prompt: (id: string, text: string, images?: ReadonlyArray<string>, switches: { model?: string | null; effort?: string | null; permissionMode?: PermissionMode | null } = {}) =>
     request<void>("POST", `/sessions/${id}/prompt`, { text, ...(images?.length && { images }), ...switches }),
   uploadAttachment: async (file: File) =>
     request<ImageRef>("POST", "/attachments", { mimeType: file.type, data: await toBase64(file), name: file.name || undefined }),
