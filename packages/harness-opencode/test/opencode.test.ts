@@ -5,7 +5,7 @@ import type { AgentEvent } from "@agentdesk/contracts"
 import { type HarnessSession, NodeProcessLayer, parseJsonLine } from "@agentdesk/harness-core"
 import { Effect, Stream } from "effect"
 import { describe, expect, it, layer } from "@effect/vitest"
-import { makeOpenCodeAdapter, openCodeModel, OpenCodeNormalizer, openCodePermissions } from "../src"
+import { makeOpenCodeAdapter, openCodeAnswers, openCodeModel, OpenCodeNormalizer, openCodePermissions, parseVerboseModels } from "../src"
 
 describe("OpenCodeNormalizer", () => {
   it("normalizes a golden event-bus transcript for one session", () => {
@@ -62,7 +62,7 @@ layer(NodeProcessLayer, { excludeTestServices: true })("OpenCode adapter (fake s
         "use tool",
         (e, s) =>
           Effect.gen(function* () {
-            if (e.type === "approval.requested") yield* s.respondToApproval(e.providerRequestId!, "allow")
+            if (e.type === "approval.requested") yield* s.respondToApproval(e.providerRequestId!, { decision: "allow" })
             if (e.type === "turn.completed" && e.status === "success") yield* s.prompt("again")
           }),
         2
@@ -90,7 +90,73 @@ describe("OpenCodeNormalizer errors", () => {
     n.markBusy()
     n.push({ type: "session.error", properties: { sessionID: "s", error: { name: "ProviderAuthError", data: { message: "no key" } } } })
     expect(n.push({ type: "session.idle", properties: { sessionID: "s" } })).toEqual([
-      { type: "turn.completed", providerSessionId: "s", status: "error" }
+      { type: "turn.completed", providerSessionId: "s", status: "error", durationMs: expect.any(Number) }
+    ])
+  })
+})
+
+describe("OpenCode questions, plans, approvals and usage (shapes from opencode 1.19)", () => {
+  const ev = (type: string, properties: Record<string, unknown>) => ({ type, properties: { sessionID: "s", ...properties } })
+
+  it("turns a question into a question request and answers in question order", () => {
+    const n = new OpenCodeNormalizer("s")
+    const [asked] = n.push(
+      ev("question.asked", {
+        id: "que_1",
+        questions: [{ question: "Tabs or spaces?", header: "Indentation", options: [{ label: "Tabs", description: "Indent with tabs" }, { label: "Spaces", description: "Indent with spaces" }] }]
+      })
+    )
+    expect(asked).toMatchObject({
+      type: "approval.requested",
+      kind: "question",
+      providerRequestId: "que_1",
+      summary: "Tabs or spaces?",
+      questions: [{ id: "0", header: "Indentation", question: "Tabs or spaces?", multiSelect: false, allowOther: true, options: [{ label: "Tabs" }, { label: "Spaces" }] }]
+    })
+    expect(n.questionIds.has("que_1")).toBe(true)
+    expect(openCodeAnswers({ "1": ["b"], "0": ["Spaces"] })).toEqual({ answers: [["Spaces"], ["b"]] })
+  })
+
+  it("offers allow-for-session when OpenCode proposes an `always` pattern", () => {
+    const n = new OpenCodeNormalizer("s")
+    const [asked] = n.push(ev("permission.asked", { id: "per_1", permission: "bash", patterns: ["echo oc-one"], metadata: { command: "echo oc-one" }, always: ["echo *"] }))
+    expect(asked).toMatchObject({ type: "approval.requested", toolName: "bash", summary: "bash: echo oc-one", canAllowForSession: true })
+  })
+
+  it("maps todos to a plan", () => {
+    const n = new OpenCodeNormalizer("s")
+    expect(
+      n.push(ev("todo.updated", { todos: [{ content: "First task", status: "in_progress", priority: "high" }, { content: "Second task", status: "pending", priority: "medium" }] }))
+    ).toEqual([{ type: "plan.updated", items: [{ text: "First task", status: "in_progress" }, { text: "Second task", status: "pending" }] }])
+  })
+
+  it("sums the turn's assistant messages into usage, cost and model", () => {
+    const n = new OpenCodeNormalizer("s")
+    n.markBusy()
+    const message = (id: string, input: number, output: number, read: number, cost: number) =>
+      ev("message.updated", {
+        info: { id, role: "assistant", sessionID: "s", cost, providerID: "opencode", modelID: "deepseek-v4.1-flash-free", time: { created: 1, completed: 2 }, tokens: { total: 0, input, output, reasoning: 0, cache: { write: 0, read } } }
+      })
+    n.push(message("m1", 10193, 92, 1792, 0.01))
+    n.push(message("m1", 10193, 92, 1792, 0.01)) // updates repeat
+    n.push(message("m2", 211, 4, 11904, 0.02))
+    const [turn] = n.push(ev("session.idle", {}))
+    expect(turn).toMatchObject({
+      type: "turn.completed",
+      status: "success",
+      costUsd: 0.03,
+      model: "opencode/deepseek-v4.1-flash-free",
+      usage: { inputTokens: 10404, outputTokens: 96, cacheReadTokens: 13696, cacheWriteTokens: 0 }
+    })
+  })
+})
+
+describe("parseVerboseModels", () => {
+  it("reads each model's variants as its effort levels", () => {
+    const out = ["opencode/a-free", "{", '  "id": "a-free",', '  "variants": { "low": {}, "high": {} }', "}", "openai/gpt-x", "{", '  "variants": {}', "}"].join("\n")
+    expect(parseVerboseModels(out)).toEqual([
+      { id: "opencode/a-free", label: "a-free", provider: "opencode", efforts: ["low", "high"] },
+      { id: "openai/gpt-x", label: "gpt-x", provider: "openai" }
     ])
   })
 })

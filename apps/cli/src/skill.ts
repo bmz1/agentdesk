@@ -25,15 +25,15 @@ Always pass --json when you parse output. Every --json command prints one JSON v
 ## Commands
 
   agentdesk projects                          projects (id, key, repo path)
-  agentdesk new "<prompt>" [--project KEY]    start a thread; the project defaults to the one containing
-        [--title T] [--harness claude|codex|opencode] [--readonly] [--wait] [--timeout S]
+  agentdesk new "<prompt>" [--project KEY]    start a thread in its own worktree (project: the one containing $PWD)
+        [--title T] [--harness claude|codex|opencode] [--wait] [--timeout S]
   agentdesk ls [--active] [--attention]       sessions with state and a one-line status
   agentdesk show <session>                    one session, with its latest message
   agentdesk send <session> "<text>" [--wait]  follow-up prompt (resumes ended conversations)
   agentdesk wait <session> [--timeout S]      block until the current turn ends; prints its final text
   agentdesk interrupt|stop <session>
   agentdesk events [--session S] [--replay]   stream changes as NDJSON until interrupted
-  agentdesk approvals                         pending approvals (read only for agents)
+  agentdesk approvals                         pending approvals and questions (read only for agents)
 
 <session> is a session id, a unique id prefix (4+ characters), or a ticket identifier such
 as AD-12 (its current session).
@@ -41,12 +41,13 @@ as AD-12 (its current session).
 ## Exit codes
 
   0 ok · 1 failed · 2 bad command line · 3 target missing or ambiguous (nothing changed)
-  4 daemon unreachable · 5 the agent is waiting for an approval · 130 interrupted
+  4 daemon unreachable · 5 the agent is waiting for an approval or answer · 130 interrupted
 
 ## Rules
 
-- Never approve or deny tool calls. \`agentdesk approve\`/\`deny\` refuse to run inside an
-  AgentDesk session; when \`wait\` exits 5, tell the user an approval is waiting.
+- Never approve, deny or answer for the user. \`agentdesk approve\`/\`deny\`/\`answer\` refuse to
+  run inside an AgentDesk session; when \`wait\` exits 5, tell the user an approval or a
+  question is waiting.
 - Prefer \`--wait\` over polling \`ls\`.
 - Give each delegated task a self-contained prompt: the other agent cannot see this conversation.
 `

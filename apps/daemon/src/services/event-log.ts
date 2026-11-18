@@ -1,7 +1,7 @@
-import { AgentEvent, type StoredAgentEvent } from "@agentdesk/contracts"
+import { AgentEvent, type AgentSession, type PlanItem, type StoredAgentEvent } from "@agentdesk/contracts"
 import { agentEvents } from "@agentdesk/db"
 import { redactDeep } from "@agentdesk/harness-core"
-import { and, asc, desc, eq, gt, inArray, lt, max } from "drizzle-orm"
+import { and, asc, desc, eq, gt, inArray, lt, max, sql } from "drizzle-orm"
 import { Context, Effect, Layer, PubSub, Schema, Stream } from "effect"
 import type { DbError } from "../errors"
 import { nowIso } from "../util"
@@ -21,6 +21,10 @@ export interface EventLogShape {
   ) => Effect.Effect<ReadonlyArray<StoredAgentEvent>, DbError>
   readonly preview: (sessionId: string) => Effect.Effect<string | null, DbError>
   readonly lastEventId: (sessionId: string) => Effect.Effect<number, DbError>
+  /** Progress through each session's latest plan (sessions that never planned are absent). */
+  readonly plans: (sessionIds: ReadonlyArray<string>) => Effect.Effect<ReadonlyMap<string, SessionPlan>, DbError>
+  /** Usage summed over each session's turns (sessions without finished turns are absent). */
+  readonly usage: (sessionIds: ReadonlyArray<string>) => Effect.Effect<ReadonlyMap<string, SessionUsage>, DbError>
   /** Last event id per session in one query (sessions without events are absent). */
   readonly lastEventIds: (sessionIds: ReadonlyArray<string>) => Effect.Effect<ReadonlyMap<string, number>, DbError>
   /**
@@ -32,6 +36,29 @@ export interface EventLogShape {
 }
 
 const decodeEvent = Schema.decodeUnknownEffect(AgentEvent)
+
+export type SessionPlan = NonNullable<AgentSession["plan"]>
+export type SessionUsage = NonNullable<AgentSession["usage"]>
+
+/** "3 of 7 done, now: Run the tests" from a plan; null for an empty one. Cancelled steps don't count. */
+export const planSummary = (items: ReadonlyArray<PlanItem>): SessionPlan | null => {
+  const counted = items.filter((i) => i.status !== "cancelled")
+  if (counted.length === 0) return null
+  const current = counted.find((i) => i.status === "in_progress") ?? counted.find((i) => i.status === "pending")
+  return { done: counted.filter((i) => i.status === "completed").length, total: counted.length, current: current?.text ?? null }
+}
+
+/** Add a finished turn to a session's usage. Input counts every token the model read, cached or not. */
+export const addTurnUsage = (total: SessionUsage | null | undefined, event: AgentEvent): SessionUsage | null | undefined => {
+  if (event.type !== "turn.completed" || (!event.usage && event.costUsd === undefined)) return total
+  const u = event.usage
+  const read = u ? u.inputTokens + (u.cacheReadTokens ?? 0) + (u.cacheWriteTokens ?? 0) : 0
+  return {
+    costUsd: event.costUsd === undefined ? (total?.costUsd ?? null) : (total?.costUsd ?? 0) + event.costUsd,
+    inputTokens: (total?.inputTokens ?? 0) + read,
+    outputTokens: (total?.outputTokens ?? 0) + (u?.outputTokens ?? 0)
+  }
+}
 
 const PREVIEW_TYPES = ["message.completed", "user.prompt", "approval.requested", "session.error"] as const
 
@@ -152,7 +179,57 @@ export class EventLog extends Context.Service<EventLog, EventLogShape>()("agentd
           })
         )
 
-      return EventLog.of({ append, history, preview, lastEventId, lastEventIds, subscribe })
+      const plans = (sessionIds: ReadonlyArray<string>) =>
+        sessionIds.length === 0
+          ? Effect.succeed(new Map<string, SessionPlan>())
+          : use((db) => {
+              const latest = db
+                .select({ id: max(agentEvents.id) })
+                .from(agentEvents)
+                .where(and(inArray(agentEvents.sessionId, [...sessionIds]), eq(agentEvents.type, "plan.updated")))
+                .groupBy(agentEvents.sessionId)
+                .all()
+                .flatMap((r) => (r.id === null ? [] : [r.id]))
+              if (latest.length === 0) return new Map<string, SessionPlan>()
+              const rows = db.select().from(agentEvents).where(inArray(agentEvents.id, latest)).all()
+              return new Map(
+                rows.flatMap((r) => {
+                  const e = r.payload as AgentEvent
+                  const plan = e.type === "plan.updated" ? planSummary(e.items) : null
+                  return plan ? [[r.sessionId, plan] as const] : []
+                })
+              )
+            })
+
+      const usage = (sessionIds: ReadonlyArray<string>) =>
+        sessionIds.length === 0
+          ? Effect.succeed(new Map<string, SessionUsage>())
+          : use((db) => {
+              const n = (path: string) => sql<number | null>`sum(json_extract(${agentEvents.payload}, ${path}))`
+              const rows = db
+                .select({
+                  sessionId: agentEvents.sessionId,
+                  cost: n("$.costUsd"),
+                  costs: sql<number>`count(json_extract(${agentEvents.payload}, '$.costUsd'))`,
+                  input: n("$.usage.inputTokens"),
+                  cacheRead: n("$.usage.cacheReadTokens"),
+                  cacheWrite: n("$.usage.cacheWriteTokens"),
+                  output: n("$.usage.outputTokens")
+                })
+                .from(agentEvents)
+                .where(and(inArray(agentEvents.sessionId, [...sessionIds]), eq(agentEvents.type, "turn.completed")))
+                .groupBy(agentEvents.sessionId)
+                .all()
+              return new Map(
+                rows.flatMap((r) => {
+                  const read = (r.input ?? 0) + (r.cacheRead ?? 0) + (r.cacheWrite ?? 0)
+                  if (r.costs === 0 && read === 0 && !r.output) return []
+                  return [[r.sessionId, { costUsd: r.costs > 0 ? (r.cost ?? 0) : null, inputTokens: read, outputTokens: r.output ?? 0 }] as const]
+                })
+              )
+            })
+
+      return EventLog.of({ append, history, preview, plans, usage, lastEventId, lastEventIds, subscribe })
     })
   )
 }

@@ -9,8 +9,7 @@ import {
   RunStatus,
   SessionState,
   StepState,
-  TicketSource,
-  WorkspaceMode
+  TicketSource
 } from "./ids"
 
 const NullableString = Schema.NullOr(Schema.String)
@@ -27,6 +26,8 @@ export const Project = Schema.Struct({
   permissionMode: PermissionMode,
   inheritHarnessPermissions: Schema.Boolean,
   testCommand: NullableString,
+  /** Shell script run once in every new worktree before an agent starts (install dependencies, copy .env, …). */
+  setupCommand: NullableString,
   createdAt: Schema.String,
   updatedAt: Schema.String
 })
@@ -76,7 +77,6 @@ export const Ticket = Schema.Struct({
   pinned: Schema.Boolean,
   /** False for threads: conversations kept off the board until promoted. */
   tracked: Schema.Boolean,
-  workspaceMode: WorkspaceMode,
   sortOrder: Schema.Number,
   createdAt: Schema.String,
   updatedAt: Schema.String,
@@ -105,6 +105,14 @@ export const AgentSession = Schema.Struct({
   statusDetail: NullableString,
   /** The latest prompt, reply, approval or error text (trimmed), for cards and lists. */
   preview: NullableString,
+  /** Progress through the agent's latest plan or to-do list, when it keeps one. */
+  plan: Schema.optional(
+    Schema.NullOr(Schema.Struct({ done: Schema.Number, total: Schema.Number, current: NullableString }))
+  ),
+  /** Totals over the session's turns. `costUsd` is null when the harness reports tokens only. */
+  usage: Schema.optional(
+    Schema.NullOr(Schema.Struct({ costUsd: Schema.NullOr(Schema.Number), inputTokens: Schema.Number, outputTokens: Schema.Number }))
+  ),
   createdAt: Schema.String,
   updatedAt: Schema.String
 })
@@ -135,6 +143,8 @@ export const Workspace = Schema.Struct({
   path: Schema.String,
   baseCommit: Schema.String,
   cleanupState: Schema.Literals(["active", "retained", "removed"]),
+  /** "pending" until the project's setup script has succeeded in this worktree. */
+  setupState: Schema.Literals(["pending", "done"]),
   createdAt: Schema.String
 })
 export type Workspace = typeof Workspace.Type
@@ -187,7 +197,7 @@ export const Approval = Schema.Struct({
   runId: NullableString,
   stepRunId: NullableString,
   sessionId: NullableString,
-  kind: Schema.Literals(["tool", "workflow_step", "pull_request"]),
+  kind: Schema.Literals(["tool", "question", "workflow_step", "pull_request"]),
   title: Schema.String,
   details: Schema.Unknown,
   decision: Schema.NullOr(ApprovalDecision),
@@ -231,6 +241,25 @@ export const HarnessModel = Schema.Struct({
 })
 export type HarnessModel = typeof HarnessModel.Type
 
+/** What a harness really does with AgentDesk's settings, so the UI only offers what takes effect. */
+export const HarnessCapabilities = Schema.Struct({
+  /** How "plan" mode is enforced: the harness' own planning mode, or only a read-only sandbox. */
+  planMode: Schema.Literals(["native", "read_only"]),
+  /** How "accept edits" is enforced: natively, or by AgentDesk auto-approving edit requests. */
+  acceptEdits: Schema.Literals(["native", "auto_approved"]),
+  /** Effort changes apply to a running agent (otherwise it restarts with the new effort). */
+  liveEffort: Schema.Boolean,
+  /** Approvals can be allowed for the rest of the session. */
+  allowForSession: Schema.Boolean,
+  /** The agent can ask questions the user answers in AgentDesk. */
+  questions: Schema.Boolean,
+  /** Turns report their cost in USD (otherwise tokens only). */
+  cost: Schema.Boolean,
+  /** The harness reports subscription rate limits. */
+  rateLimits: Schema.Boolean
+})
+export type HarnessCapabilities = typeof HarnessCapabilities.Type
+
 export const HarnessDetection = Schema.Struct({
   id: HarnessId,
   installed: Schema.Boolean,
@@ -241,7 +270,8 @@ export const HarnessDetection = Schema.Struct({
   /** Models the harness offers; empty or missing means free-form entry only. */
   models: Schema.optional(Schema.Array(HarnessModel)),
   /** Reasoning effort levels for every model of the harness (Claude). Missing: per model, or unsupported. */
-  efforts: Schema.optional(Schema.Array(Schema.String))
+  efforts: Schema.optional(Schema.Array(Schema.String)),
+  capabilities: Schema.optional(HarnessCapabilities)
 })
 export type HarnessDetection = typeof HarnessDetection.Type
 

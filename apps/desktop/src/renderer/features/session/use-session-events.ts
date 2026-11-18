@@ -94,6 +94,7 @@ export const useSessionEvents = (sessionId: string | null | undefined) => {
 
   return {
     items: builderRef.current.items,
+    plan: builderRef.current.plan,
     lastId: builderRef.current.lastId,
     connected,
     hasEarlier,

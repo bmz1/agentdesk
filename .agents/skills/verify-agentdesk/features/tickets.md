@@ -29,4 +29,4 @@ Preconditions:
 - A pending mock write approval is expected at the end of this mode; cleanup stops that owned session via daemon shutdown.
 - Start-failure retry behavior is covered in the existing broader E2E using an intercepted 503, not this map's successful start path.
 - Never leave the inherited real-harness selection active when launching the fixture ticket.
-- The dialog opens on the Thread form (`thread-prompt`); threads (read-only, off the board) are a separate journey.
+- The dialog opens on the Thread form (`thread-prompt`); threads (own worktree, off the board) are a separate journey.

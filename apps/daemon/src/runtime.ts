@@ -10,6 +10,7 @@ import { Database } from "./services/database"
 import { EventLog } from "./services/event-log"
 import { HarnessSettings } from "./services/harness-settings"
 import { HarnessesLive } from "./services/harnesses"
+import { Limits } from "./services/limits"
 import { TaskSourcesLive, TaskSyncLive, type TaskSyncOptions } from "./services/task-sync"
 import type { TaskSourceAdapter } from "@agentdesk/task-source"
 import { Maintenance } from "./services/maintenance"
@@ -42,6 +43,7 @@ export const makeAppLayer = (config: DaemonConfigShape, options: AppLayerOptions
     EventLog.layer,
     HarnessSettings.layer,
     Activity.layer,
+    Limits.layer,
     AttachmentsLive,
     CredentialStoreLive(options.credentialStore),
     TaskSourcesLive(options.sourceAdapters)

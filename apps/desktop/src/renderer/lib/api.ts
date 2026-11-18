@@ -13,6 +13,8 @@ import type {
   FileTree,
   HarnessDetection,
   HarnessId,
+  HarnessRateLimits,
+  QuestionAnswers,
   HarnessSettings,
   UpdateHarnessSettingsBody,
   ImageRef,
@@ -147,7 +149,7 @@ export const api = {
   writeTicketFile: (id: string, b: WriteFileBody) => request<FileContent>("PUT", `/tickets/${id}/file`, b),
   ticketWorkspace: (id: string) => request<Workspace | null>("GET", `/tickets/${id}/workspace`),
   ticketRuns: (id: string) => request<ReadonlyArray<WorkflowRun>>("GET", `/tickets/${id}/runs`),
-  startSession: (ticketId: string, b: { harness?: HarnessId; prompt?: string; useRepoDirectly?: boolean; images?: ReadonlyArray<string> }) =>
+  startSession: (ticketId: string, b: { harness?: HarnessId; prompt?: string; images?: ReadonlyArray<string> }) =>
     request<AgentSession>("POST", `/tickets/${ticketId}/sessions`, b),
   startRun: (ticketId: string, b: { workflowId?: string; harness?: HarnessId }) =>
     request<WorkflowRun>("POST", `/tickets/${ticketId}/start-run`, b),
@@ -171,8 +173,12 @@ export const api = {
   stopSession: (id: string) => request<void>("POST", `/sessions/${id}/stop`),
 
   approvals: (pending = false) => request<ReadonlyArray<Approval>>("GET", `/approvals${qs({ pending: pending ? 1 : undefined })}`),
-  decide: (id: string, decision: ApprovalDecision, note?: string) =>
-    request<void>("POST", `/approvals/${id}/decision`, { decision, note }),
+  decide: (
+    id: string,
+    decision: ApprovalDecision,
+    options: { note?: string; scope?: "once" | "session"; answers?: QuestionAnswers } = {}
+  ) => request<void>("POST", `/approvals/${id}/decision`, { decision, ...options }),
+  limits: () => request<ReadonlyArray<HarnessRateLimits>>("GET", "/limits"),
 
   activity: (limit = 100) => request<ReadonlyArray<ActivityEvent>>("GET", `/activity${qs({ limit })}`),
 

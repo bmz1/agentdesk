@@ -30,10 +30,18 @@ When you run `pnpm dev:web`, open `http://localhost:5173/?daemon=http://127.0.0.
 
 ## Managing agent work
 
-- **Threads** are for brainstorming and back-and-forth work. Start one with **⌘N** (or the sidebar **+**): write a message, pick a project, go. Threads stay off the board, show up in the sidebar and **Agents**, and become board tickets with **Track on board**. By default a thread is read-only in the main checkout: edits there are refused automatically. When the agent needs to change code, it creates its own git worktree, and AgentDesk infers it from the worktrees that appeared during the session and the agent's tool calls, then adopts it for diff, review and PRs. Tick **Start in a new worktree** to isolate a thread from the first message.
+- **Threads** are for brainstorming and back-and-forth work. Start one with **⌘N** (or the sidebar **+**): write a message, pick a project, go. Threads stay off the board, show up in the sidebar and **Agents**, and become board tickets with **Track on board**. Like tickets, every thread gets its own git worktree and branch: agents never work in your main checkout.
+- **Setup script** (project settings): shell commands that run once in every new worktree before its agent starts, for example `pnpm install` and `cp "$AGENTDESK_ROOT_PATH/.env" .env`. The script runs from the worktree with `AGENTDESK_ROOT_PATH` (your main checkout), `AGENTDESK_WORKSPACE_PATH` and `AGENTDESK_BRANCH` set. The conversation shows it as its first step, and the status line reads `Setup script: …` while it runs. A failing script (or one running over 20 minutes) fails the start. Fix it and start again: the same worktree is reused and the script reruns until it succeeds. Workflow runs use it too.
 - Use the project’s **+** to create a local ticket with any supported harness. **Create & start** launches it immediately; a failed start keeps the ticket available for retry. Closing the dialog preserves the draft until creation succeeds.
+- **One bridge for Claude Code, Codex and OpenCode.** Whatever the harness:
+  - When an agent asks you something (Claude's AskUserQuestion, Codex's input requests, OpenCode's question tool), you answer on a card in the conversation. Pick the options or type your own answer.
+  - Approvals offer **Allow for session**, so the agent stops asking for the same kind of action.
+  - The agent's to-do list or plan shows as a checklist above the conversation, and as `3/7` progress on its card and in its status line.
+  - Every turn reports tokens and (for Claude and OpenCode) cost; cards show the session's cost so far.
+  - The sidebar shows Claude's and Codex's subscription limits (5-hour and weekly use, with reset times).
+  - Where a harness can only approximate a permission mode (Codex has no plan or accept-edits mode AgentDesk can switch on), settings say how AgentDesk enforces it.
 - **Agents** offers board and list layouts, grouped into Needs you, Working, Awaiting follow-up, and Recent. Cards show the latest meaningful message plus a one-line status of what a live agent is doing right now (`Bash: pnpm test`, `Needs approval: Write: src/a.ts`), and open the exact session. A finished turn does not mark the ticket Done.
-- **Keyboard**: ⌘K palette (every command shows its shortcut), ⌘N new thread, ⌘J next agent that needs you (approvals first, then unread), ⌘1–5 Inbox/Issues/Agents/Workflows/Projects, ⌘, Settings, ⌘B sidebar; in a conversation ⌘⇧A / ⌘⇧D allow or deny the pending tool call and ⌘. interrupts. Ctrl replaces ⌘ off macOS. Bindings live in one table (`apps/desktop/src/renderer/lib/keymap.ts`).
+- **Keyboard**: ⌘K palette (every command shows its shortcut), ⌘N new thread, ⌘J next agent that needs you (approvals first, then unread), ⌘1–5 Inbox/Issues/Agents/Workflows/Projects, ⌘, Settings, ⌘B sidebar; in a conversation ⌘⇧A / ⌘⇧D allow or deny the pending tool call, ⌘⇧S allows it for the session, and ⌘. interrupts. Ctrl replaces ⌘ off macOS. Bindings live in one table (`apps/desktop/src/renderer/lib/keymap.ts`).
 - **Long conversations** open at the end: the newest events are drawn first and **Load earlier messages** pages back.
 - Project and issue views remember their layout and filters. Explicit URL filters take precedence over saved preferences.
 - **Chat + changes** opens a resizable split, remembered per ticket. Add feedback with the **+** beside a diff line, then send unresolved comments together to an idle/resumable session or a new installed harness. Stop the current agent before starting another. Comments retain their original code and line context, and stay available for verification and resolution after sending.
@@ -52,7 +60,7 @@ agentdesk events --json                         # NDJSON change stream
 agentdesk skill setup                           # teach Claude Code to delegate through agentdesk
 ```
 
-Most commands take `--json`. Exit codes are stable: `0` ok, `1` failed, `2` bad command line, `3` target missing or ambiguous (nothing changed), `4` daemon unreachable, `5` the agent is waiting for an approval, `130` interrupted. The installed skill only says to run `agentdesk skill`, so its instructions always match the installed version. Approval decisions are refused from inside an AgentDesk agent session.
+Most commands take `--json`. Exit codes are stable: `0` ok, `1` failed, `2` bad command line, `3` target missing or ambiguous (nothing changed), `4` daemon unreachable, `5` the agent is waiting for an approval or an answer, `130` interrupted. `agentdesk approve <id> --for-session` allows matching requests for the rest of the session; `agentdesk answer <id> <answer>…` answers an agent's questions, one answer per question. The installed skill only says to run `agentdesk skill`, so its instructions always match the installed version. Approval decisions are refused from inside an AgentDesk agent session.
 
 ## Repository layout
 

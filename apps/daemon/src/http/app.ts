@@ -34,6 +34,7 @@ import { Harnesses } from "../services/harnesses"
 import { TaskSync } from "../services/task-sync"
 import { Notices } from "../services/notices"
 import { Projects } from "../services/projects"
+import { Limits } from "../services/limits"
 import { Sessions } from "../services/sessions"
 import { Tickets } from "../services/tickets"
 import { Workflows } from "../services/workflows"
@@ -210,6 +211,9 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
   app.post("/sessions/:id/interrupt", (c) => respond(c, Sessions.use((s) => s.interrupt(id(c)))))
   app.post("/sessions/:id/stop", (c) => respond(c, Sessions.use((s) => s.stop(id(c)))))
 
+  // ---- account limits ---------------------------------------------------------------
+  app.get("/limits", (c) => respond(c, Limits.use((l) => l.list)))
+
   // ---- approvals -------------------------------------------------------------------
   app.get("/approvals", (c) => respond(c, Approvals.use((a) => a.list({ pending: c.req.query("pending") === "1" }))))
   app.post("/approvals/:id/decision", (c) =>
@@ -218,8 +222,15 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
       Effect.gen(function* () {
         const b = yield* body(c, ApprovalDecisionBody)
         const approval = yield* Approvals.use((a) => a.get(id(c)))
-        // Tool approvals go back to the agent harness; workflow gates resume the run.
-        if (approval.kind === "tool") return yield* Sessions.use((s) => s.resolveApproval(approval.id, b.decision, "user", b.note))
+        // Tool approvals and questions go back to the agent harness; workflow gates resume the run.
+        if (approval.kind === "tool" || approval.kind === "question") {
+          return yield* Sessions.use((s) =>
+            s.resolveApproval(approval.id, b.decision, "user", b.note, {
+              ...(b.scope && { scope: b.scope }),
+              ...(b.answers && { answers: b.answers })
+            })
+          )
+        }
         return yield* Workflows.use((w) => w.resolveApproval(approval.id, b.decision, "user", b.note))
       })
     )

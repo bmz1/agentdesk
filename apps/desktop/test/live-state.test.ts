@@ -129,3 +129,20 @@ describe("ticket notices", () => {
     expect([qk.ticketSessions("t"), qk.ticketActivity("t"), qk.ticketApprovals("t")].map(stale)).toEqual([false, false, false])
   })
 })
+
+describe("limits notices", () => {
+  afterEach(() => queryClient.clear())
+
+  it("replace one harness' limits in place", () => {
+    const limits = (harness: "claude" | "codex", usedPercent: number) => ({
+      harness,
+      limited: false,
+      updatedAt: "2026-11-17T12:00:00Z",
+      windows: [{ id: "five_hour", label: "5-hour", usedPercent }]
+    })
+    queryClient.setQueryData(qk.limits, [limits("claude", 10), limits("codex", 50)])
+    applyNotice({ topic: "limits", limits: limits("claude", 42) })
+    const now = queryClient.getQueryData<ReadonlyArray<{ harness: string; windows: ReadonlyArray<{ usedPercent: number }> }>>(qk.limits)
+    expect(now?.map((l) => [l.harness, l.windows[0]!.usedPercent])).toEqual([["codex", 50], ["claude", 42]])
+  })
+})

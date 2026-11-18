@@ -105,6 +105,34 @@ describe("agentdesk CLI", () => {
     await waitFor(async () => (await api.get(`/sessions/${session.id}`)).state === "closed" || undefined)
   })
 
+  it("answers agent questions and allows for the session", async () => {
+    const { daemon, api } = await startTestDaemon()
+    cleanups.push(daemon.stop)
+    const repo = makeRepo()
+    await api.post("/projects", { name: "Cli Ask", repoPath: repo, defaultHarness: "mock" })
+    const run = cli(daemon.url, {}, repo)
+
+    const asked = await run("new", "choose [ask] then write", "--wait", "--json")
+    expect(asked.code).toBe(Exit.blocked)
+    const { session } = asked.json()
+    expect(session.statusDetail).toBe("Asks: Which database should I use?")
+    const [question] = (await run("approvals", "--json")).json()
+    expect((await run("approve", question.id)).code).toBe(Exit.usage)
+    expect((await run("answer", question.id, "a", "b")).stderr).toMatch(/Give 1 answer\(s\).*\n  1\. Which database should I use\? \[SQLite \| Postgres\]/s)
+    expect((await cli(daemon.url, { AGENTDESK_SESSION_ID: session.id })("answer", question.id, "x")).code).toBe(Exit.failed)
+    expect((await run("answer", question.id.slice(0, 8), "postgres")).code).toBe(Exit.ok)
+
+    // Then the agent wants to write: allow it for the rest of the session.
+    expect((await run("wait", session.id)).code).toBe(Exit.blocked)
+    const [write] = (await run("approvals", "--json")).json()
+    expect((await run("approve", write.id, "--for-session", "--json")).json()).toMatchObject({ scope: "session" })
+    expect((await run("wait", session.id)).code).toBe(Exit.ok)
+    const history = (await api.get(`/sessions/${session.id}/history`)).map((e: any) => e.event)
+    expect(history.find((e: any) => e.type === "approval.resolved")).toMatchObject({ answers: { db: ["Postgres"] } })
+    expect(history.find((e: any) => e.type === "message.completed").text).toMatch(/^You answered: Postgres/)
+    expect((await run("send", session.id, "write again", "--wait")).code).toBe(Exit.ok)
+  })
+
   it("installs a skill that defers to the CLI", async () => {
     const home = mkdtempSync(join(tmpdir(), "agentdesk-cli-home-"))
     const run = cli("http://127.0.0.1:9", { HOME: home })
@@ -113,6 +141,6 @@ describe("agentdesk CLI", () => {
     expect(setup.json()).toEqual({ path: join(home, ".claude", "skills", "agentdesk", "SKILL.md"), changed: true })
     expect(readFileSync(setup.json().path, "utf8")).toBe(SKILL_FILE)
     expect((await run("skill", "setup", "--json")).json().changed).toBe(false)
-    expect((await run("skill")).stdout).toMatch(/Never approve or deny/)
+    expect((await run("skill")).stdout).toMatch(/Never approve, deny or answer for the user/)
   })
 })

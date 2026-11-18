@@ -12,7 +12,7 @@ import { useUi } from "@/lib/store"
 import { relativeTime } from "@/lib/utils"
 import { Composer } from "./composer"
 import { ComposerModelPicker } from "./model-picker"
-import { Transcript } from "./transcript"
+import { type DecideFn, Transcript } from "./transcript"
 import { useSessionEvents } from "./use-session-events"
 import { useShortcut } from "@/lib/keymap"
 
@@ -109,7 +109,7 @@ const SessionHeader = ({
 }
 
 const SessionView = ({ session, ticket }: { session: AgentSession; ticket: Ticket }) => {
-  const { items, connected, lastId, hasEarlier, loadingEarlier, loadEarlier } = useSessionEvents(session.id)
+  const { items, plan, connected, lastId, hasEarlier, loadingEarlier, loadEarlier } = useSessionEvents(session.id)
   const project = useQuery(q.project(ticket.projectId))
   // The ticket's model applies when the session runs the ticket's own harness; otherwise the harness default
   // until switched here. `picked` is a switch not yet sent.
@@ -135,19 +135,27 @@ const SessionView = ({ session, ticket }: { session: AgentSession; ticket: Ticke
   }, [session.id, lastId, markRead])
   const qc = useQueryClient()
   const [deciding, setDeciding] = useState<string | null>(null)
-  const decide = async (approvalId: string, decision: "allow" | "deny") => {
+  const [decideError, setDecideError] = useState<string | null>(null)
+  const decide: DecideFn = async (approvalId, decision, options) => {
     setDeciding(approvalId)
+    setDecideError(null)
     try {
-      await api.decide(approvalId, decision)
+      await api.decide(approvalId, decision, options)
+    } catch (e) {
+      setDecideError((e as Error).message)
     } finally {
       setDeciding(null)
       void qc.invalidateQueries({ queryKey: ["approvals"] })
     }
   }
   const pendingApproval = items.findLast((i) => i.kind === "approval" && !i.decision)
-  const pendingId = pendingApproval?.kind === "approval" ? pendingApproval.approvalId : undefined
-  useShortcut("approve", () => pendingId && void decide(pendingId, "allow"), !!pendingId && !deciding)
-  useShortcut("deny", () => pendingId && void decide(pendingId, "deny"), !!pendingId && !deciding)
+  const pending = pendingApproval?.kind === "approval" ? pendingApproval : undefined
+  const pendingId = pending?.approvalId
+  // Questions are answered on their card: the allow/deny keys only act on tool approvals.
+  const toolPending = !!pendingId && !pending?.question && !deciding
+  useShortcut("approve", () => pendingId && void decide(pendingId, "allow"), toolPending)
+  useShortcut("approveSession", () => pendingId && void decide(pendingId, "allow", { scope: "session" }), toolPending && !!pending?.canAllowForSession)
+  useShortcut("deny", () => pendingId && void decide(pendingId, "deny"), toolPending)
   useShortcut("interrupt", () => void api.interrupt(session.id), session.state === "running")
   const live = ["starting", "running", "waiting_for_approval", "idle"].includes(session.state)
   const resumable = !live && !!session.providerSessionId
@@ -168,6 +176,7 @@ const SessionView = ({ session, ticket }: { session: AgentSession; ticket: Ticke
         ) : (
           <Transcript
             items={items}
+            plan={plan}
             working={session.state === "running" || session.state === "starting"}
             onDecide={decide}
             deciding={deciding}
@@ -175,6 +184,11 @@ const SessionView = ({ session, ticket }: { session: AgentSession; ticket: Ticke
             loadingEarlier={loadingEarlier}
             onLoadEarlier={() => void loadEarlier()}
           />
+        )}
+        {decideError && (
+          <p role="alert" className="mx-auto w-full max-w-3xl px-6 pb-1 text-xs text-danger">
+            {decideError}
+          </p>
         )}
       </div>
       <Composer

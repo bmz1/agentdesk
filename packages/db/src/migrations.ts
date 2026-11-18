@@ -304,5 +304,16 @@ ALTER TABLE tickets ADD COLUMN workspace_mode TEXT NOT NULL DEFAULT 'worktree';
     id: 6,
     name: "ticket_effort",
     sql: /* sql */ `ALTER TABLE tickets ADD COLUMN effort TEXT;`
+  },
+  {
+    id: 7,
+    name: "worktree_setup",
+    // Every agent now works in an AgentDesk worktree: read-only threads are gone. Existing
+    // worktrees count as set up; new ones run the project's setup script before the agent starts.
+    sql: /* sql */ `
+ALTER TABLE projects ADD COLUMN setup_command TEXT;
+ALTER TABLE workspaces ADD COLUMN setup_state TEXT NOT NULL DEFAULT 'done';
+ALTER TABLE tickets DROP COLUMN workspace_mode;
+`
   }
 ]

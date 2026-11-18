@@ -109,8 +109,6 @@ export interface NewOptions {
   readonly project?: string
   readonly title?: string
   readonly harness?: string
-  /** Read-only thread in the project checkout instead of a new worktree. */
-  readonly readonly?: boolean
   readonly wait?: boolean
   readonly timeoutSec?: number
 }
@@ -127,8 +125,7 @@ export const newThread = async (client: Client, out: Output, prompt: string, opt
     projectId: project.id,
     title,
     tracked: false,
-    ...(opts.harness && { harness: opts.harness }),
-    ...(opts.readonly && { workspaceMode: "readonly" })
+    ...(opts.harness && { harness: opts.harness })
   })
   const session = await client.post<AgentSession>(`/tickets/${ticket.id}/sessions`, {
     prompt,
@@ -190,6 +187,8 @@ export const waitForTurn = async (client: Client, out: Output, sessionId: string
       else if (event.type === "turn.completed")
         code = event.status === "error" ? Exit.failed : event.status === "interrupted" ? Exit.interrupted : Exit.ok
       else if (event.type === "session.exited") code = Exit.ok
+      // A failed start (setup script, missing harness) ends the session without a turn.
+      else if (event.type === "session.error" && (await client.get<AgentSession>(`/sessions/${sessionId}`)).state === "failed") code = Exit.failed
       if (code !== undefined) break
     }
   } finally {
@@ -225,16 +224,51 @@ export const decide = async (
   query: string,
   decision: "allow" | "deny",
   note: string | undefined,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  opts: { session?: boolean } = {}
 ) => {
-  // An agent must never approve its own (or a sibling's) tool calls.
+  refuseInsideAgent(env)
+  const pending = await client.get<ReadonlyArray<Approval>>("/approvals?pending=1")
+  const approval = resolveOne("pending approval", query, pending)
+  if (approval.kind === "question" && decision === "allow") {
+    throw new CliError(`${approval.id} is a question: answer it with \`agentdesk answer ${approval.id.slice(0, 8)} <answer>\``, Exit.usage)
+  }
+  const scope = opts.session && decision === "allow" ? "session" : undefined
+  const result = await client.post(`/approvals/${approval.id}/decision`, { decision, ...(note && { note }), ...(scope && { scope }) })
+  out.write(
+    out.json
+      ? JSON.stringify(result ?? { approvalId: approval.id, decision, ...(scope && { scope }) })
+      : `${decision === "allow" ? (scope ? "Allowed for the session" : "Allowed") : "Denied"}: ${approval.title}`
+  )
+  return Exit.ok
+}
+
+// An agent must never approve or answer for the user, for itself or a sibling.
+const refuseInsideAgent = (env: NodeJS.ProcessEnv) => {
   if (env.AGENTDESK_SESSION_ID) {
     throw new CliError("Approval decisions are refused inside an AgentDesk agent session; ask the user.", Exit.failed)
   }
+}
+
+/** Answer an agent's question(s): one answer per question, in order. An answer matching an option uses that option. */
+export const answer = async (client: Client, out: Output, query: string, given: ReadonlyArray<string>, env: NodeJS.ProcessEnv = process.env) => {
+  refuseInsideAgent(env)
   const pending = await client.get<ReadonlyArray<Approval>>("/approvals?pending=1")
-  const approval = resolveOne("pending approval", query, pending)
-  const result = await client.post(`/approvals/${approval.id}/decision`, { decision, ...(note && { note }) })
-  out.write(out.json ? JSON.stringify(result ?? { approvalId: approval.id, decision }) : `${decision === "allow" ? "Allowed" : "Denied"}: ${approval.title}`)
+  const approval = resolveOne("pending question", query, pending.filter((a) => a.kind === "question"))
+  const questions = ((approval.details ?? {}) as { questions?: ReadonlyArray<{ id: string; question: string; options: ReadonlyArray<{ label: string }> }> }).questions ?? []
+  if (given.length !== questions.length) {
+    const list = questions.map((q, i) => `  ${i + 1}. ${q.question}${q.options.length ? ` [${q.options.map((o) => o.label).join(" | ")}]` : ""}`).join("\n")
+    throw new CliError(`Give ${questions.length} answer(s), one per question:\n${list}`, Exit.usage)
+  }
+  const answers = Object.fromEntries(
+    questions.map((q, i) => {
+      const text = given[i]!.trim()
+      const option = q.options.find((o) => o.label.toLowerCase() === text.toLowerCase())
+      return [q.id, [option?.label ?? text]]
+    })
+  )
+  await client.post(`/approvals/${approval.id}/decision`, { decision: "allow", answers })
+  out.write(out.json ? JSON.stringify({ approvalId: approval.id, answers }) : `Answered: ${approval.title}`)
   return Exit.ok
 }
 

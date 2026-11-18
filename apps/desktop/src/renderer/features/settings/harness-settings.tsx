@@ -6,7 +6,7 @@ import { HARNESS_LABELS } from "@/components/status"
 import { Button } from "@/components/ui/button"
 import { Field, Input, Select, Textarea } from "@/components/ui/input"
 import { Section, Spinner } from "@/components/ui/misc"
-import { PERMISSION_MODES } from "@/features/projects/project-form"
+import { modeCaveat, PERMISSION_MODES } from "@/features/projects/project-form"
 import { api } from "@/lib/api"
 import { q, qk } from "@/lib/queries"
 
@@ -61,7 +61,7 @@ const HarnessProfile = ({ id, profile, detection }: { id: HarnessId; profile: Se
             <Input aria-label={`${HARNESS_LABELS[id]} default model`} value={draft.model ?? ""} onChange={(e) => update({ model: e.target.value || null })} list={listId} maxLength={500} placeholder="Harness default" data-testid={`harness-model-${id}`} />
             <datalist id={listId}>{(detection?.models ?? []).map((m) => <option key={m.id} value={m.id}>{m.provider ? `${m.provider} · ` : ""}{m.label}</option>)}</datalist>
           </Field>
-          <Field label="Default permissions" hint={mode?.hint}>
+          <Field label="Default permissions" hint={[mode?.hint, modeCaveat(draft.permissionMode, detection?.capabilities)].filter(Boolean).join(" ")}>
             <Select aria-label={`${HARNESS_LABELS[id]} default permissions`} value={draft.permissionMode} onChange={(e) => update({ permissionMode: e.target.value as HarnessDefaults["permissionMode"] })} data-testid={`harness-permissions-${id}`}>
               {PERMISSION_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
             </Select>

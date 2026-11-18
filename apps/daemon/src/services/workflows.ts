@@ -9,7 +9,8 @@ import type {
   StepState,
   WorkflowDefinitionSummary,
   WorkflowRun,
-  WorkflowRunDetail
+  WorkflowRunDetail,
+  Workspace
 } from "@agentdesk/contracts"
 import { approvals as approvalsTable, artifacts, stepRuns, workflowDefinitions, workflowRuns } from "@agentdesk/db"
 import * as Git from "@agentdesk/git"
@@ -30,7 +31,7 @@ import { Projects } from "./projects"
 import { HarnessSettings } from "./harness-settings"
 import { buildTicketPrompt, projectPolicy, Sessions, ticketEffort, ticketModel } from "./sessions"
 import { Tickets } from "./tickets"
-import { Workspaces } from "./workspaces"
+import { pendingSetup, Workspaces } from "./workspaces"
 
 export const DEFAULT_WORKFLOW_ID = "plan-implement-test-pr"
 const ACTIVE_RUN_STATES = ["queued", "preparing", "running", "retrying"]
@@ -598,16 +599,32 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
         function* (runId: string): Effect.fn.Return<void, StepError> {
           let run = yield* getRunRow(runId)
           yield* Effect.annotateCurrentSpan({ runId, ticketId: run.ticketId, workflow: `${run.workflowId}@${run.workflowVersion}` })
+          const ticket = yield* tickets.get(run.ticketId)
+          const project = yield* projects.get(ticket.projectId)
+          let ws: Workspace
           if (!run.workspaceId) {
             yield* setRun(runId, { status: "preparing", startedAt: run.startedAt ?? (yield* nowIso) })
-            const ticket = yield* tickets.get(run.ticketId)
-            const project = yield* projects.get(ticket.projectId)
-            const ws = yield* workspaces.allocate({ project, ticketId: ticket.id, ticketIdentifier: ticket.identifier, ticketTitle: ticket.title, runId })
+            ws = yield* workspaces.allocate({ project, ticketId: ticket.id, ticketIdentifier: ticket.identifier, ticketTitle: ticket.title, runId })
             yield* workspaces.lock(ws.id, runId)
             run = (yield* setRun(runId, { workspaceId: ws.id }))!
             if (ticket.status === "todo") yield* tickets.update(ticket.id, { status: "in_progress" }, "system").pipe(Effect.ignore)
           } else {
-            yield* workspaces.lock(run.workspaceId, runId)
+            ws = yield* workspaces.get(run.workspaceId)
+            yield* workspaces.lock(ws.id, runId)
+          }
+          // A new worktree (or one whose setup failed before) runs the project's setup script first.
+          const setupCommand = pendingSetup(ws, project)
+          if (setupCommand) {
+            yield* setRun(runId, { status: "preparing", startedAt: run.startedAt ?? (yield* nowIso) })
+            const setup = yield* workspaces.runSetup(ws, project, setupCommand)
+            if (!setup.ok) {
+              const lastLine = setup.output.trim().split("\n").pop()
+              return yield* finishRun(
+                run,
+                "failed",
+                `Setup script ${setup.exitCode === null ? "timed out" : `exited with code ${setup.exitCode}`}${lastLine ? `: ${lastLine}` : ""}`
+              )
+            }
           }
           yield* setRun(runId, { status: "running", startedAt: run.startedAt ?? (yield* nowIso) })
           const plan = yield* loadPlan(run.workflowId, run.workflowVersion)

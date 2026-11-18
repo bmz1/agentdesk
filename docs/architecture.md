@@ -43,9 +43,26 @@ DaemonConfig · NodeServices (ChildProcessSpawner…) · Observability
 | --- | --- | --- | --- | --- |
 | Claude Code | `claude -p --input-format/--output-format stream-json`, stdio | `control_request can_use_tool` (`--permission-prompt-tool stdio`) | control `interrupt` | `--resume <session_id>` |
 | Codex | `codex app-server` JSON-RPC over stdio | server requests `item/*/requestApproval` | `turn/interrupt` | `thread/resume` |
-| OpenCode | `opencode serve` per session, HTTP + SSE `/event` | `permission.asked` → `/permission/:id/reply` | `/session/:id/abort` | existing session id |
+| OpenCode | `opencode serve` per session, HTTP + SSE `/event` | `permission.asked` → `/permission/:id/reply` | `/session/:id/abort` | existing session id, permission rules re-applied |
 
 No adapter parses terminal output.
+
+The bridge normalizes the same features across all three:
+
+| Feature | Claude Code | Codex | OpenCode |
+| --- | --- | --- | --- |
+| Questions (`approval.requested` with `kind: "question"`) | `AskUserQuestion` permission request, answered in `updatedInput.answers` (keyed by question text) | `item/tool/requestUserInput`, answered `{answers: {id: {answers}}}` | `question.asked`, answered on `/question/:id/reply` in question order |
+| Allow for the session (`scope: "session"`) | the request's `permission_suggestions` as `updatedPermissions` | `acceptForSession` (`approved_for_session` on legacy requests) | reply `always` |
+| Plan (`plan.updated`) | `TodoWrite`, or `TaskCreate`/`TaskUpdate` | `turn/plan/updated` | `todo.updated` |
+| Turn usage | `result.usage`; cost is the change in the cumulative `total_cost_usd` | difference of `thread/tokenUsage/updated` totals; no cost | sum of the turn's assistant messages' tokens and cost |
+| Rate limits (`rate_limit`) | `rate_limit_event` (5-hour, weekly) | `account/rateLimits/read` + `account/rateLimits/updated` | not reported |
+| Plan mode | `--permission-mode plan` | read-only sandbox (not settable over app-server) | the `plan` agent, edits denied |
+| Accept edits | `--permission-mode acceptEdits` | `untrusted` policy; AgentDesk approves edit requests itself | `edit: allow` rule |
+| Effort | `--effort` (restart to change) | per turn | model `variant`, per prompt |
+
+Adapters declare these as `HarnessCapabilities` (in `/harnesses/detect`), so the UI explains approximations instead of pretending. Requests a harness sends that AgentDesk does not serve are answered at once with an error (Claude `control_request`s other than `can_use_tool`, unknown Codex server requests) so an agent never waits on them. A Codex interrupt sent before `turn/start` has returned a turn id is held and sent as soon as the id arrives.
+
+`rate_limit` events are account-wide: the `Limits` service keeps the newest per harness (`GET /limits`, pushed as `limits` notices) and they never enter a transcript. Sessions carry `plan` (done/total/current step of the latest `plan.updated`) and `usage` (summed over `turn.completed`; input counts cached reads), loaded from the event log once and then kept current as events are recorded.
 
 ## Task sources (Jira, Linear, …)
 
@@ -76,11 +93,11 @@ A subscription registers on the PubSub *before* it reads history, then drops liv
 
 Transcripts open end first: the renderer fetches the newest page (`GET /sessions/:id/history?tail=2000`), draws it, then attaches the live stream after its last id. Older pages come from `?tail=2000&before=<id>` and are folded in by rebuilding the transcript from the full event list.
 
-A turn's end is ordered: post-turn work (worktree adoption, ready-for-review), then the `turn.completed` event, then the `idle` state, under a per-session lock shared with live prompts. Whoever sees `idle` has already seen the turn end, and a prompt sent in reaction cannot interleave with it.
+A turn's end is ordered: post-turn work (ready-for-review), then the `turn.completed` event, then the `idle` state, under a per-session lock shared with live prompts. Whoever sees `idle` has already seen the turn end, and a prompt sent in reaction cannot interleave with it.
 
 ## Sessions
 
-The `Sessions` service owns live harness sessions in daemon scopes. A UI disconnect has no effect on them. An ad-hoc session takes the worktree's single-writer lock. Approvals are persisted, routed back to the harness, and expired if the process dies. On startup, sessions left live are marked `interrupted`; orphaned harness processes are terminated after a pid and command check. A follow-up prompt resumes the provider conversation in a new process. **Resuming a conversation does not resume the original process.**
+The `Sessions` service owns live harness sessions in daemon scopes. A UI disconnect has no effect on them. Every session runs in an AgentDesk worktree, never the main checkout. An ad-hoc session takes the worktree's single-writer lock. A worktree whose project setup script has not yet succeeded (`workspaces.setup_state = pending`) runs it first: the session answers `starting` at once and boots in the background, recording the script as a `tool.started`/`tool.completed` pair. A failure fails the session and leaves the worktree pending, and a stop during setup cancels it. Workflow runs run the same script while `preparing`. Approvals are persisted, routed back to the harness, and expired if the process dies. On startup, sessions left live are marked `interrupted`; orphaned harness processes are terminated after a pid and command check. A follow-up prompt resumes the provider conversation in a new process. **Resuming a conversation does not resume the original process.**
 
 ## Workflow durability
 

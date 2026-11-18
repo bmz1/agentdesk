@@ -1,6 +1,7 @@
 import { Schema } from "effect"
+import { QuestionAnswers, RateLimitWindow } from "./agent-events"
 import { AgentSession, HarnessDefaults } from "./models"
-import { ApprovalDecision, BoardStatus, GitProvider, HarnessId, PermissionMode, Priority, WorkspaceMode } from "./ids"
+import { ApprovalDecision, BoardStatus, GitProvider, HarnessId, PermissionMode, Priority } from "./ids"
 
 /** Request bodies validated at the HTTP boundary. */
 
@@ -14,7 +15,8 @@ export const CreateProjectBody = Schema.Struct({
   defaultWorkflowId: Schema.optional(Schema.NullOr(Schema.String)),
   permissionMode: Schema.optional(PermissionMode),
   inheritHarnessPermissions: Schema.optional(Schema.Boolean),
-  testCommand: Schema.optional(Schema.NullOr(Schema.String))
+  testCommand: Schema.optional(Schema.NullOr(Schema.String)),
+  setupCommand: Schema.optional(Schema.NullOr(Schema.String))
 })
 export type CreateProjectBody = typeof CreateProjectBody.Type
 
@@ -27,7 +29,8 @@ export const UpdateProjectBody = Schema.Struct({
   defaultWorkflowId: Schema.optional(Schema.NullOr(Schema.String)),
   permissionMode: Schema.optional(PermissionMode),
   inheritHarnessPermissions: Schema.optional(Schema.Boolean),
-  testCommand: Schema.optional(Schema.NullOr(Schema.String))
+  testCommand: Schema.optional(Schema.NullOr(Schema.String)),
+  setupCommand: Schema.optional(Schema.NullOr(Schema.String))
 })
 export type UpdateProjectBody = typeof UpdateProjectBody.Type
 
@@ -44,8 +47,7 @@ export const CreateTicketBody = Schema.Struct({
   workflowId: Schema.optional(Schema.NullOr(Schema.String)),
   labels: Schema.optional(Schema.Array(Schema.String)),
   /** False creates a thread, kept off the board. Defaults to true. */
-  tracked: Schema.optional(Schema.Boolean),
-  workspaceMode: Schema.optional(WorkspaceMode)
+  tracked: Schema.optional(Schema.Boolean)
 })
 export type CreateTicketBody = typeof CreateTicketBody.Type
 
@@ -70,8 +72,6 @@ export type UpdateTicketBody = typeof UpdateTicketBody.Type
 export const StartSessionBody = Schema.Struct({
   harness: Schema.optional(HarnessId),
   prompt: Schema.optional(Schema.String),
-  /** When true, run in the project repo itself instead of a fresh worktree. */
-  useRepoDirectly: Schema.optional(Schema.Boolean),
   /** Attachment ids from `POST /attachments`, sent with the first prompt. */
   images: Schema.optional(Schema.Array(Schema.String))
 })
@@ -113,7 +113,11 @@ export type PromptBody = typeof PromptBody.Type
 
 export const ApprovalDecisionBody = Schema.Struct({
   decision: ApprovalDecision,
-  note: Schema.optional(Schema.String)
+  note: Schema.optional(Schema.String),
+  /** "session": also allow matching requests for the rest of the agent's session (tool approvals only). */
+  scope: Schema.optional(Schema.Literals(["once", "session"])),
+  /** Answers to a question approval, keyed by question id. */
+  answers: Schema.optional(QuestionAnswers)
 })
 export type ApprovalDecisionBody = typeof ApprovalDecisionBody.Type
 
@@ -178,13 +182,24 @@ export type ApiErrorBody = typeof ApiErrorBody.Type
  * `sessions` notice carries the updated session itself so clients can apply it without a refetch.
  */
 export const ChangeNotice = Schema.Struct({
-  topic: Schema.Literals(["tickets", "projects", "runs", "sessions", "approvals", "activity", "sources", "workflows", "settings"]),
+  topic: Schema.Literals(["tickets", "projects", "runs", "sessions", "approvals", "activity", "sources", "workflows", "settings", "limits"]),
   ticketId: Schema.optional(Schema.String),
   runId: Schema.optional(Schema.String),
   sessionId: Schema.optional(Schema.String),
-  session: Schema.optional(AgentSession)
+  session: Schema.optional(AgentSession),
+  /** With a `limits` notice: the harness' latest rate limits. */
+  limits: Schema.optional(Schema.suspend(() => HarnessRateLimits))
 })
 export type ChangeNotice = typeof ChangeNotice.Type
+
+/** The latest subscription rate limits a harness reported (`GET /limits`). */
+export const HarnessRateLimits = Schema.Struct({
+  harness: HarnessId,
+  windows: Schema.Array(RateLimitWindow),
+  limited: Schema.Boolean,
+  updatedAt: Schema.String
+})
+export type HarnessRateLimits = typeof HarnessRateLimits.Type
 
 export const UpdateHarnessSettingsBody = Schema.Struct({
   defaultHarness: Schema.optional(HarnessId),

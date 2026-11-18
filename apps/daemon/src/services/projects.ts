@@ -27,6 +27,7 @@ export const toProject = (r: ProjectRow): Project => ({
   permissionMode: r.permissionMode as Project["permissionMode"],
   inheritHarnessPermissions: r.inheritHarnessPermissions,
   testCommand: r.testCommand,
+  setupCommand: r.setupCommand,
   createdAt: r.createdAt,
   updatedAt: r.updatedAt
 })
@@ -92,6 +93,7 @@ export const ProjectsLive = Layer.effect(
           permissionMode: body.permissionMode ?? "ask",
           inheritHarnessPermissions: body.inheritHarnessPermissions ?? body.permissionMode === undefined,
           testCommand: body.testCommand ?? null,
+          setupCommand: body.setupCommand?.trim() || null,
           ticketCounter: 0,
           createdAt: now,
           updatedAt: now
@@ -120,6 +122,7 @@ export const ProjectsLive = Layer.effect(
               ...(body.permissionMode !== undefined && { permissionMode: body.permissionMode, inheritHarnessPermissions: false }),
               ...(body.inheritHarnessPermissions !== undefined && { inheritHarnessPermissions: body.inheritHarnessPermissions }),
               ...(body.testCommand !== undefined && { testCommand: body.testCommand }),
+              ...(body.setupCommand !== undefined && { setupCommand: body.setupCommand?.trim() || null }),
               updatedAt
             })
             .where(eq(projects.id, id))

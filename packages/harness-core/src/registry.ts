@@ -20,6 +20,9 @@ export const makeRegistry = (adapters: ReadonlyArray<HarnessAdapter>): HarnessRe
         ? Effect.succeed(a)
         : Effect.fail(new HarnessError({ harness: id, reason: "unsupported", message: `Harness ${id} is not registered` }))
     },
-    detectAll: Effect.forEach(adapters, (a) => a.detect, { concurrency: "unbounded" })
+    // Every detection says what its harness supports, so the UI only offers settings that take effect.
+    detectAll: Effect.forEach(adapters, (a) => a.detect.pipe(Effect.map((d) => ({ ...d, capabilities: d.capabilities ?? a.capabilities }))), {
+      concurrency: "unbounded"
+    })
   }
 }

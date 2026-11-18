@@ -7,7 +7,7 @@ const USAGE = `usage: agentdesk <command> [options]
 
   status                       daemon info
   projects                     list projects
-  new <prompt>                 start a thread   [--project KEY] [--title T] [--harness H] [--readonly] [--wait] [--timeout S]
+  new <prompt>                 start a thread   [--project KEY] [--title T] [--harness H] [--wait] [--timeout S]
   ls                           list sessions    [--active] [--attention]
   show <session>               one session
   send <session> <text>        follow-up prompt [--wait] [--timeout S]
@@ -15,8 +15,9 @@ const USAGE = `usage: agentdesk <command> [options]
   interrupt <session>          interrupt the current turn
   stop <session>               stop the agent process
   approvals                    pending approvals
-  approve <approval>           allow           [--note N]
+  approve <approval>           allow           [--note N] [--for-session]
   deny <approval>              deny            [--note N]
+  answer <question> <answer>…  answer an agent's question(s), one answer per question
   events                       NDJSON change stream [--session S] [--replay]
   skill                        print instructions for agents
   skill setup                  install the Claude Code skill [--local] [--dir D]
@@ -35,14 +36,14 @@ const OPTIONS = {
   project: { type: "string", short: "p" },
   title: { type: "string" },
   harness: { type: "string" },
-  readonly: { type: "boolean" },
   wait: { type: "boolean", short: "w" },
   timeout: { type: "string" },
   note: { type: "string" },
   session: { type: "string", short: "s" },
   replay: { type: "boolean" },
   dir: { type: "string" },
-  local: { type: "boolean" }
+  local: { type: "boolean" },
+  "for-session": { type: "boolean" }
 } as const
 
 export interface Io {
@@ -101,7 +102,7 @@ export const run = async (argv: ReadonlyArray<string>, io: Io): Promise<number> 
           client(),
           out,
           text("prompt"),
-          { project: o.project, title: o.title, harness: o.harness, readonly: o.readonly, wait: o.wait, timeoutSec },
+          { project: o.project, title: o.title, harness: o.harness, wait: o.wait, timeoutSec },
           io.cwd
         )
       case "send":
@@ -115,7 +116,11 @@ export const run = async (argv: ReadonlyArray<string>, io: Io): Promise<number> 
         return await commands.approvals(client(), out)
       case "approve":
       case "deny":
-        return await commands.decide(client(), out, arg("approval"), command === "approve" ? "allow" : "deny", o.note, io.env)
+        return await commands.decide(client(), out, arg("approval"), command === "approve" ? "allow" : "deny", o.note, io.env, { session: o["for-session"] })
+      case "answer": {
+        if (rest.length < 2) throw usage("answer: missing <question> <answer>")
+        return await commands.answer(client(), out, rest[0]!, rest.slice(1), io.env)
+      }
       case "events":
         return await commands.events(client(), out, { session: o.session, replay: o.replay }, io.signal)
       case "skill": {

@@ -18,7 +18,7 @@ layer(NodeProcessLayer)("mock harness", (it) => {
         Stream.tap((e) =>
           Effect.gen(function* () {
             events.push(e)
-            if (e.type === "approval.requested") yield* session.respondToApproval(e.providerRequestId!, "allow")
+            if (e.type === "approval.requested") yield* session.respondToApproval(e.providerRequestId!, { decision: "allow" })
           })
         ),
         Stream.takeUntil((e) => e.type === "turn.completed"),

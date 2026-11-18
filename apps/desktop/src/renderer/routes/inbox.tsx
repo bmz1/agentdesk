@@ -71,7 +71,7 @@ function Inbox() {
                             <Link
                               to="/issues/$ticketId"
                               params={{ ticketId: t.id }}
-                              search={{ tab: a.kind === "tool" ? "agent" : "workflow" }}
+                              search={{ tab: a.kind === "tool" || a.kind === "question" ? "agent" : "workflow" }}
                               className="hover:underline"
                             >
                               {t.identifier} · {t.title}
@@ -82,12 +82,23 @@ function Inbox() {
                           · {a.kind.replace("_", " ")} · {relativeTime(a.createdAt)}
                         </div>
                       </div>
-                      <Button size="sm" disabled={decide.isPending} variant="secondary" onClick={() => decide.mutate({ id: a.id, decision: "deny" })}>
-                        <X /> Deny
-                      </Button>
-                      <Button size="sm" disabled={decide.isPending} variant="success" onClick={() => decide.mutate({ id: a.id, decision: "allow" })}>
-                        <Check /> Approve
-                      </Button>
+                      {a.kind === "question" && t ? (
+                        // Questions need their options: answer them in the conversation.
+                        <Link to="/issues/$ticketId" params={{ ticketId: t.id }} search={{ tab: "agent" }}>
+                          <Button size="sm" variant="success">
+                            Answer
+                          </Button>
+                        </Link>
+                      ) : (
+                        <>
+                          <Button size="sm" disabled={decide.isPending} variant="secondary" onClick={() => decide.mutate({ id: a.id, decision: "deny" })}>
+                            <X /> Deny
+                          </Button>
+                          <Button size="sm" disabled={decide.isPending} variant="success" onClick={() => decide.mutate({ id: a.id, decision: "allow" })}>
+                            <Check /> Approve
+                          </Button>
+                        </>
+                      )}
                     </div>
                   )
                 })}

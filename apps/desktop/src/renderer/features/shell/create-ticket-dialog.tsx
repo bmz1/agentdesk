@@ -37,7 +37,6 @@ export const CreateTicketDialog = () => {
   const [created, setCreated] = useState<Ticket | null>(null)
   const [kind, setKind] = useState<"thread" | "ticket">(presetKind)
   const [prompt, setPrompt] = useState("")
-  const [useWorktree, setUseWorktree] = useState(false)
   const isThread = kind === "thread"
 
   useEffect(() => {
@@ -53,7 +52,7 @@ export const CreateTicketDialog = () => {
     mutationFn: async (start: boolean) => {
       const ticket = created ?? await api.createTicket(
         isThread
-          ? { projectId, title: threadTitle(prompt), harness: harness || null, tracked: false, workspaceMode: useWorktree ? "worktree" : "readonly" }
+          ? { projectId, title: threadTitle(prompt), harness: harness || null, tracked: false }
           : { projectId, title: title.trim(), description, acceptanceCriteria: acceptance, priority, harness: harness || null }
       )
       setCreated(ticket)
@@ -67,7 +66,7 @@ export const CreateTicketDialog = () => {
     onSuccess: ({ ticket, session }) => {
       void qc.invalidateQueries({ queryKey: ["tickets"] })
       void qc.invalidateQueries({ queryKey: ["sessions"] })
-      setTitle(""); setDescription(""); setAcceptance(""); setPriority("none"); setHarness(""); setCreated(null); setPrompt(""); setUseWorktree(false)
+      setTitle(""); setDescription(""); setAcceptance(""); setPriority("none"); setHarness(""); setCreated(null); setPrompt("")
       close()
       void navigate({ to: "/issues/$ticketId", params: { ticketId: ticket.id }, search: { tab: session ? "agent" : "overview", session: session?.id } })
     }
@@ -123,17 +122,6 @@ export const CreateTicketDialog = () => {
                 data-testid="thread-prompt"
               />
               {projectHarnessFields}
-              <label className="flex items-start gap-2 text-xs">
-                <input type="checkbox" className="mt-0.5" checked={useWorktree} onChange={(e) => setUseWorktree(e.target.checked)} data-testid="thread-worktree" />
-                <span>
-                  Start in a new worktree
-                  <span className="block text-fg-subtle">
-                    {useWorktree
-                      ? "The agent gets its own branch and worktree from the first message."
-                      : "The agent reads your main checkout without changing it. If it needs to edit code, it creates a worktree, which AgentDesk picks up automatically."}
-                  </span>
-                </span>
-              </label>
             </fieldset>
             {installed === false && !created && <p className="text-xs text-warning">This harness is not installed.</p>}
             {create.error && <p role="alert" className="text-xs text-danger">{created ? "Thread created; agent could not start. Retry below. " : ""}{create.error.message}</p>}

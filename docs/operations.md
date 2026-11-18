@@ -48,7 +48,7 @@ Settings → Agent harnesses shows detected versions. Verify end to end with `AG
 ~/.agentdesk/
   agentdesk.db (+ -wal/-shm)   SQLite, WAL mode
   token, daemon.json, daemon.lock
-  worktrees/<project>/<ticket>-<id>/   one per ticket session or workflow run
+  worktrees/<project>/<ticket>-<id>/   one per ticket or thread, and per workflow run (set up by the project's setup script)
   artifacts/<runId>/                   plans, reviews, check logs
   logs/daemon.log                      JSON lines, redacted, rotated at 10 MB
 ```
@@ -56,6 +56,8 @@ Settings → Agent harnesses shows detected versions. Verify end to end with `AG
 ## Recovery behaviour
 - **UI closed:** nothing happens to agents.
 - **Daemon restarted or crashed:** live sessions become `interrupted`, and a follow-up resumes the provider conversation. In-flight workflow runs become `interrupted`; press **Resume** to re-run the interrupted step as a new attempt. Approval gates that were waiting stay waiting. PR creation reuses an existing PR for the branch.
+- **Threads from before read-only mode was removed** (migration 7): a conversation that ran in the main checkout cannot resume there, so a follow-up to it is refused. Start a new session from the thread instead. It uses the worktree the agent already created and AgentDesk adopted, or a new one.
+- **Setup script failed:** the session shows the script's output as its first step and ends `failed`. Fix the script under the project's settings and start the agent again; the worktree is kept and set up again.
 - **Worktree cleanup** refuses to remove uncommitted changes unless you force it. The branch is always kept.
 
 ## Troubleshooting

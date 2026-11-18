@@ -1,4 +1,4 @@
-import { type AgentSession, type ChangeNotice, LIVE_SESSION_STATES } from "@agentdesk/contracts"
+import { type AgentSession, type ChangeNotice, type HarnessRateLimits, LIVE_SESSION_STATES } from "@agentdesk/contracts"
 import { QueryClient, queryOptions } from "@tanstack/react-query"
 import { api, type TicketQuery } from "./api"
 
@@ -35,13 +35,16 @@ export const qk = {
   workflows: ["workflows"] as const,
   workflow: (id: string) => ["workflows", id] as const,
   sources: ["sources"] as const,
-  sourceConnections: ["sources", "connections"] as const
+  sourceConnections: ["sources", "connections"] as const,
+  limits: ["limits"] as const
 }
 
 export const q = {
   harnessSettings: () => queryOptions({ queryKey: qk.harnessSettings, queryFn: api.harnessSettings }),
   info: () => queryOptions({ queryKey: qk.info, queryFn: api.info, refetchInterval: 15_000 }),
   harnesses: () => queryOptions({ queryKey: qk.harnesses, queryFn: () => api.harnesses(), staleTime: 60_000 }),
+  /** Pushed with `limits` notices; fetched once. */
+  limits: () => queryOptions({ queryKey: qk.limits, queryFn: api.limits, staleTime: Infinity }),
   projects: () => queryOptions({ queryKey: qk.projects, queryFn: api.projects }),
   project: (id: string) => queryOptions({ queryKey: qk.project(id), queryFn: () => api.project(id) }),
   tickets: (query: TicketQuery = {}) => queryOptions({ queryKey: qk.tickets(query), queryFn: () => api.tickets(query) }),
@@ -100,6 +103,15 @@ export const applyNotice = (n: ChangeNotice) => {
     case "settings":
       inv(qk.harnessSettings)
       break
+    case "limits": {
+      const limits = n.limits
+      if (!limits) break
+      queryClient.setQueryData<ReadonlyArray<HarnessRateLimits>>(qk.limits, (old) => [
+        ...(old ?? []).filter((l) => l.harness !== limits.harness),
+        limits
+      ])
+      break
+    }
     case "tickets":
       if (!n.ticketId) {
         inv(["tickets"])

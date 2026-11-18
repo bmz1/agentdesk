@@ -1,4 +1,6 @@
+import type { AgentEvent, TokenUsage } from "@agentdesk/contracts"
 import { afterEach, describe, expect, it } from "@effect/vitest"
+import { addTurnUsage, planSummary } from "../src/services/event-log"
 import { describeEvent } from "../src/services/sessions"
 import { makeRepo, startTestDaemon, waitFor } from "./helpers"
 
@@ -21,6 +23,41 @@ describe("session status line", () => {
     expect(describeEvent({ type: "turn.completed", status: "error" })).toBe("Turn failed")
     // Events that say nothing about progress leave the line as it was.
     expect(describeEvent({ type: "session.status", state: "model_changed" })).toBeUndefined()
+    expect(describeEvent({ type: "approval.requested", approvalId: "q", toolName: "AskUserQuestion", kind: "question", summary: "Tabs or spaces?" })).toBe(
+      "Asks: Tabs or spaces?"
+    )
+    expect(describeEvent({ type: "approval.resolved", approvalId: "q", decision: "allow", answers: { q: ["Tabs"] } })).toBe("Answered, continuing")
+    const plan = (statuses: Array<"pending" | "in_progress" | "completed" | "cancelled">) => ({
+      type: "plan.updated" as const,
+      items: statuses.map((status, i) => ({ text: `Step ${i}`, status }))
+    })
+    expect(describeEvent(plan(["completed", "in_progress", "pending"]))).toBe("Step 2/3: Step 1")
+    expect(describeEvent(plan(["completed", "completed"]))).toBe("Plan done (2/2)")
+    expect(describeEvent(plan([]))).toBeUndefined()
+  })
+})
+
+describe("session summaries", () => {
+  it("counts plan progress without cancelled steps", () => {
+    expect(planSummary([{ text: "a", status: "completed" }, { text: "b", status: "cancelled" }, { text: "c", status: "pending" }])).toEqual({
+      done: 1,
+      total: 2,
+      current: "c"
+    })
+    expect(planSummary([{ text: "a", status: "cancelled" }])).toBeNull()
+  })
+
+  it("adds turns' usage, counting cached reads as input and keeping cost unknown without a price", () => {
+    const turn = (usage?: TokenUsage, costUsd?: number): AgentEvent => ({
+      type: "turn.completed",
+      status: "success",
+      ...(usage && { usage }),
+      ...(costUsd !== undefined && { costUsd })
+    })
+    const first = addTurnUsage(null, turn({ inputTokens: 4, outputTokens: 10, cacheReadTokens: 1000, cacheWriteTokens: 6 }))
+    expect(first).toEqual({ costUsd: null, inputTokens: 1010, outputTokens: 10 })
+    expect(addTurnUsage(first, turn(undefined, 0.5))).toEqual({ costUsd: 0.5, inputTokens: 1010, outputTokens: 10 })
+    expect(addTurnUsage(first, turn())).toBe(first)
   })
 })
 

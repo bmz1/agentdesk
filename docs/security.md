@@ -4,7 +4,7 @@
 - Binds to `127.0.0.1` only. Every request needs `Authorization: Bearer <token>`, a 32-byte secret stored in `~/.agentdesk/token` with mode 0600 and compared in constant time.
 - `Host` must be a loopback name, which defeats DNS rebinding. A request with an `Origin` header must use an allow-listed origin (dev server, `file://`); configure more with `AGENTDESK_ALLOWED_ORIGINS`.
 - SSE uses fetch with the Authorization header instead of tokens in URLs.
-- The `agentdesk` CLI reads the same token from `~/.agentdesk/daemon.json` (or `AGENTDESK_URL` + `AGENTDESK_TOKEN`). Agent processes get `AGENTDESK_SESSION_ID`, and the CLI refuses `approve`/`deny` when it is set, so a delegating agent is not handed an easy way to approve its own tool calls. This is a guard rail, not a boundary: an agent can read anything your user account can, including the token file (see *Agent execution*).
+- The `agentdesk` CLI reads the same token from `~/.agentdesk/daemon.json` (or `AGENTDESK_URL` + `AGENTDESK_TOKEN`). Agent processes get `AGENTDESK_SESSION_ID`, and the CLI refuses `approve`/`deny`/`answer` when it is set, so a delegating agent is not handed an easy way to approve its own tool calls. This is a guard rail, not a boundary: an agent can read anything your user account can, including the token file (see *Agent execution*).
 
 ## Desktop
 - `contextIsolation`, `sandbox`, no `nodeIntegration`, strict CSP (`connect-src` limited to loopback), blocked navigation and `window.open`, and permission requests denied.
@@ -20,6 +20,7 @@
 - **A git worktree isolates branches; it is not a sandbox.** Agents can read and write anything your user account can.
 - Permission modes, set per project:
   - `ask` (default): risky tool calls produce approval cards.
+    **Allow for session** widens that for the rest of the agent process, in the harness's own terms: Claude applies the permission update it proposed (for edits, accept-edits mode), Codex approves that kind of request for the session, and OpenCode allows the pattern it proposed (for example `echo *`). It ends with the process; a resumed conversation asks again. On Codex, `ask` uses the `untrusted` approval policy and `accept_edits` has AgentDesk approve edit requests itself, so shell commands still ask.
   - `accept_edits`: file edits are allowed, while shell and network still ask (Codex: workspace-write sandbox).
   - `auto`: the harness reviews its own approvals. Claude runs with `--permission-mode auto` (a classifier approves routine actions and blocks risky ones); Codex routes escalations to its `auto_review` subagent inside the workspace-write sandbox. OpenCode has no reviewer, so edits and web fetches are allowed and shell still asks. Only escalations reach AgentDesk as approval cards. The reviewer is a model, not a sandbox.
   - `plan`: read-only planning.
