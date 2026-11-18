@@ -10,7 +10,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "better-sqlite3": "^12.11.1",
+    "better-sqlite3": "^13.2.0",
     "drizzle-orm": "0.45.4",
     "effect": "4.1.4"
   },

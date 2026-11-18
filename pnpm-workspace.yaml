@@ -5,6 +5,7 @@ allowBuilds:
   better-sqlite3: true
   esbuild: true
   electron: true
+  electron-winstaller: false
 overrides:
   # @opencode/client pins its Effect peer exactly; one Effect copy keeps services and types shared.
   effect: 4.1.4

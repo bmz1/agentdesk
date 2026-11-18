@@ -166,3 +166,7 @@ out/
 
 # Claude Code agent worktrees (checkouts of this repo, never committed)
 .claude/worktrees/
+
+# Desktop packaging (electron-builder)
+apps/desktop/build/
+apps/desktop/release/
