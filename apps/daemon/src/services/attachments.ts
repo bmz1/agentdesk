@@ -16,7 +16,13 @@ const EXT_BY_MIME: Record<string, string> = {
   "image/gif": ".gif",
   "image/webp": ".webp"
 }
-const MIME_BY_EXT: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" }
+const MIME_BY_EXT: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp"
+}
 
 export const imageMimeForPath = (path: string) => MIME_BY_EXT[extname(path).toLowerCase()]
 

@@ -16,7 +16,16 @@ rl.on("line", (line) => {
   if (m.method === "initialize") return out({ id: m.id, result: { userAgent: "fake" } })
   if (m.method === "initialized") return
   if (m.method === "account/rateLimits/read") {
-    return out({ id: m.id, result: { rateLimits: { primary: { usedPercent: 40, windowDurationMins: 300, resetsAt: 1800000000 }, secondary: { usedPercent: 10, windowDurationMins: 10080, resetsAt: null }, rateLimitReachedType: null } } })
+    return out({
+      id: m.id,
+      result: {
+        rateLimits: {
+          primary: { usedPercent: 40, windowDurationMins: 300, resetsAt: 1800000000 },
+          secondary: { usedPercent: 10, windowDurationMins: 10080, resetsAt: null },
+          rateLimitReachedType: null
+        }
+      }
+    })
   }
   if (m.method === "thread/start" || m.method === "thread/resume") {
     thread = m.params.threadId ?? "thr_fake"
@@ -38,16 +47,57 @@ rl.on("line", (line) => {
     out({ id: m.id, result: { turn: { id: turnId, status: "inProgress" } } })
     out({ method: "turn/started", params: { threadId: thread, turn: { id: turnId } } })
     if (text.includes("plan")) {
-      out({ method: "turn/plan/updated", params: { threadId: thread, turnId, explanation: null, plan: [{ step: "Read", status: "completed" }, { step: "Write", status: "inProgress" }] } })
-      const usage = (input, cached, output) => ({ totalTokens: 0, inputTokens: input, cachedInputTokens: cached, cacheWriteInputTokens: 0, outputTokens: output, reasoningOutputTokens: 0 })
-      out({ method: "thread/tokenUsage/updated", params: { threadId: thread, turnId, tokenUsage: { total: usage(1500, 1000, 70), last: usage(1500, 1000, 70), modelContextWindow: null } } })
+      out({
+        method: "turn/plan/updated",
+        params: {
+          threadId: thread,
+          turnId,
+          explanation: null,
+          plan: [
+            { step: "Read", status: "completed" },
+            { step: "Write", status: "inProgress" }
+          ]
+        }
+      })
+      const usage = (input, cached, output) => ({
+        totalTokens: 0,
+        inputTokens: input,
+        cachedInputTokens: cached,
+        cacheWriteInputTokens: 0,
+        outputTokens: output,
+        reasoningOutputTokens: 0
+      })
+      out({
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: thread,
+          turnId,
+          tokenUsage: { total: usage(1500, 1000, 70), last: usage(1500, 1000, 70), modelContextWindow: null }
+        }
+      })
     }
     if (text.includes("ask")) {
       pendingApproval = { turnId }
       return out({
         id: 98,
         method: "item/tool/requestUserInput",
-        params: { threadId: thread, turnId, itemId: "q1", isBlocking: true, autoResolutionMs: null, questions: [{ id: "db", header: "Database", question: "Which database?", isOther: true, isSecret: false, options: [{ label: "SQLite", description: "Embedded" }] }] }
+        params: {
+          threadId: thread,
+          turnId,
+          itemId: "q1",
+          isBlocking: true,
+          autoResolutionMs: null,
+          questions: [
+            {
+              id: "db",
+              header: "Database",
+              question: "Which database?",
+              isOther: true,
+              isSecret: false,
+              options: [{ label: "SQLite", description: "Embedded" }]
+            }
+          ]
+        }
       })
     }
     if (text.includes("edit")) {
@@ -78,7 +128,18 @@ rl.on("line", (line) => {
   }
   if (m.id === 99 && m.result) {
     const ok = m.result.decision === "accept" || m.result.decision === "acceptForSession"
-    out({ method: "item/completed", params: { item: { type: "commandExecution", id: "c1", aggregatedOutput: ok ? "file" : "", exitCode: ok ? 0 : 1, status: ok ? "completed" : "declined" } } })
+    out({
+      method: "item/completed",
+      params: {
+        item: {
+          type: "commandExecution",
+          id: "c1",
+          aggregatedOutput: ok ? "file" : "",
+          exitCode: ok ? 0 : 1,
+          status: ok ? "completed" : "declined"
+        }
+      }
+    })
     finishTurn(pendingApproval.turnId)
   }
 })

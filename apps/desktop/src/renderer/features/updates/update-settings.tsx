@@ -42,7 +42,9 @@ export const UpdateSettings = () => {
         ) : null}
       </div>
       {state.status === "ready" && (
-        <p className="text-[11px] text-fg-muted">Installing restarts the app and the background daemon it started; running agent work is interrupted.</p>
+        <p className="text-[11px] text-fg-muted">
+          Installing restarts the app and the background daemon it started; running agent work is interrupted.
+        </p>
       )}
       {(state.status === "error" || state.status === "unsupported") && (
         <Button variant="link" size="sm" className="h-auto px-0" onClick={() => void bridge()?.openExternal(RELEASES_URL)}>

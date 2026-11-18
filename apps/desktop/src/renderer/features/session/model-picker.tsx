@@ -10,7 +10,11 @@ const pickerClass =
 const noNativeArrow = { appearance: "none", WebkitAppearance: "none" } as const
 
 /** Effort levels for a model: harness-wide (Claude) or advertised per model (Codex). */
-export const effortsFor = (harnessEfforts: ReadonlyArray<string> | undefined, models: ReadonlyArray<HarnessModel>, model: string | null | undefined) => {
+export const effortsFor = (
+  harnessEfforts: ReadonlyArray<string> | undefined,
+  models: ReadonlyArray<HarnessModel>,
+  model: string | null | undefined
+) => {
   if (harnessEfforts?.length) return { levels: harnessEfforts, defaultLevel: undefined }
   const m = (model && models.find((x) => x.id === model)) || models.find((x) => x.efforts?.length)
   return { levels: m?.efforts ?? [], defaultLevel: m?.defaultEffort }
@@ -87,7 +91,11 @@ export const ComposerModelPicker = ({
           data-testid="composer-model"
         >
           <option value="">{defaultModel ? `Default · ${defaultModel}` : "Default model"}</option>
-          {models.map((m) => <option key={m.id} value={m.id}>{modelLabel(m)}</option>)}
+          {models.map((m) => (
+            <option key={m.id} value={m.id}>
+              {modelLabel(m)}
+            </option>
+          ))}
         </select>
       )}
       {levels.length > 0 && (
@@ -102,7 +110,11 @@ export const ComposerModelPicker = ({
           data-testid="composer-effort"
         >
           <option value="">{defaultLevel ? `Effort · ${defaultLevel}` : "Default effort"}</option>
-          {levels.map((l) => <option key={l} value={l}>{l}</option>)}
+          {levels.map((l) => (
+            <option key={l} value={l}>
+              {l}
+            </option>
+          ))}
         </select>
       )}
     </>
@@ -132,6 +144,10 @@ export const ComposerPermissionPicker = ({
     data-testid="composer-permission"
   >
     <option value="">{projectDefault ? `Default · ${permissionLabel(projectDefault, true)}` : "Default permissions"}</option>
-    {PERMISSION_MODES.map((m) => <option key={m.id} value={m.id}>{m.short}</option>)}
+    {PERMISSION_MODES.map((m) => (
+      <option key={m.id} value={m.id}>
+        {m.short}
+      </option>
+    ))}
   </select>
 )

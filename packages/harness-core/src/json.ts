@@ -9,8 +9,7 @@ export const parseJsonLine = (line: string): unknown => {
   }
 }
 
-export const isRecord = (u: unknown): u is Record<string, unknown> =>
-  typeof u === "object" && u !== null && !Array.isArray(u)
+export const isRecord = (u: unknown): u is Record<string, unknown> => typeof u === "object" && u !== null && !Array.isArray(u)
 
 export const str = (u: unknown): string | undefined => (typeof u === "string" ? u : undefined)
 export const num = (u: unknown): number | undefined => (typeof u === "number" ? u : undefined)

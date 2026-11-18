@@ -91,7 +91,8 @@ export const compileWorkflow = (yaml: string, options: CompileOptions = {}): Eff
           if (promptText === undefined) errors.push(`Step "${s.id}": prompt file "${s.prompt}" not found`)
         } else promptText = s.instructions
         if (!promptText) errors.push(`Step "${s.id}": agent steps need a prompt or instructions`)
-        for (const c of s.context ?? []) if (!produced.has(c)) errors.push(`Step "${s.id}": context "${c}" is not produced by an earlier step`)
+        for (const c of s.context ?? [])
+          if (!produced.has(c)) errors.push(`Step "${s.id}": context "${c}" is not produced by an earlier step`)
         if (s.output) produced.add(s.output)
       }
       if (s.kind === "approval" && s.artifact && !produced.has(s.artifact)) {

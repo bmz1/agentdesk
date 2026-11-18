@@ -2,19 +2,7 @@ import { useEffect } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { shortcutHint } from "@/lib/keymap"
-import {
-  Bot,
-  ChevronDown,
-  ChevronsLeft,
-  FolderGit2,
-  Inbox,
-  LayoutGrid,
-  Plus,
-  Search,
-  Settings,
-  Target,
-  Workflow
-} from "lucide-react"
+import { Bot, ChevronDown, ChevronsLeft, FolderGit2, Inbox, LayoutGrid, Plus, Search, Settings, Target, Workflow } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd, Tooltip } from "@/components/ui/misc"
 import { UNASSIGNED } from "@/features/board/issues-view"
@@ -50,7 +38,9 @@ export const Sidebar = () => {
   const inboxCount = notificationCount(inboxSessions, pending.data ?? [], seen)
   useEffect(() => {
     if (pending.isPending) return
-    void bridge()?.updateNotificationState?.(inboxCount, seen).catch(() => {})
+    void bridge()
+      ?.updateNotificationState?.(inboxCount, seen)
+      .catch(() => {})
   }, [inboxCount, seen, pending.isPending])
   const collapsedProjects = useUi((s) => s.collapsedProjects)
   const toggleProject = useUi((s) => s.toggleProject)
@@ -82,7 +72,14 @@ export const Sidebar = () => {
           <Button variant="ghost" size="icon" onClick={() => setCommandOpen(true)} aria-label="Search">
             <Search />
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => openCreate(undefined, "thread")} aria-label={`New thread (${shortcutHint("newThread")})`} title={`New thread (${shortcutHint("newThread")})`} data-testid="new-ticket">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => openCreate(undefined, "thread")}
+            aria-label={`New thread (${shortcutHint("newThread")})`}
+            title={`New thread (${shortcutHint("newThread")})`}
+            data-testid="new-ticket"
+          >
             <Plus />
           </Button>
         </div>

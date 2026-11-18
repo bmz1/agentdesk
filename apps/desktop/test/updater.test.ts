@@ -14,7 +14,10 @@ const fakeUpdater = () => {
     }),
     quitAndInstall: vi.fn()
   }
-  return { updater: updater as unknown as UpdaterLike & typeof updater, emit: (event: string, ...args: Array<unknown>) => events.emit(event, ...args) }
+  return {
+    updater: updater as unknown as UpdaterLike & typeof updater,
+    emit: (event: string, ...args: Array<unknown>) => events.emit(event, ...args)
+  }
 }
 
 const setup = (prepareInstall = async () => true) => {
@@ -80,7 +83,13 @@ describe("updater", () => {
   })
 
   it("is inert in builds that cannot update", async () => {
-    const updates = createUpdater({ currentVersion: "0.1.0", updater: null, unsupportedReason: "dev build", broadcast: () => {}, prepareInstall: async () => true })
+    const updates = createUpdater({
+      currentVersion: "0.1.0",
+      updater: null,
+      unsupportedReason: "dev build",
+      broadcast: () => {},
+      prepareInstall: async () => true
+    })
     expect(updates.state()).toEqual({ status: "unsupported", currentVersion: "0.1.0", message: "dev build" })
     expect(await updates.check()).toMatchObject({ status: "unsupported" })
     expect(await updates.install()).toBe(false)
@@ -89,7 +98,8 @@ describe("updater", () => {
 
 describe("prepareDaemonForUpdate", () => {
   const connection = () => ({ url: "http://127.0.0.1:4317", token: "t" })
-  const info = (body: object) => vi.fn(async () => new Response(JSON.stringify({ pid: 4242, persistent: false, activeSessions: 0, activeRuns: 0, ...body })))
+  const info = (body: object) =>
+    vi.fn(async () => new Response(JSON.stringify({ pid: 4242, persistent: false, activeSessions: 0, activeRuns: 0, ...body })))
   const processes = (exitAfterChecks = 2) => {
     const signals: Array<NodeJS.Signals | 0> = []
     let checks = 0
@@ -112,14 +122,24 @@ describe("prepareDaemonForUpdate", () => {
   it("asks before interrupting running work and keeps the daemon if declined", async () => {
     const p = processes()
     const confirm = vi.fn(async () => false)
-    expect(await prepareDaemonForUpdate({ connection, confirm, fetch: info({ activeSessions: 2, activeRuns: 1 }), kill: p.kill, sleep })).toBe(false)
+    expect(
+      await prepareDaemonForUpdate({ connection, confirm, fetch: info({ activeSessions: 2, activeRuns: 1 }), kill: p.kill, sleep })
+    ).toBe(false)
     expect(confirm).toHaveBeenCalledWith({ sessions: 2, runs: 1 })
     expect(p.signals).toEqual([])
   })
 
   it("leaves a supervised service running", async () => {
     const p = processes()
-    expect(await prepareDaemonForUpdate({ connection, confirm: async () => false, fetch: info({ persistent: true, activeRuns: 3 }), kill: p.kill, sleep })).toBe(true)
+    expect(
+      await prepareDaemonForUpdate({
+        connection,
+        confirm: async () => false,
+        fetch: info({ persistent: true, activeRuns: 3 }),
+        kill: p.kill,
+        sleep
+      })
+    ).toBe(true)
     expect(p.signals).toEqual([])
   })
 
@@ -135,7 +155,9 @@ describe("prepareDaemonForUpdate", () => {
 
   it("gives up waiting after the timeout", async () => {
     const p = processes(Number.POSITIVE_INFINITY)
-    expect(await prepareDaemonForUpdate({ connection, confirm: async () => true, fetch: info({}), kill: p.kill, sleep, timeoutMs: 1000 })).toBe(true)
+    expect(
+      await prepareDaemonForUpdate({ connection, confirm: async () => true, fetch: info({}), kill: p.kill, sleep, timeoutMs: 1000 })
+    ).toBe(true)
     expect(p.signals.filter((s) => s === 0)).toHaveLength(4)
   })
 })

@@ -59,7 +59,8 @@ export const CODEX_CAPABILITIES: HarnessCapabilities = {
 /** The JSON-RPC result answering an approval or question request. */
 export const codexApprovalResult = (spec: { legacy: boolean; kind: "tool" | "question" } | undefined, r: ApprovalResponse) => {
   if (spec?.kind === "question") {
-    const answers = r.decision === "allow" ? Object.fromEntries(Object.entries(r.answers ?? {}).map(([id, a]) => [id, { answers: [...a] }])) : {}
+    const answers =
+      r.decision === "allow" ? Object.fromEntries(Object.entries(r.answers ?? {}).map(([id, a]) => [id, { answers: [...a] }])) : {}
     return { answers }
   }
   const session = r.scope === "session"
@@ -150,8 +151,7 @@ export const makeCodexAdapter = (options: CodexAdapterOptions = {}): HarnessAdap
           return yield* Deferred.await(d).pipe(
             Effect.timeoutOrElse({
               duration: options.requestTimeoutMs ?? 60_000,
-              orElse: () =>
-                Effect.fail(new HarnessError({ harness: "codex", reason: "timeout", message: `codex ${method} timed out` }))
+              orElse: () => Effect.fail(new HarnessError({ harness: "codex", reason: "timeout", message: `codex ${method} timed out` }))
             }),
             Effect.ensuring(Effect.sync(() => pending.delete(id)))
           )

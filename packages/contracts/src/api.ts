@@ -192,7 +192,18 @@ export type ApiErrorBody = typeof ApiErrorBody.Type
  * `sessions` notice carries the updated session itself so clients can apply it without a refetch.
  */
 export const ChangeNotice = Schema.Struct({
-  topic: Schema.Literals(["tickets", "projects", "runs", "sessions", "approvals", "activity", "sources", "workflows", "settings", "limits"]),
+  topic: Schema.Literals([
+    "tickets",
+    "projects",
+    "runs",
+    "sessions",
+    "approvals",
+    "activity",
+    "sources",
+    "workflows",
+    "settings",
+    "limits"
+  ]),
   ticketId: Schema.optional(Schema.String),
   runId: Schema.optional(Schema.String),
   sessionId: Schema.optional(Schema.String),
@@ -213,11 +224,13 @@ export type HarnessRateLimits = typeof HarnessRateLimits.Type
 
 export const UpdateHarnessSettingsBody = Schema.Struct({
   defaultHarness: Schema.optional(HarnessId),
-  harnesses: Schema.optional(Schema.Struct({
-    claude: Schema.optional(HarnessDefaults),
-    codex: Schema.optional(HarnessDefaults),
-    opencode: Schema.optional(HarnessDefaults),
-    mock: Schema.optional(HarnessDefaults)
-  }))
+  harnesses: Schema.optional(
+    Schema.Struct({
+      claude: Schema.optional(HarnessDefaults),
+      codex: Schema.optional(HarnessDefaults),
+      opencode: Schema.optional(HarnessDefaults),
+      mock: Schema.optional(HarnessDefaults)
+    })
+  )
 })
 export type UpdateHarnessSettingsBody = typeof UpdateHarnessSettingsBody.Type

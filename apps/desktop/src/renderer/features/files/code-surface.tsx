@@ -35,7 +35,12 @@ export const CodeSurface = ({
   const highlighted = useHighlightedLines(text, languageFor(path), { live: !!edit })
   const widest = useMemo(() => lines.reduce((m, l) => Math.max(m, l.length), 0), [lines])
   const scrollRef = useRef<HTMLDivElement>(null)
-  const virtual = useVirtualizer({ count: lines.length, getScrollElement: () => scrollRef.current, estimateSize: () => LINE_H, overscan: 30 })
+  const virtual = useVirtualizer({
+    count: lines.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => LINE_H,
+    overscan: 30
+  })
   const gutter = `${String(lines.length).length + 2}ch`
 
   return (

@@ -17,9 +17,7 @@ export const git = (cwd: string, args: ReadonlyArray<string>, opts: { timeoutMs?
     Effect.flatMap((r) =>
       r.code === 0
         ? Effect.succeed(r.stdout)
-        : Effect.fail(
-            new GitError({ command: `git ${args.join(" ")}`, message: (r.stderr || r.stdout).trim(), code: r.code })
-          )
+        : Effect.fail(new GitError({ command: `git ${args.join(" ")}`, message: (r.stderr || r.stdout).trim(), code: r.code }))
     )
   )
 
@@ -86,9 +84,7 @@ export const parseWorktreeList = (porcelain: string): ReadonlyArray<WorktreeEntr
       const lines = block.split("\n")
       const value = (key: string) => lines.find((l) => l.startsWith(`${key} `))?.slice(key.length + 1) ?? null
       const path = value("worktree")
-      return path
-        ? { path, branch: value("branch")?.replace(/^refs\/heads\//, "") ?? null, head: value("HEAD") }
-        : undefined
+      return path ? { path, branch: value("branch")?.replace(/^refs\/heads\//, "") ?? null, head: value("HEAD") } : undefined
     })
     .filter((w): w is WorktreeEntry => w !== undefined)
 
@@ -117,16 +113,7 @@ export const commitAll = (cwd: string, message: string) =>
   Effect.gen(function* () {
     if (yield* isClean(cwd)) return undefined
     yield* git(cwd, ["add", "-A"])
-    yield* git(cwd, [
-      "-c",
-      "user.name=AgentDesk",
-      "-c",
-      "user.email=agentdesk@localhost",
-      "commit",
-      "--no-verify",
-      "-m",
-      message
-    ])
+    yield* git(cwd, ["-c", "user.name=AgentDesk", "-c", "user.email=agentdesk@localhost", "commit", "--no-verify", "-m", message])
     return yield* revParse(cwd, "HEAD")
   })
 
@@ -139,10 +126,7 @@ const STATUS_NAMES: Record<string, string> = { A: "added", M: "modified", D: "de
  * Diff of a worktree against its base commit, including uncommitted and
  * untracked changes (via `git add -N` style intent: we diff the working tree).
  */
-export const diffAgainst = (
-  cwd: string,
-  baseCommit: string
-): Effect.Effect<Diff, GitError, ChildProcessSpawner.ChildProcessSpawner> =>
+export const diffAgainst = (cwd: string, baseCommit: string): Effect.Effect<Diff, GitError, ChildProcessSpawner.ChildProcessSpawner> =>
   Effect.gen(function* () {
     // Mark untracked files as intent-to-add so they show up in the diff without staging content.
     const untracked = (yield* git(cwd, ["ls-files", "--others", "--exclude-standard"])).split("\n").filter(Boolean)
@@ -163,7 +147,10 @@ export const diffAgainst = (
       .filter(Boolean)
       .map((l) => {
         const [add, del, ...rest] = l.split("\t")
-        const path = rest.join("\t").replace(/^.*=> /, "").replace(/[{}]/g, "")
+        const path = rest
+          .join("\t")
+          .replace(/^.*=> /, "")
+          .replace(/[{}]/g, "")
         return {
           path,
           status: statusByPath.get(path) ?? "modified",

@@ -66,14 +66,20 @@ const createWindow = () => {
 
 app.whenReady().then(() => {
   if (process.platform === "darwin") app.dock?.setIcon(appIcon)
-  const badge = createNotificationBadge({ connection: readConnectionFile, setBadge: (count) => {
-    if (process.platform === "darwin") app.dock?.setBadge(count ? String(count) : "")
-    else app.setBadgeCount(count)
-  } })
+  const badge = createNotificationBadge({
+    connection: readConnectionFile,
+    setBadge: (count) => {
+      if (process.platform === "darwin") app.dock?.setBadge(count ? String(count) : "")
+      else app.setBadgeCount(count)
+    }
+  })
   const badgeTimer = setInterval(() => void badge.refresh(), 5000)
   badgeTimer.unref()
   void badge.refresh()
-  app.once("before-quit", () => { clearInterval(badgeTimer); badge.stop() })
+  app.once("before-quit", () => {
+    clearInterval(badgeTimer)
+    badge.stop()
+  })
   ipcMain.handle("agentdesk:notification-state", (_e, count: unknown, seen: unknown) => badge.update(count, seen))
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -130,7 +136,10 @@ const setupUpdates = () => {
       prepareDaemonForUpdate({
         connection: readConnectionFile,
         confirm: async ({ sessions, runs }) => {
-          const work = [sessions && `${sessions} agent session${sessions === 1 ? "" : "s"}`, runs && `${runs} workflow run${runs === 1 ? "" : "s"}`]
+          const work = [
+            sessions && `${sessions} agent session${sessions === 1 ? "" : "s"}`,
+            runs && `${runs} workflow run${runs === 1 ? "" : "s"}`
+          ]
             .filter(Boolean)
             .join(" and ")
           const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]

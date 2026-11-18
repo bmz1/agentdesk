@@ -59,9 +59,7 @@ export const loadTickets = (database: DatabaseShape, filter: TicketFilter = {}) 
       const fts = ftsQuery(q)
       const ftsIds = fts
         ? (database.sqlite
-            .prepare(
-              "SELECT t.id FROM tickets t JOIN tickets_fts f ON f.rowid = t.rowid WHERE tickets_fts MATCH ? LIMIT 500"
-            )
+            .prepare("SELECT t.id FROM tickets t JOIN tickets_fts f ON f.rowid = t.rowid WHERE tickets_fts MATCH ? LIMIT 500")
             .all(fts) as Array<{ id: string }>)
         : []
       const keyIds = database.sqlite
@@ -213,139 +211,145 @@ export const TicketsLive = Layer.effect(
       })
 
     const create = Effect.fn("Tickets.create")(function* (body: CreateTicketBody, actor = "user") {
-        yield* ensureProject(body.projectId)
-        const id = newId()
-        const now = yield* nowIso
-        yield* Effect.annotateCurrentSpan({ ticketId: id, projectId: body.projectId })
-        yield* tx((db) => {
-          const number = nextTicketNumber(database, body.projectId)
-          const minOrder =
-            db
-              .select({ m: sql<number>`coalesce(min(${tickets.sortOrder}), 0)` })
-              .from(tickets)
-              .where(and(eq(tickets.projectId, body.projectId), eq(tickets.status, body.status ?? "todo")))
-              .get()?.m ?? 0
-          db.insert(tickets)
-            .values({
-              id,
-              projectId: body.projectId,
-              number,
-              title: body.title.trim(),
-              description: body.description ?? "",
-              acceptanceCriteria: body.acceptanceCriteria ?? "",
-              status: body.status ?? "todo",
-              priority: body.priority ?? "none",
-              sourceKind: "local",
-              harness: body.harness ?? null,
-              model: body.model ?? null,
-              effort: body.effort ?? null,
-              permissionMode: body.permissionMode ?? null,
-              workflowId: body.workflowId ?? null,
-              labels: [...(body.labels ?? [])],
-              pinned: false,
-              tracked: body.tracked ?? true,
-              sortOrder: minOrder - 1,
-              createdAt: now,
-              updatedAt: now,
-              lastActivityAt: now
-            })
-            .run()
-        })
-        yield* activity.record({ kind: "ticket.created", message: `Created "${body.title}"`, ticketId: id, actor })
-        yield* notices.publish({ topic: "tickets", ticketId: id })
-        return yield* get(id)
+      yield* ensureProject(body.projectId)
+      const id = newId()
+      const now = yield* nowIso
+      yield* Effect.annotateCurrentSpan({ ticketId: id, projectId: body.projectId })
+      yield* tx((db) => {
+        const number = nextTicketNumber(database, body.projectId)
+        const minOrder =
+          db
+            .select({ m: sql<number>`coalesce(min(${tickets.sortOrder}), 0)` })
+            .from(tickets)
+            .where(and(eq(tickets.projectId, body.projectId), eq(tickets.status, body.status ?? "todo")))
+            .get()?.m ?? 0
+        db.insert(tickets)
+          .values({
+            id,
+            projectId: body.projectId,
+            number,
+            title: body.title.trim(),
+            description: body.description ?? "",
+            acceptanceCriteria: body.acceptanceCriteria ?? "",
+            status: body.status ?? "todo",
+            priority: body.priority ?? "none",
+            sourceKind: "local",
+            harness: body.harness ?? null,
+            model: body.model ?? null,
+            effort: body.effort ?? null,
+            permissionMode: body.permissionMode ?? null,
+            workflowId: body.workflowId ?? null,
+            labels: [...(body.labels ?? [])],
+            pinned: false,
+            tracked: body.tracked ?? true,
+            sortOrder: minOrder - 1,
+            createdAt: now,
+            updatedAt: now,
+            lastActivityAt: now
+          })
+          .run()
       })
+      yield* activity.record({ kind: "ticket.created", message: `Created "${body.title}"`, ticketId: id, actor })
+      yield* notices.publish({ topic: "tickets", ticketId: id })
+      return yield* get(id)
+    })
 
     const update = Effect.fn("Tickets.update")(function* (id: string, body: UpdateTicketBody, actor = "user") {
-        yield* Effect.annotateCurrentSpan({ ticketId: id })
-        const before = yield* get(id)
-        const updatedAt = yield* nowIso
-        if (before.source !== LOCAL_SOURCE && (body.title !== undefined || body.description !== undefined)) {
-          return yield* new BadRequest({
-            message: `Title and description of ${before.source} tickets are owned by the source (read-only sync)`
+      yield* Effect.annotateCurrentSpan({ ticketId: id })
+      const before = yield* get(id)
+      const updatedAt = yield* nowIso
+      if (before.source !== LOCAL_SOURCE && (body.title !== undefined || body.description !== undefined)) {
+        return yield* new BadRequest({
+          message: `Title and description of ${before.source} tickets are owned by the source (read-only sync)`
+        })
+      }
+      if (body.projectId) yield* ensureProject(body.projectId)
+      const move = body.projectId !== undefined && body.projectId !== before.projectId
+      if (move) yield* checkMovable(before, body.projectId ?? null)
+      yield* tx((db) =>
+        db
+          .update(tickets)
+          .set({
+            ...(body.title !== undefined && { title: body.title.trim() }),
+            ...(body.description !== undefined && { description: body.description }),
+            ...(body.acceptanceCriteria !== undefined && { acceptanceCriteria: body.acceptanceCriteria }),
+            ...(body.status !== undefined && { status: body.status }),
+            ...(body.priority !== undefined && { priority: body.priority }),
+            ...(body.harness !== undefined && { harness: body.harness }),
+            // Models are harness-specific: switching harness resets to that harness' default.
+            ...(body.model !== undefined
+              ? { model: body.model }
+              : body.harness !== undefined && body.harness !== before.harness && { model: null }),
+            // Effort levels are model-specific: a new harness or model starts from its default.
+            ...(body.effort !== undefined
+              ? { effort: body.effort }
+              : ((body.harness !== undefined && body.harness !== before.harness) ||
+                  (body.model !== undefined && body.model !== before.model)) && { effort: null }),
+            ...(body.permissionMode !== undefined && { permissionMode: body.permissionMode }),
+            ...(body.workflowId !== undefined && { workflowId: body.workflowId }),
+            ...(body.labels !== undefined && { labels: [...body.labels] }),
+            ...(body.pinned !== undefined && { pinned: body.pinned }),
+            ...(body.tracked !== undefined && { tracked: body.tracked }),
+            ...(body.sortOrder !== undefined && { sortOrder: body.sortOrder }),
+            // A ticket takes the next number of the project it joins; 0 while unassigned.
+            ...(move && { projectId: body.projectId ?? null, number: body.projectId ? nextTicketNumber(database, body.projectId) : 0 }),
+            updatedAt
           })
-        }
-        if (body.projectId) yield* ensureProject(body.projectId)
-        const move = body.projectId !== undefined && body.projectId !== before.projectId
-        if (move) yield* checkMovable(before, body.projectId ?? null)
-        yield* tx((db) =>
-          db
-            .update(tickets)
-            .set({
-              ...(body.title !== undefined && { title: body.title.trim() }),
-              ...(body.description !== undefined && { description: body.description }),
-              ...(body.acceptanceCriteria !== undefined && { acceptanceCriteria: body.acceptanceCriteria }),
-              ...(body.status !== undefined && { status: body.status }),
-              ...(body.priority !== undefined && { priority: body.priority }),
-              ...(body.harness !== undefined && { harness: body.harness }),
-              // Models are harness-specific: switching harness resets to that harness' default.
-              ...(body.model !== undefined
-                ? { model: body.model }
-                : body.harness !== undefined && body.harness !== before.harness && { model: null }),
-              // Effort levels are model-specific: a new harness or model starts from its default.
-              ...(body.effort !== undefined
-                ? { effort: body.effort }
-                : ((body.harness !== undefined && body.harness !== before.harness) || (body.model !== undefined && body.model !== before.model)) && { effort: null }),
-              ...(body.permissionMode !== undefined && { permissionMode: body.permissionMode }),
-              ...(body.workflowId !== undefined && { workflowId: body.workflowId }),
-              ...(body.labels !== undefined && { labels: [...body.labels] }),
-              ...(body.pinned !== undefined && { pinned: body.pinned }),
-              ...(body.tracked !== undefined && { tracked: body.tracked }),
-              ...(body.sortOrder !== undefined && { sortOrder: body.sortOrder }),
-              // A ticket takes the next number of the project it joins; 0 while unassigned.
-              ...(move && { projectId: body.projectId ?? null, number: body.projectId ? nextTicketNumber(database, body.projectId) : 0 }),
-              updatedAt
-            })
-            .where(eq(tickets.id, id))
-            .run()
-        )
-        if (move) {
-          const name = (projectId: string | null) =>
-            projectId ? use((db) => db.select({ name: projects.name }).from(projects).where(eq(projects.id, projectId)).get()?.name ?? "a deleted project") : Effect.succeed(null)
-          const from = yield* name(before.projectId)
-          const to = yield* name(body.projectId ?? null)
-          yield* activity.record({
-            kind: "ticket.project",
-            message: to ? (from ? `Moved from ${from} to ${to}` : `Assigned to ${to}`) : `Unassigned from ${from}`,
-            ticketId: id,
-            actor,
-            data: { from: before.projectId, to: body.projectId ?? null }
-          })
-        }
-        if (body.status !== undefined && body.status !== before.status) {
-          yield* activity.record({
-            kind: "ticket.status",
-            message: `Moved from ${before.status} to ${body.status} (local board only)`,
-            ticketId: id,
-            actor,
-            data: { from: before.status, to: body.status }
-          })
-        } else if (body.tracked !== undefined && body.tracked !== before.tracked) {
-          yield* activity.record({
-            kind: "ticket.tracked",
-            message: body.tracked ? "Thread tracked on the board" : "Removed from the board (kept as a thread)",
-            ticketId: id,
-            actor
-          })
-        } else if (body.title !== undefined || body.description !== undefined || body.priority !== undefined) {
-          yield* activity.record({ kind: "ticket.updated", message: "Ticket details updated", ticketId: id, actor })
-        }
-        yield* notices.publish({ topic: "tickets", ticketId: id })
-        return yield* get(id)
-      })
+          .where(eq(tickets.id, id))
+          .run()
+      )
+      if (move) {
+        const name = (projectId: string | null) =>
+          projectId
+            ? use(
+                (db) =>
+                  db.select({ name: projects.name }).from(projects).where(eq(projects.id, projectId)).get()?.name ?? "a deleted project"
+              )
+            : Effect.succeed(null)
+        const from = yield* name(before.projectId)
+        const to = yield* name(body.projectId ?? null)
+        yield* activity.record({
+          kind: "ticket.project",
+          message: to ? (from ? `Moved from ${from} to ${to}` : `Assigned to ${to}`) : `Unassigned from ${from}`,
+          ticketId: id,
+          actor,
+          data: { from: before.projectId, to: body.projectId ?? null }
+        })
+      }
+      if (body.status !== undefined && body.status !== before.status) {
+        yield* activity.record({
+          kind: "ticket.status",
+          message: `Moved from ${before.status} to ${body.status} (local board only)`,
+          ticketId: id,
+          actor,
+          data: { from: before.status, to: body.status }
+        })
+      } else if (body.tracked !== undefined && body.tracked !== before.tracked) {
+        yield* activity.record({
+          kind: "ticket.tracked",
+          message: body.tracked ? "Thread tracked on the board" : "Removed from the board (kept as a thread)",
+          ticketId: id,
+          actor
+        })
+      } else if (body.title !== undefined || body.description !== undefined || body.priority !== undefined) {
+        yield* activity.record({ kind: "ticket.updated", message: "Ticket details updated", ticketId: id, actor })
+      }
+      yield* notices.publish({ topic: "tickets", ticketId: id })
+      return yield* get(id)
+    })
 
     const remove = Effect.fn("Tickets.remove")(function* (id: string) {
-        const t = yield* get(id)
-        if (t.source !== "local") return yield* new BadRequest({ message: "Only local tickets can be deleted" })
-        if (t.activeSessionId) return yield* new BadRequest({ message: "Stop the active agent session first" })
-        yield* tx((db) => {
-          const runIds = db.select({ id: workflowRuns.id }).from(workflowRuns).where(eq(workflowRuns.ticketId, id)).all()
-          if (runIds.length > 0) throw new Error("Ticket has workflow history; archive it (move to Done) instead")
-          db.delete(agentSessions).where(eq(agentSessions.ticketId, id)).run()
-          db.delete(tickets).where(eq(tickets.id, id)).run()
-        }).pipe(Effect.mapError((e) => new BadRequest({ message: e.message })))
-        yield* notices.publish({ topic: "tickets", ticketId: id })
-      })
+      const t = yield* get(id)
+      if (t.source !== "local") return yield* new BadRequest({ message: "Only local tickets can be deleted" })
+      if (t.activeSessionId) return yield* new BadRequest({ message: "Stop the active agent session first" })
+      yield* tx((db) => {
+        const runIds = db.select({ id: workflowRuns.id }).from(workflowRuns).where(eq(workflowRuns.ticketId, id)).all()
+        if (runIds.length > 0) throw new Error("Ticket has workflow history; archive it (move to Done) instead")
+        db.delete(agentSessions).where(eq(agentSessions.ticketId, id)).run()
+        db.delete(tickets).where(eq(tickets.id, id)).run()
+      }).pipe(Effect.mapError((e) => new BadRequest({ message: e.message })))
+      yield* notices.publish({ topic: "tickets", ticketId: id })
+    })
 
     return Tickets.of({
       list: (f) => loadTickets(database, f).pipe(Effect.withSpan("Tickets.list", { attributes: { ...f } })),

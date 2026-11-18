@@ -1,4 +1,12 @@
-import type { AgentEvent, ApprovalDecision, HarnessCapabilities, HarnessDetection, HarnessId, PermissionMode, QuestionAnswers } from "@agentdesk/contracts"
+import type {
+  AgentEvent,
+  ApprovalDecision,
+  HarnessCapabilities,
+  HarnessDetection,
+  HarnessId,
+  PermissionMode,
+  QuestionAnswers
+} from "@agentdesk/contracts"
 import type { Effect, Scope, Stream } from "effect"
 import type { ChildProcessSpawner } from "effect/process"
 import type { HarnessError } from "./errors"

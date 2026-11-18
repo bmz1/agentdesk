@@ -22,17 +22,13 @@ export const makeSourceRegistry = (adapters: ReadonlyArray<TaskSourceAdapter<any
   if (byId.has("local")) throw new Error(`"local" is reserved for local tickets`)
   const get = (id: string): Effect.Effect<TaskSourceAdapter<any>, TaskSourceError> => {
     const a = byId.get(id)
-    return a
-      ? Effect.succeed(a)
-      : Effect.fail(new TaskSourceError({ source: id, kind: "config", message: `Unknown task source "${id}"` }))
+    return a ? Effect.succeed(a) : Effect.fail(new TaskSourceError({ source: id, kind: "config", message: `Unknown task source "${id}"` }))
   }
   return {
     list: adapters,
     descriptors: adapters.map(describe),
     get,
     decodeSettings: (id, raw) =>
-      get(id).pipe(
-        Effect.flatMap((a) => Schema.decodeUnknownEffect(a.settings)(raw) as Effect.Effect<unknown, Schema.SchemaError>)
-      )
+      get(id).pipe(Effect.flatMap((a) => Schema.decodeUnknownEffect(a.settings)(raw) as Effect.Effect<unknown, Schema.SchemaError>))
   }
 }

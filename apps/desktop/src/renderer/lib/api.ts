@@ -49,7 +49,10 @@ export class ApiError extends Error {
 // React Fast Refresh can replace this module without remounting DaemonGate.
 // Keep the already resolved connection across that replacement.
 let connection: Connection | null = import.meta.hot?.data.connection ?? null
-if (import.meta.hot) import.meta.hot.dispose((data) => { data.connection = connection })
+if (import.meta.hot)
+  import.meta.hot.dispose((data) => {
+    data.connection = connection
+  })
 export const setConnection = (c: Connection | null) => {
   connection = c
 }
@@ -129,7 +132,8 @@ export const api = {
   harnessSettings: () => request<HarnessSettings>("GET", "/settings/harnesses"),
   updateHarnessSettings: (body: UpdateHarnessSettingsBody) => request<HarnessSettings>("PATCH", "/settings/harnesses", body),
   info: () => request<DaemonInfo>("GET", "/info"),
-  harnesses: (refresh = false) => request<ReadonlyArray<HarnessDetection>>("GET", `/harnesses/detect${qs({ refresh: refresh ? 1 : undefined })}`),
+  harnesses: (refresh = false) =>
+    request<ReadonlyArray<HarnessDetection>>("GET", `/harnesses/detect${qs({ refresh: refresh ? 1 : undefined })}`),
 
   projects: () => request<ReadonlyArray<Project>>("GET", "/projects"),
   project: (id: string) => request<Project>("GET", `/projects/${id}`),
@@ -138,7 +142,10 @@ export const api = {
   deleteProject: (id: string) => request<void>("DELETE", `/projects/${id}`),
 
   tickets: (q: TicketQuery = {}) =>
-    request<ReadonlyArray<Ticket>>("GET", `/tickets${qs({ ...q, unassigned: q.unassigned ? 1 : undefined, pinned: q.pinned ? 1 : undefined, tracked: q.tracked === undefined ? undefined : q.tracked ? 1 : 0 })}`),
+    request<ReadonlyArray<Ticket>>(
+      "GET",
+      `/tickets${qs({ ...q, unassigned: q.unassigned ? 1 : undefined, pinned: q.pinned ? 1 : undefined, tracked: q.tracked === undefined ? undefined : q.tracked ? 1 : 0 })}`
+    ),
   ticket: (id: string) => request<Ticket>("GET", `/tickets/${id}`),
   createTicket: (b: CreateTicketBody) => request<Ticket>("POST", "/tickets", b),
   updateTicket: (id: string, b: UpdateTicketBody) => request<Ticket>("PATCH", `/tickets/${id}`, b),
@@ -166,8 +173,12 @@ export const api = {
   sessionTail: (id: string, tail: number, before?: number) =>
     request<ReadonlyArray<StoredAgentEvent>>("GET", `/sessions/${id}/history${qs({ tail, before })}`),
   /** `switches` change the session's model/effort from this message on (null: default); omitted keys stay. */
-  prompt: (id: string, text: string, images?: ReadonlyArray<string>, switches: { model?: string | null; effort?: string | null; permissionMode?: PermissionMode | null } = {}) =>
-    request<void>("POST", `/sessions/${id}/prompt`, { text, ...(images?.length && { images }), ...switches }),
+  prompt: (
+    id: string,
+    text: string,
+    images?: ReadonlyArray<string>,
+    switches: { model?: string | null; effort?: string | null; permissionMode?: PermissionMode | null } = {}
+  ) => request<void>("POST", `/sessions/${id}/prompt`, { text, ...(images?.length && { images }), ...switches }),
   uploadAttachment: async (file: File) =>
     request<ImageRef>("POST", "/attachments", { mimeType: file.type, data: await toBase64(file), name: file.name || undefined }),
   attachment: (id: string) => requestBlob(`/attachments/${id}`),
@@ -195,8 +206,7 @@ export const api = {
   workflows: () => request<ReadonlyArray<WorkflowDefinitionSummary>>("GET", "/workflows"),
   workflow: (id: string) => request<WorkflowDefinitionSummary & { versions: ReadonlyArray<number> }>("GET", `/workflows/${id}`),
   saveWorkflow: (yaml: string) => request<WorkflowDefinitionSummary>("POST", "/workflows", { yaml }),
-  validateWorkflow: (yaml: string) =>
-    request<{ ok: boolean; errors: ReadonlyArray<string> }>("POST", "/workflows/validate", { yaml }),
+  validateWorkflow: (yaml: string) => request<{ ok: boolean; errors: ReadonlyArray<string> }>("POST", "/workflows/validate", { yaml }),
 
   sources: () => request<ReadonlyArray<SourceDescriptor>>("GET", "/sources"),
   sourceConnections: () => request<ReadonlyArray<SourceConnection>>("GET", "/sources/connections"),

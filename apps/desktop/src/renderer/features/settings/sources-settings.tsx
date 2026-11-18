@@ -2,7 +2,7 @@ import type { SourceConnection, SourceDescriptor, SourceField } from "@agentdesk
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2, Plus, RefreshCw, Trash2, XCircle } from "lucide-react"
 import { Link } from "@tanstack/react-router"
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Field, Input, Select, Textarea } from "@/components/ui/input"
@@ -33,13 +33,13 @@ export const SourcesSettings = () => {
       }
     >
       <p className="mb-3 text-[11px] text-fg-subtle">
-        AgentDesk imports tasks from {(sources.data ?? []).map((s) => s.displayName).join(", ") || "external trackers"}. A
-        connection is not tied to a project: imported tickets wait in{" "}
+        AgentDesk imports tasks from {(sources.data ?? []).map((s) => s.displayName).join(", ") || "external trackers"}. A connection is not
+        tied to a project: imported tickets wait in{" "}
         <Link to="/issues" search={{ project: UNASSIGNED }} className="text-accent hover:underline">
           Unassigned
         </Link>{" "}
-        until you assign each one to a project. It never creates, edits, comments on or transitions remote tasks; moving a card changes the local board
-        only. Tokens are stored in the OS credential store, never in the database.
+        until you assign each one to a project. It never creates, edits, comments on or transitions remote tasks; moving a card changes the
+        local board only. Tokens are stored in the OS credential store, never in the database.
       </p>
       {adding && sources.data && <NewConnection sources={sources.data} onDone={() => setAdding(false)} />}
       {connections.isLoading ? (
@@ -84,7 +84,13 @@ const ConnectionRow = ({ c, source }: { c: SourceConnection; source: SourceDescr
         <Button size="sm" variant="secondary" onClick={() => sync.mutate(false)} disabled={sync.isPending}>
           {sync.isPending ? <Spinner /> : <RefreshCw />} Sync
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => sync.mutate(true)} disabled={sync.isPending} title="Full sync detects tasks that left the scope">
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => sync.mutate(true)}
+          disabled={sync.isPending}
+          title="Full sync detects tasks that left the scope"
+        >
           Full
         </Button>
         <Button size="sm" variant="ghost" onClick={() => toggle.mutate()}>
@@ -115,7 +121,12 @@ const ConnectionRow = ({ c, source }: { c: SourceConnection; source: SourceDescr
       </div>
       {!c.hasCredential && (
         <div className="mt-2 flex gap-2">
-          <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={source?.credential.label ?? "Token"} />
+          <Input
+            type="password"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder={source?.credential.label ?? "Token"}
+          />
           <Button size="sm" onClick={() => saveToken.mutate()} disabled={!token}>
             Save token
           </Button>
@@ -152,10 +163,13 @@ const NewConnection = ({ sources, onDone }: { sources: ReadonlyArray<SourceDescr
   const [name, setName] = useState("")
   const [token, setToken] = useState("")
   const [pollMinutes, setPollMinutes] = useState(5)
-  const [settings, setSettings] = useState<Record<string, string>>({})
-  useEffect(() => {
-    if (source) setSettings(defaultsOf(source))
-  }, [source])
+  const [settings, setSettings] = useState<Record<string, string>>(() => (source ? defaultsOf(source) : {}))
+  // Each provider has its own fields: switching starts from that provider's defaults.
+  const pickProvider = (id: string) => {
+    const next = sources.find((s) => s.id === id)
+    setProvider(id)
+    setSettings(next ? defaultsOf(next) : {})
+  }
 
   const create = useMutation({
     mutationFn: () =>
@@ -184,7 +198,7 @@ const NewConnection = ({ sources, onDone }: { sources: ReadonlyArray<SourceDescr
     >
       <div className="grid grid-cols-2 gap-2">
         <Field label="Source" hint={source?.description}>
-          <Select value={provider} onChange={(e) => setProvider(e.target.value)} data-testid="source-provider">
+          <Select value={provider} onChange={(e) => pickProvider(e.target.value)} data-testid="source-provider">
             {sources.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.displayName}
@@ -193,11 +207,21 @@ const NewConnection = ({ sources, onDone }: { sources: ReadonlyArray<SourceDescr
           </Select>
         </Field>
         <Field label="Connection name">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={`${source?.displayName ?? ""} work`} data-testid="source-name" />
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={`${source?.displayName ?? ""} work`}
+            data-testid="source-name"
+          />
         </Field>
       </div>
       {source?.fields.map((f) => (
-        <SettingInput key={`${provider}-${f.key}`} field={f} value={settings[f.key] ?? ""} onChange={(v) => setSettings((s) => ({ ...s, [f.key]: v }))} />
+        <SettingInput
+          key={`${provider}-${f.key}`}
+          field={f}
+          value={settings[f.key] ?? ""}
+          onChange={(v) => setSettings((s) => ({ ...s, [f.key]: v }))}
+        />
       ))}
       {source && (
         <Field label={source.credential.label} hint={source.credential.hint}>
@@ -214,7 +238,11 @@ const NewConnection = ({ sources, onDone }: { sources: ReadonlyArray<SourceDescr
         <Button type="button" variant="ghost" onClick={onDone}>
           Cancel
         </Button>
-        <Button type="submit" disabled={!name || missingRequired || (source?.credential.required && !token) || create.isPending} data-testid="source-create">
+        <Button
+          type="submit"
+          disabled={!name || missingRequired || (source?.credential.required && !token) || create.isPending}
+          data-testid="source-create"
+        >
           {create.isPending && <Spinner />} Add connection
         </Button>
       </div>
@@ -233,7 +261,14 @@ const SettingInput = ({ field, value, onChange }: { field: SourceField; value: s
         ))}
       </Select>
     ) : field.type === "textarea" ? (
-      <Textarea rows={2} value={value} onChange={(e) => onChange(e.target.value)} placeholder={field.placeholder} className="font-mono" data-testid={`source-field-${field.key}`} />
+      <Textarea
+        rows={2}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={field.placeholder}
+        className="font-mono"
+        data-testid={`source-field-${field.key}`}
+      />
     ) : (
       <Input
         type={field.type === "number" ? "number" : "text"}

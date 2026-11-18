@@ -13,7 +13,22 @@ describe("dashboard message previews", () => {
       const p = yield* Projects.use((x) => x.create({ name: "Preview", repoPath: makeRepo() }))
       const t = yield* Tickets.use((x) => x.create({ projectId: p.id, title: "t" }))
       const { use } = yield* Database
-      yield* use((db) => db.insert(agentSessions).values(["s1", "s2"].map((id) => ({ id, ticketId: t.id, harness: "mock", state: "closed", cwd: "/", createdAt: "2026-11-17", updatedAt: "2026-11-17" }))).run())
+      yield* use((db) =>
+        db
+          .insert(agentSessions)
+          .values(
+            ["s1", "s2"].map((id) => ({
+              id,
+              ticketId: t.id,
+              harness: "mock",
+              state: "closed",
+              cwd: "/",
+              createdAt: "2026-11-17",
+              updatedAt: "2026-11-17"
+            }))
+          )
+          .run()
+      )
       const log = yield* EventLog
       expect(yield* log.preview("s1")).toBeNull()
       yield* log.append("s1", { type: "user.prompt", text: "Start here" })

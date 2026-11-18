@@ -41,7 +41,15 @@ describe("agent attention", () => {
 
 describe("review feedback", () => {
   it("batches unresolved comments with original file, diff side, line and code", () => {
-    const comment: ReviewComment = { id: "c", path: "src/a.ts", side: "old", line: 12, code: "return null", text: "Handle this case", resolved: false }
+    const comment: ReviewComment = {
+      id: "c",
+      path: "src/a.ts",
+      side: "old",
+      line: 12,
+      code: "return null",
+      text: "Handle this case",
+      resolved: false
+    }
     const prompt = reviewPrompt([comment, { ...comment, id: "resolved", text: "Already fixed", resolved: true }])
     expect(prompt).toContain("src/a.ts (old line 12)")
     expect(prompt).toContain('Code: "return null"')
@@ -53,7 +61,16 @@ describe("review feedback", () => {
 
 describe("saved issue filters", () => {
   it("validates restored and linked filters, including boolean URL values", () => {
-    expect(validateIssuesSearch({ view: "list", harness: "codex", attention: "true", q: "bug" })).toMatchObject({ view: "list", harness: "codex", attention: true, q: "bug" })
-    expect(validateIssuesSearch({ harness: "invalid", attention: "false", source: "bad/source" })).toMatchObject({ harness: undefined, attention: undefined, source: undefined })
+    expect(validateIssuesSearch({ view: "list", harness: "codex", attention: "true", q: "bug" })).toMatchObject({
+      view: "list",
+      harness: "codex",
+      attention: true,
+      q: "bug"
+    })
+    expect(validateIssuesSearch({ harness: "invalid", attention: "false", source: "bad/source" })).toMatchObject({
+      harness: undefined,
+      attention: undefined,
+      source: undefined
+    })
   })
 })

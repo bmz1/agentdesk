@@ -16,21 +16,78 @@ const DARK = "github-dark-default"
 const MAX_CHARS = 200_000
 
 const BY_EXTENSION: Record<string, string> = {
-  ts: "typescript", mts: "typescript", cts: "typescript", tsx: "tsx",
-  js: "javascript", mjs: "javascript", cjs: "javascript", jsx: "jsx",
-  json: "json", jsonc: "jsonc", json5: "json5",
-  md: "markdown", mdx: "mdx", css: "css", scss: "scss", sass: "sass", less: "less",
-  html: "html", htm: "html", vue: "vue", svelte: "svelte", astro: "astro",
-  py: "python", rb: "ruby", go: "go", rs: "rust", java: "java", kt: "kotlin", kts: "kotlin",
-  swift: "swift", c: "c", h: "c", cc: "cpp", cpp: "cpp", hpp: "cpp", cs: "csharp", php: "php",
-  sh: "shellscript", bash: "shellscript", zsh: "shellscript", fish: "fish", ps1: "powershell",
-  yml: "yaml", yaml: "yaml", toml: "toml", ini: "ini", xml: "xml", svg: "xml",
-  sql: "sql", graphql: "graphql", gql: "graphql", prisma: "prisma", proto: "proto",
-  lua: "lua", dart: "dart", ex: "elixir", exs: "elixir", erl: "erlang", hs: "haskell",
-  scala: "scala", clj: "clojure", r: "r", tf: "hcl", hcl: "hcl", zig: "zig", nix: "nix"
+  ts: "typescript",
+  mts: "typescript",
+  cts: "typescript",
+  tsx: "tsx",
+  js: "javascript",
+  mjs: "javascript",
+  cjs: "javascript",
+  jsx: "jsx",
+  json: "json",
+  jsonc: "jsonc",
+  json5: "json5",
+  md: "markdown",
+  mdx: "mdx",
+  css: "css",
+  scss: "scss",
+  sass: "sass",
+  less: "less",
+  html: "html",
+  htm: "html",
+  vue: "vue",
+  svelte: "svelte",
+  astro: "astro",
+  py: "python",
+  rb: "ruby",
+  go: "go",
+  rs: "rust",
+  java: "java",
+  kt: "kotlin",
+  kts: "kotlin",
+  swift: "swift",
+  c: "c",
+  h: "c",
+  cc: "cpp",
+  cpp: "cpp",
+  hpp: "cpp",
+  cs: "csharp",
+  php: "php",
+  sh: "shellscript",
+  bash: "shellscript",
+  zsh: "shellscript",
+  fish: "fish",
+  ps1: "powershell",
+  yml: "yaml",
+  yaml: "yaml",
+  toml: "toml",
+  ini: "ini",
+  xml: "xml",
+  svg: "xml",
+  sql: "sql",
+  graphql: "graphql",
+  gql: "graphql",
+  prisma: "prisma",
+  proto: "proto",
+  lua: "lua",
+  dart: "dart",
+  ex: "elixir",
+  exs: "elixir",
+  erl: "erlang",
+  hs: "haskell",
+  scala: "scala",
+  clj: "clojure",
+  r: "r",
+  tf: "hcl",
+  hcl: "hcl",
+  zig: "zig",
+  nix: "nix"
 }
 const BY_FILENAME: Record<string, string> = {
-  dockerfile: "docker", makefile: "makefile", ".env": "dotenv", ".gitignore": "shellscript"
+  dockerfile: "docker",
+  makefile: "makefile",
+  ".env": "dotenv",
+  ".gitignore": "shellscript"
 }
 
 const KNOWN = new Map<string, string>()
@@ -100,6 +157,7 @@ export type HighlightedLines = ReadonlyArray<ReadonlyArray<ThemedToken>>
 export const useHighlightedLines = (code: string | undefined, lang: string | undefined, { live = false } = {}) => {
   const [lines, setLines] = useState<HighlightedLines>()
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- TODO: move highlighting to useQuery (useEffect cleanup, group B)
     if (!live) setLines(undefined)
     if (code === undefined || !lang || code.length > MAX_CHARS) {
       if (live) setLines(undefined)

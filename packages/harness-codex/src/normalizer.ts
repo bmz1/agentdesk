@@ -21,11 +21,28 @@ export const codexQuestions = (params: Record<string, unknown>): Array<AgentQues
     const options = (Array.isArray(q.options) ? q.options.filter(isRecord) : []).flatMap((o) =>
       str(o.label) ? [{ label: str(o.label)!, ...(str(o.description) && { description: str(o.description) }) }] : []
     )
-    return [{ id, ...(str(q.header) && { header: str(q.header) }), question, options, multiSelect: false, allowOther: q.isOther === true || options.length === 0 }]
+    return [
+      {
+        id,
+        ...(str(q.header) && { header: str(q.header) }),
+        question,
+        options,
+        multiSelect: false,
+        allowOther: q.isOther === true || options.length === 0
+      }
+    ]
   })
 
 const windowLabel = (mins: number | undefined, fallback: string) =>
-  mins === 300 ? "5-hour" : mins === 10080 ? "Weekly" : mins ? (mins % 1440 === 0 ? `${mins / 1440}-day` : `${Math.round(mins / 60)}-hour`) : fallback
+  mins === 300
+    ? "5-hour"
+    : mins === 10080
+      ? "Weekly"
+      : mins
+        ? mins % 1440 === 0
+          ? `${mins / 1440}-day`
+          : `${Math.round(mins / 60)}-hour`
+        : fallback
 
 /** A Codex rate-limit snapshot → windows. `resetsAt` is in seconds since the epoch. */
 export const codexRateLimits = (snapshot: unknown): { windows: Array<RateLimitWindow>; limited: boolean } | undefined => {
@@ -201,7 +218,13 @@ export class CodexNormalizer implements Normalizer {
         return [{ type: "tool.started", toolCallId: id, name: "Bash", input: { command: item.command, cwd: item.cwd } }]
       case "fileChange": {
         const changes = Array.isArray(item.changes) ? item.changes.filter(isRecord) : []
-        this.fileChanges.set(id, changes.map((c) => str(c.path)).filter(Boolean).join(", "))
+        this.fileChanges.set(
+          id,
+          changes
+            .map((c) => str(c.path))
+            .filter(Boolean)
+            .join(", ")
+        )
         return [
           {
             type: "tool.started",
@@ -227,7 +250,10 @@ export class CodexNormalizer implements Normalizer {
         return str(item.text) ? [{ type: "message.completed", messageId: id, text: str(item.text)! }] : []
       case "reasoning": {
         const parts = [...(Array.isArray(item.summary) ? item.summary : []), ...(Array.isArray(item.content) ? item.content : [])]
-        const text = parts.filter((p) => typeof p === "string").join("\n").trim()
+        const text = parts
+          .filter((p) => typeof p === "string")
+          .join("\n")
+          .trim()
         return text ? [{ type: "reasoning", text }] : []
       }
       case "commandExecution":

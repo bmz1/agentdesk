@@ -116,7 +116,9 @@ export const run = async (argv: ReadonlyArray<string>, io: Io): Promise<number> 
         return await commands.approvals(client(), out)
       case "approve":
       case "deny":
-        return await commands.decide(client(), out, arg("approval"), command === "approve" ? "allow" : "deny", o.note, io.env, { session: o["for-session"] })
+        return await commands.decide(client(), out, arg("approval"), command === "approve" ? "allow" : "deny", o.note, io.env, {
+          session: o["for-session"]
+        })
       case "answer": {
         if (rest.length < 2) throw usage("answer: missing <question> <answer>")
         return await commands.answer(client(), out, rest[0]!, rest.slice(1), io.env)
@@ -151,7 +153,8 @@ export const run = async (argv: ReadonlyArray<string>, io: Io): Promise<number> 
     }
   } catch (e) {
     if (e instanceof CliError) {
-      if (out.json && e.code !== Exit.usage) io.stdout(JSON.stringify({ error: e.message, exitCode: e.code, ...(e.details !== undefined && { details: e.details }) }))
+      if (out.json && e.code !== Exit.usage)
+        io.stdout(JSON.stringify({ error: e.message, exitCode: e.code, ...(e.details !== undefined && { details: e.details }) }))
       else io.stderr(e.message)
       return e.code
     }

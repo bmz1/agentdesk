@@ -48,7 +48,11 @@ export const createUpdater = (options: UpdaterOptions) => {
   const now = options.now ?? (() => new Date())
   let state: UpdateState = options.updater
     ? { status: "idle", currentVersion: options.currentVersion }
-    : { status: "unsupported", currentVersion: options.currentVersion, message: options.unsupportedReason ?? "Updates are only available in installed builds." }
+    : {
+        status: "unsupported",
+        currentVersion: options.currentVersion,
+        message: options.unsupportedReason ?? "Updates are only available in installed builds."
+      }
   const set = (next: Omit<UpdateState, "currentVersion">) => {
     state = { currentVersion: options.currentVersion, ...next }
     options.broadcast(state)

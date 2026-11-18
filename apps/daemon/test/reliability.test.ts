@@ -53,7 +53,7 @@ describe("crash recovery (real daemon process)", () => {
     const dup = spawn(process.execPath, ["--import", "tsx", join(__dirname, "../src/main.ts")], {
       env: { ...process.env, AGENTDESK_HOME: home, AGENTDESK_PORT: "0" },
       cwd: join(__dirname, ".."),
-    stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"]
     })
     let dupOut = ""
     dup.stderr!.on("data", (x) => (dupOut += x))

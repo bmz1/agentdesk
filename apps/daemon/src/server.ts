@@ -67,7 +67,8 @@ export const startDaemon = async (options: StartDaemonOptions = {}): Promise<Run
         return { sessions, runs }
       }).pipe(Effect.withSpan("Daemon.startup"))
     )
-    if (sessions > 0) console.log(`[agentdesk] detached ${sessions} session(s) from the previous daemon (conversations resume on their next follow-up)`)
+    if (sessions > 0)
+      console.log(`[agentdesk] detached ${sessions} session(s) from the previous daemon (conversations resume on their next follow-up)`)
     if (runs > 0) console.log(`[agentdesk] marked ${runs} workflow run(s) interrupted`)
   } catch (e) {
     await runtime.dispose()

@@ -96,9 +96,7 @@ export const WorkspacesLive = Layer.effect(
     const activity = yield* Activity
     const withProcesses = Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, yield* ChildProcessSpawner.ChildProcessSpawner)
     const projectRepo = (projectId: string) =>
-      use(
-        (db) => db.select({ repoPath: projects.repoPath }).from(projects).where(eq(projects.id, projectId)).get()?.repoPath
-      )
+      use((db) => db.select({ repoPath: projects.repoPath }).from(projects).where(eq(projects.id, projectId)).get()?.repoPath)
 
     const get = (id: string) =>
       use((db) => db.select().from(workspaces).where(eq(workspaces.id, id)).get()).pipe(
@@ -106,78 +104,78 @@ export const WorkspacesLive = Layer.effect(
       )
 
     const allocate = Effect.fn("Workspaces.allocate")(function* (input: AllocateInput) {
-        const { project } = input
-        yield* Effect.annotateCurrentSpan({ ticketId: input.ticketId, runId: input.runId ?? "", projectId: project.id })
-        if (!(yield* Git.isRepository(project.repoPath))) {
-          return yield* new BadRequest({ message: `Project repository is missing: ${project.repoPath}` })
-        }
-        const id = newId()
-        const sid = shortId(id)
-        const branch = `agentdesk/${Git.slugify(input.ticketIdentifier, 20)}-${Git.slugify(input.ticketTitle, 30)}-${sid}`
-        const dir = join(config.worktreesDir, project.key.toLowerCase())
-        mkdirSync(dir, { recursive: true })
-        const path = join(dir, `${Git.slugify(input.ticketIdentifier, 20)}-${sid}`)
-        const base = yield* Git.revParse(project.repoPath, project.defaultBranch).pipe(
-          Effect.catch(() => Git.revParse(project.repoPath, "HEAD"))
-        )
-        yield* Git.worktreeAdd(project.repoPath, path, branch, base)
-        const row: Row = {
-          id,
-          projectId: project.id,
-          runId: input.runId ?? null,
-          ticketId: input.ticketId,
-          branch,
-          path,
-          baseCommit: base,
-          cleanupState: "active",
-          setupState: "pending",
-          lockedBy: null,
-          createdAt: yield* nowIso
-        }
-        yield* use((db) => db.insert(workspaces).values(row).run())
-        yield* Effect.annotateCurrentSpan({ branch, workspaceId: id })
-        yield* activity.record({
-          kind: "workspace.created",
-          message: `Worktree created on branch ${branch}`,
-          ticketId: input.ticketId,
-          runId: input.runId ?? null,
-          data: { path, branch, baseCommit: base }
-        })
-        return toWorkspace(row)
-      }, withProcesses)
+      const { project } = input
+      yield* Effect.annotateCurrentSpan({ ticketId: input.ticketId, runId: input.runId ?? "", projectId: project.id })
+      if (!(yield* Git.isRepository(project.repoPath))) {
+        return yield* new BadRequest({ message: `Project repository is missing: ${project.repoPath}` })
+      }
+      const id = newId()
+      const sid = shortId(id)
+      const branch = `agentdesk/${Git.slugify(input.ticketIdentifier, 20)}-${Git.slugify(input.ticketTitle, 30)}-${sid}`
+      const dir = join(config.worktreesDir, project.key.toLowerCase())
+      mkdirSync(dir, { recursive: true })
+      const path = join(dir, `${Git.slugify(input.ticketIdentifier, 20)}-${sid}`)
+      const base = yield* Git.revParse(project.repoPath, project.defaultBranch).pipe(
+        Effect.catch(() => Git.revParse(project.repoPath, "HEAD"))
+      )
+      yield* Git.worktreeAdd(project.repoPath, path, branch, base)
+      const row: Row = {
+        id,
+        projectId: project.id,
+        runId: input.runId ?? null,
+        ticketId: input.ticketId,
+        branch,
+        path,
+        baseCommit: base,
+        cleanupState: "active",
+        setupState: "pending",
+        lockedBy: null,
+        createdAt: yield* nowIso
+      }
+      yield* use((db) => db.insert(workspaces).values(row).run())
+      yield* Effect.annotateCurrentSpan({ branch, workspaceId: id })
+      yield* activity.record({
+        kind: "workspace.created",
+        message: `Worktree created on branch ${branch}`,
+        ticketId: input.ticketId,
+        runId: input.runId ?? null,
+        data: { path, branch, baseCommit: base }
+      })
+      return toWorkspace(row)
+    }, withProcesses)
 
     const runSetup = Effect.fn("Workspaces.runSetup")(function* (ws: Workspace, project: Project, command: string) {
-        yield* Effect.annotateCurrentSpan({ workspaceId: ws.id, command })
-        const [elapsed, r] = yield* runCommand("sh", ["-c", command], {
-          cwd: ws.path,
-          timeoutMs: SETUP_TIMEOUT_MS,
-          env: {
-            AGENTDESK_WORKSPACE_PATH: ws.path,
-            AGENTDESK_ROOT_PATH: project.repoPath,
-            AGENTDESK_BRANCH: ws.branch,
-            FORCE_COLOR: "0"
-          }
-        }).pipe(withProcesses, Effect.timed)
-        const result: SetupResult = {
-          ok: r.code === 0,
-          exitCode: r.code,
-          output: tail([r.stdout.trimEnd(), r.stderr.trimEnd()].filter(Boolean).join("\n")),
-          durationMs: Duration.toMillis(elapsed)
+      yield* Effect.annotateCurrentSpan({ workspaceId: ws.id, command })
+      const [elapsed, r] = yield* runCommand("sh", ["-c", command], {
+        cwd: ws.path,
+        timeoutMs: SETUP_TIMEOUT_MS,
+        env: {
+          AGENTDESK_WORKSPACE_PATH: ws.path,
+          AGENTDESK_ROOT_PATH: project.repoPath,
+          AGENTDESK_BRANCH: ws.branch,
+          FORCE_COLOR: "0"
         }
-        yield* Effect.annotateCurrentSpan({ exitCode: r.code ?? -1, durationMs: result.durationMs })
-        if (result.ok) yield* use((db) => db.update(workspaces).set({ setupState: "done" }).where(eq(workspaces.id, ws.id)).run())
-        const row = yield* use((db) => db.select({ ticketId: workspaces.ticketId }).from(workspaces).where(eq(workspaces.id, ws.id)).get())
-        yield* activity.record({
-          kind: result.ok ? "workspace.setup" : "workspace.setup_failed",
-          message: result.ok
-            ? `Setup script finished in ${(result.durationMs / 1000).toFixed(1)}s`
-            : `Setup script ${r.code === null ? "timed out" : `failed with exit code ${r.code}`}`,
-          ticketId: row?.ticketId ?? null,
-          runId: ws.runId,
-          data: { command, exitCode: r.code, output: result.output }
-        })
-        return result
+      }).pipe(withProcesses, Effect.timed)
+      const result: SetupResult = {
+        ok: r.code === 0,
+        exitCode: r.code,
+        output: tail([r.stdout.trimEnd(), r.stderr.trimEnd()].filter(Boolean).join("\n")),
+        durationMs: Duration.toMillis(elapsed)
+      }
+      yield* Effect.annotateCurrentSpan({ exitCode: r.code ?? -1, durationMs: result.durationMs })
+      if (result.ok) yield* use((db) => db.update(workspaces).set({ setupState: "done" }).where(eq(workspaces.id, ws.id)).run())
+      const row = yield* use((db) => db.select({ ticketId: workspaces.ticketId }).from(workspaces).where(eq(workspaces.id, ws.id)).get())
+      yield* activity.record({
+        kind: result.ok ? "workspace.setup" : "workspace.setup_failed",
+        message: result.ok
+          ? `Setup script finished in ${(result.durationMs / 1000).toFixed(1)}s`
+          : `Setup script ${r.code === null ? "timed out" : `failed with exit code ${r.code}`}`,
+        ticketId: row?.ticketId ?? null,
+        runId: ws.runId,
+        data: { command, exitCode: r.code, output: result.output }
       })
+      return result
+    })
 
     const latestRow = (ticketId: string) =>
       use((db) =>
@@ -191,18 +189,19 @@ export const WorkspacesLive = Layer.effect(
       )
 
     const forTicket = Effect.fn("Workspaces.forTicket")(function* (input: AllocateInput) {
-        const existing = yield* latestRow(input.ticketId)
-        if (existing && !existing.lockedBy && existsSync(existing.path)) return toWorkspace(existing)
-        return yield* allocate(input)
-      })
+      const existing = yield* latestRow(input.ticketId)
+      if (existing && !existing.lockedBy && existsSync(existing.path)) return toWorkspace(existing)
+      return yield* allocate(input)
+    })
 
     const lock = (id: string, holder: string) =>
-      use((db) =>
-        db
-          .update(workspaces)
-          .set({ lockedBy: holder })
-          .where(and(eq(workspaces.id, id), or(isNull(workspaces.lockedBy), eq(workspaces.lockedBy, holder))))
-          .run().changes
+      use(
+        (db) =>
+          db
+            .update(workspaces)
+            .set({ lockedBy: holder })
+            .where(and(eq(workspaces.id, id), or(isNull(workspaces.lockedBy), eq(workspaces.lockedBy, holder))))
+            .run().changes
       ).pipe(
         Effect.flatMap((changes) =>
           changes === 1 ? Effect.void : Effect.fail(new Conflict({ message: "Workspace already has an active writer" }))
@@ -219,44 +218,42 @@ export const WorkspacesLive = Layer.effect(
       ).pipe(Effect.asVoid)
 
     const diff = Effect.fn("Workspaces.diff")(function* (id: string) {
-        yield* Effect.annotateCurrentSpan({ workspaceId: id })
-        const ws = yield* get(id)
-        if (!existsSync(ws.path)) {
-          // Worktree removed: fall back to the branch in the main repo.
-          const row = yield* use((db) => db.select().from(workspaces).where(eq(workspaces.id, id)).get())
-          const repo = row ? yield* projectRepo(row.projectId) : undefined
-          if (!repo) return yield* new NotFound({ entity: "worktree", id })
-          return yield* Git.git(repo, ["diff", "--no-color", `${ws.baseCommit}...${ws.branch}`]).pipe(
-            Effect.map(
-              (patch): Diff => ({ branch: ws.branch, baseCommit: ws.baseCommit, headCommit: null, files: [], patch, commits: [] })
-            )
-          )
-        }
-        return yield* Git.diffAgainst(ws.path, ws.baseCommit)
-      }, withProcesses)
+      yield* Effect.annotateCurrentSpan({ workspaceId: id })
+      const ws = yield* get(id)
+      if (!existsSync(ws.path)) {
+        // Worktree removed: fall back to the branch in the main repo.
+        const row = yield* use((db) => db.select().from(workspaces).where(eq(workspaces.id, id)).get())
+        const repo = row ? yield* projectRepo(row.projectId) : undefined
+        if (!repo) return yield* new NotFound({ entity: "worktree", id })
+        return yield* Git.git(repo, ["diff", "--no-color", `${ws.baseCommit}...${ws.branch}`]).pipe(
+          Effect.map((patch): Diff => ({ branch: ws.branch, baseCommit: ws.baseCommit, headCommit: null, files: [], patch, commits: [] }))
+        )
+      }
+      return yield* Git.diffAgainst(ws.path, ws.baseCommit)
+    }, withProcesses)
 
     const cleanup = Effect.fn("Workspaces.cleanup")(function* (id: string, force = false) {
-        yield* Effect.annotateCurrentSpan({ workspaceId: id, force })
-        const ws = yield* get(id)
-        if (ws.cleanupState === "removed") return ws
-        const row = yield* use((db) => db.select().from(workspaces).where(eq(workspaces.id, id)).get())
-        if (row?.lockedBy) return yield* new Conflict({ message: "Workspace is in use by an active session or run" })
-        if (existsSync(ws.path)) {
-          if (!force && !(yield* Git.isClean(ws.path))) {
-            return yield* new Conflict({ message: "Worktree has uncommitted changes; commit them or force cleanup" })
-          }
-          const repo = yield* projectRepo(ws.projectId)
-          if (repo) yield* Git.worktreeRemove(repo, ws.path, force)
+      yield* Effect.annotateCurrentSpan({ workspaceId: id, force })
+      const ws = yield* get(id)
+      if (ws.cleanupState === "removed") return ws
+      const row = yield* use((db) => db.select().from(workspaces).where(eq(workspaces.id, id)).get())
+      if (row?.lockedBy) return yield* new Conflict({ message: "Workspace is in use by an active session or run" })
+      if (existsSync(ws.path)) {
+        if (!force && !(yield* Git.isClean(ws.path))) {
+          return yield* new Conflict({ message: "Worktree has uncommitted changes; commit them or force cleanup" })
         }
-        yield* use((db) => db.update(workspaces).set({ cleanupState: "removed" }).where(eq(workspaces.id, id)).run())
-        yield* activity.record({
-          kind: "workspace.removed",
-          message: `Worktree removed (branch ${ws.branch} kept)`,
-          ticketId: row?.ticketId ?? null,
-          runId: ws.runId
-        })
-        return { ...ws, cleanupState: "removed" as const }
-      }, withProcesses)
+        const repo = yield* projectRepo(ws.projectId)
+        if (repo) yield* Git.worktreeRemove(repo, ws.path, force)
+      }
+      yield* use((db) => db.update(workspaces).set({ cleanupState: "removed" }).where(eq(workspaces.id, id)).run())
+      yield* activity.record({
+        kind: "workspace.removed",
+        message: `Worktree removed (branch ${ws.branch} kept)`,
+        ticketId: row?.ticketId ?? null,
+        runId: ws.runId
+      })
+      return { ...ws, cleanupState: "removed" as const }
+    }, withProcesses)
 
     return Workspaces.of({
       allocate,

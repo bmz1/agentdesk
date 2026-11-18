@@ -12,14 +12,26 @@ import { q } from "@/lib/queries"
 
 /** How a harness actually enforces a mode, when it differs from the mode's description. */
 export const modeCaveat = (mode: PermissionMode, capabilities: HarnessCapabilities | undefined) => {
-  if (mode === "plan" && capabilities?.planMode === "read_only") return "This harness has no plan mode AgentDesk can turn on: plan only blocks changes (Codex runs read-only; OpenCode can't run shell commands while planning)."
-  if (mode === "accept_edits" && capabilities?.acceptEdits === "auto_approved") return "This harness has no accept-edits mode: AgentDesk approves its edit requests for you."
+  if (mode === "plan" && capabilities?.planMode === "read_only")
+    return "This harness has no plan mode AgentDesk can turn on: plan only blocks changes (Codex runs read-only; OpenCode can't run shell commands while planning)."
+  if (mode === "accept_edits" && capabilities?.acceptEdits === "auto_approved")
+    return "This harness has no accept-edits mode: AgentDesk approves its edit requests for you."
   return undefined
 }
 
 export const PERMISSION_MODES: ReadonlyArray<{ id: PermissionMode; label: string; short: string; hint: string }> = [
-  { id: "ask", label: "Ask for risky tools", short: "Ask", hint: "Agent tool calls that need permission show approval cards (recommended)." },
-  { id: "accept_edits", label: "Auto-accept file edits", short: "Accept edits", hint: "File edits in the worktree are allowed; shell commands still ask." },
+  {
+    id: "ask",
+    label: "Ask for risky tools",
+    short: "Ask",
+    hint: "Agent tool calls that need permission show approval cards (recommended)."
+  },
+  {
+    id: "accept_edits",
+    label: "Auto-accept file edits",
+    short: "Accept edits",
+    hint: "File edits in the worktree are allowed; shell commands still ask."
+  },
   {
     id: "auto",
     label: "Auto (agent reviews approvals)",
@@ -44,7 +56,9 @@ export const ProjectForm = ({ project, onDone }: { project?: Project; onDone?: (
   const [repoPath, setRepoPath] = useState(project?.repoPath ?? "")
   const [defaultBranch, setDefaultBranch] = useState(project?.defaultBranch ?? "")
   const [harness, setHarness] = useState<HarnessId | "">(project?.defaultHarness ?? "")
-  const [permissionMode, setPermissionMode] = useState<PermissionMode | "">(project && !project.inheritHarnessPermissions ? project.permissionMode : "")
+  const [permissionMode, setPermissionMode] = useState<PermissionMode | "">(
+    project && !project.inheritHarnessPermissions ? project.permissionMode : ""
+  )
   const [testCommand, setTestCommand] = useState(project?.testCommand ?? "")
   const [setupCommand, setSetupCommand] = useState(project?.setupCommand ?? "")
   const [workflowId, setWorkflowId] = useState(project?.defaultWorkflowId ?? "")
@@ -105,7 +119,13 @@ export const ProjectForm = ({ project, onDone }: { project?: Project; onDone?: (
       </div>
       <Field label="Repository path" hint="Agents never write here directly; each run gets its own git worktree.">
         <div className="flex gap-2">
-          <Input value={repoPath} onChange={(e) => setRepoPath(e.target.value)} placeholder="/Users/me/src/repo" className="font-mono" data-testid="project-repo" />
+          <Input
+            value={repoPath}
+            onChange={(e) => setRepoPath(e.target.value)}
+            placeholder="/Users/me/src/repo"
+            className="font-mono"
+            data-testid="project-repo"
+          />
           {bridge() && (
             <Button type="button" variant="secondary" onClick={() => void pick()}>
               <FolderOpen /> Browse
@@ -138,7 +158,10 @@ export const ProjectForm = ({ project, onDone }: { project?: Project; onDone?: (
           </Select>
         </Field>
       </div>
-      <Field label="Agent permissions" hint={mode?.hint ?? "Uses the selected harness’s permission default from Settings when a session starts."}>
+      <Field
+        label="Agent permissions"
+        hint={mode?.hint ?? "Uses the selected harness’s permission default from Settings when a session starts."}
+      >
         <Select value={permissionMode} onChange={(e) => setPermissionMode(e.target.value as PermissionMode | "")}>
           <option value="">Use harness default</option>
           {PERMISSION_MODES.map((m) => (
@@ -156,7 +179,7 @@ export const ProjectForm = ({ project, onDone }: { project?: Project; onDone?: (
           value={setupCommand}
           onChange={(e) => setSetupCommand(e.target.value)}
           rows={3}
-          placeholder={"pnpm install\ncp \"$AGENTDESK_ROOT_PATH/.env\" .env"}
+          placeholder={'pnpm install\ncp "$AGENTDESK_ROOT_PATH/.env" .env'}
           className="font-mono text-xs"
           data-testid="project-setup-command"
         />

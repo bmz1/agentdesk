@@ -47,9 +47,7 @@ export const makeAppLayer = (config: DaemonConfigShape, options: AppLayerOptions
     AttachmentsLive,
     CredentialStoreLive(options.credentialStore),
     TaskSourcesLive(options.sourceAdapters)
-  ).pipe(
-    Layer.provideMerge(base)
-  )
+  ).pipe(Layer.provideMerge(base))
   const domain = Layer.mergeAll(
     ProjectsLive,
     TicketsLive,

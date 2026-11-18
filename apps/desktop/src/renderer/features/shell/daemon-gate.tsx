@@ -18,8 +18,7 @@ export const DaemonGate = ({ children }: { children: React.ReactNode }) => {
   const wasConnected = useRef<boolean | undefined>(undefined)
 
   useEffect(() => {
-    const dark =
-      theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)
+    const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)
     document.documentElement.classList.toggle("dark", dark)
   }, [theme])
 
@@ -48,7 +47,7 @@ export const DaemonGate = ({ children }: { children: React.ReactNode }) => {
         }
       }
     )
-  }, [conn, setDaemonConnected, setConnection])
+  }, [conn, setDaemonConnected])
 
   if (conn === undefined) {
     return (

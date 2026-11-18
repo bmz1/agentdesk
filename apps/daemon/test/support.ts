@@ -31,9 +31,7 @@ export const TestApp = (overrides: ConfigOverrides = {}, options: AppLayerOption
       otlpEndpoint: undefined,
       ...overrides
     }).pipe(
-      Effect.map((config) =>
-        makeAppLayer(config, { adapters: [makeMockAdapter({ delayMs: 0 })], credentialStore: "memory", ...options })
-      ),
+      Effect.map((config) => makeAppLayer(config, { adapters: [makeMockAdapter({ delayMs: 0 })], credentialStore: "memory", ...options })),
       Effect.orDie
     )
   )

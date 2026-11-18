@@ -41,14 +41,7 @@ type RunRow = typeof workflowRuns.$inferSelect
 type StepRow = typeof stepRuns.$inferSelect
 
 /** Every typed failure a workflow step (or the run loop around it) can produce. */
-export type StepError =
-  | NotFound
-  | BadRequest
-  | Conflict
-  | DbError
-  | HarnessError
-  | Git.GitError
-  | Git.PullRequestError
+export type StepError = NotFound | BadRequest | Conflict | DbError | HarnessError | Git.GitError | Git.PullRequestError
 
 interface StepOutcome {
   readonly state: StepState
@@ -225,7 +218,14 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
           Effect.flatMap((r) => (r ? Effect.succeed(r) : Effect.fail(new NotFound({ entity: "run", id }))))
         )
       const stepsOf = (runId: string) =>
-        use((db) => db.select().from(stepRuns).where(eq(stepRuns.runId, runId)).orderBy(sql`rowid`).all())
+        use((db) =>
+          db
+            .select()
+            .from(stepRuns)
+            .where(eq(stepRuns.runId, runId))
+            .orderBy(sql`rowid`)
+            .all()
+        )
 
       const setRun = (id: string, patch: Partial<RunRow>) =>
         Effect.gen(function* () {
@@ -272,7 +272,12 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
 
       const latestArtifact = (runId: string, name: string) =>
         use((db) =>
-          db.select().from(artifacts).where(and(eq(artifacts.runId, runId), eq(artifacts.name, name))).orderBy(desc(artifacts.createdAt)).get()
+          db
+            .select()
+            .from(artifacts)
+            .where(and(eq(artifacts.runId, runId), eq(artifacts.name, name)))
+            .orderBy(desc(artifacts.createdAt))
+            .get()
         )
 
       const context = Effect.fnUntraced(function* (run: RunRow) {
@@ -339,23 +344,25 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
             runId: run.id
           })
         }
-        const session = continued ? { id: continued.sessionId } : yield* sessions.start({
-          ticketId: run.ticketId,
-          harness,
-          cwd: ws.path,
-          workspaceId: ws.id,
-          runId: run.id,
-          stepRunId,
-          policy: yield* projectPolicy(
-            project,
-            config.sandboxPrefix,
-            ticketModel(ticket, project, harness),
-            (yield* harnessSettings.get).harnesses[harness],
-            ticketEffort(ticket, project, harness),
-            ticket.permissionMode
-          ),
-          prompt: buildTicketPrompt(ticket, parts.join("\n\n"))
-        })
+        const session = continued
+          ? { id: continued.sessionId }
+          : yield* sessions.start({
+              ticketId: run.ticketId,
+              harness,
+              cwd: ws.path,
+              workspaceId: ws.id,
+              runId: run.id,
+              stepRunId,
+              policy: yield* projectPolicy(
+                project,
+                config.sandboxPrefix,
+                ticketModel(ticket, project, harness),
+                (yield* harnessSettings.get).harnesses[harness],
+                ticketEffort(ticket, project, harness),
+                ticket.permissionMode
+              ),
+              prompt: buildTicketPrompt(ticket, parts.join("\n\n"))
+            })
         if (!continued) {
           yield* setStep(stepRunId, { sessionId: session.id })
           yield* notices.publish({ topic: "runs", runId: run.id, ticketId: run.ticketId })
@@ -440,7 +447,13 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
                 ticketId: run.ticketId,
                 kind: "pull_request",
                 title: `Open ${step.draft ? "draft " : ""}PR: ${title}`,
-                details: { stepId: step.id, branch: ws.branch, base: project.defaultBranch, provider: project.gitProvider, files: diff.files },
+                details: {
+                  stepId: step.id,
+                  branch: ws.branch,
+                  base: project.defaultBranch,
+                  provider: project.gitProvider,
+                  files: diff.files
+                },
                 runId: run.id,
                 stepRunId
               })
@@ -574,7 +587,12 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
             runId: run.id
           })
         } else if (outcome.state === "completed") {
-          yield* activity.record({ kind: "step.completed", message: `Step "${step.name}" completed`, ticketId: run.ticketId, runId: run.id })
+          yield* activity.record({
+            kind: "step.completed",
+            message: `Step "${step.name}" completed`,
+            ticketId: run.ticketId,
+            runId: run.id
+          })
         }
         yield* notices.publish({ topic: "runs", runId: run.id, ticketId: run.ticketId })
       })
@@ -605,7 +623,13 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
           let ws: Workspace
           if (!run.workspaceId) {
             yield* setRun(runId, { status: "preparing", startedAt: run.startedAt ?? (yield* nowIso) })
-            ws = yield* workspaces.allocate({ project, ticketId: ticket.id, ticketIdentifier: ticket.identifier, ticketTitle: ticket.title, runId })
+            ws = yield* workspaces.allocate({
+              project,
+              ticketId: ticket.id,
+              ticketIdentifier: ticket.identifier,
+              ticketTitle: ticket.title,
+              runId
+            })
             yield* workspaces.lock(ws.id, runId)
             run = (yield* setRun(runId, { workspaceId: ws.id }))!
             if (ticket.status === "todo") yield* tickets.update(ticket.id, { status: "in_progress" }, "system").pipe(Effect.ignore)
@@ -632,7 +656,11 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
           while (true) {
             run = yield* getRunRow(runId)
             if (TERMINAL.includes(run.status)) return
-            const attempts = (yield* stepsOf(runId)).map((s) => ({ stepIndex: s.stepIndex, attempt: s.attempt, state: s.state as StepState }))
+            const attempts = (yield* stepsOf(runId)).map((s) => ({
+              stepIndex: s.stepIndex,
+              attempt: s.attempt,
+              state: s.state as StepState
+            }))
             const action = nextAction(plan, attempts)
             if (action.type === "complete") return yield* finishRun(run, "completed")
             if (action.type === "fail") return yield* finishRun(run, "failed", action.reason)
@@ -716,7 +744,13 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
         }
         yield* Effect.annotateCurrentSpan({ runId: row.id, ticketId, workflow: `${def.id}@${def.version}` })
         yield* use((db) => db.insert(workflowRuns).values(row).run())
-        yield* activity.record({ kind: "run.started", message: `Started workflow "${def.name}" v${def.version}`, ticketId, runId: row.id, actor: "user" })
+        yield* activity.record({
+          kind: "run.started",
+          message: `Started workflow "${def.name}" v${def.version}`,
+          ticketId,
+          runId: row.id,
+          actor: "user"
+        })
         yield* notices.publish({ topic: "runs", runId: row.id, ticketId })
         yield* schedule(row.id)
         return toRun(row)
@@ -727,7 +761,9 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
         const plan = yield* loadPlan(run.workflowId, run.workflowVersion)
         const steps = yield* stepsOf(id)
         const arts = yield* use((db) => db.select().from(artifacts).where(eq(artifacts.runId, id)).orderBy(asc(artifacts.createdAt)).all())
-        const appr = yield* use((db) => db.select().from(approvalsTable).where(eq(approvalsTable.runId, id)).orderBy(asc(approvalsTable.createdAt)).all())
+        const appr = yield* use((db) =>
+          db.select().from(approvalsTable).where(eq(approvalsTable.runId, id)).orderBy(asc(approvalsTable.createdAt)).all()
+        )
         const ws = run.workspaceId ? yield* workspaces.get(run.workspaceId).pipe(Effect.option) : Option.none()
         return {
           ...toRun(run),
@@ -830,7 +866,11 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
       const reconcile = Effect.gen(function* () {
         const now = yield* nowIso
         const stale = yield* use((db) =>
-          db.select().from(workflowRuns).where(inArray(workflowRuns.status, ["preparing", "running", "retrying"])).all()
+          db
+            .select()
+            .from(workflowRuns)
+            .where(inArray(workflowRuns.status, ["preparing", "running", "retrying"]))
+            .all()
         )
         yield* tx((db) => {
           for (const r of stale) {
@@ -852,7 +892,12 @@ export const WorkflowsLive = (options: WorkflowsOptions = {}) =>
         }
         // Re-admit queued runs in their original order.
         const queued = yield* use((db) =>
-          db.select({ id: workflowRuns.id }).from(workflowRuns).where(eq(workflowRuns.status, "queued")).orderBy(asc(workflowRuns.createdAt)).all()
+          db
+            .select({ id: workflowRuns.id })
+            .from(workflowRuns)
+            .where(eq(workflowRuns.status, "queued"))
+            .orderBy(asc(workflowRuns.createdAt))
+            .all()
         )
         for (const q of queued) yield* schedule(q.id).pipe(Effect.catch((e) => Effect.logWarning("could not schedule run", e)))
         yield* Effect.annotateCurrentSpan({ interrupted: stale.length, requeued: queued.length })

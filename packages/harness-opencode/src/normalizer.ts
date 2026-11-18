@@ -42,7 +42,9 @@ const usageOf = (tokens: unknown): TokenUsage | undefined => {
 }
 
 const textOf = (content: unknown) =>
-  (Array.isArray(content) ? content.filter(isRecord) : []).flatMap((c) => (c.type === "text" && str(c.text) ? [str(c.text)!] : [])).join("\n")
+  (Array.isArray(content) ? content.filter(isRecord) : [])
+    .flatMap((c) => (c.type === "text" && str(c.text) ? [str(c.text)!] : []))
+    .join("\n")
 
 /**
  * Normalizes OpenCode v2 bus events for one session. Its subagents' sessions are followed too, but only
@@ -125,7 +127,9 @@ export class OpenCodeNormalizer {
           return asInlineImage(isRecord(c) && url ? { type: "file", url } : undefined) ?? []
         })
         return [
-          ...(this.toolsStarted.has(id) ? [] : [{ type: "tool.started" as const, toolCallId: id, name: this.toolNames.get(id) ?? "tool", input: undefined }]),
+          ...(this.toolsStarted.has(id)
+            ? []
+            : [{ type: "tool.started" as const, toolCallId: id, name: this.toolNames.get(id) ?? "tool", input: undefined }]),
           { type: "tool.completed", toolCallId: id, result: failed ? (error ?? textOf(d.content)) : textOf(d.content), isError: failed },
           ...imageEvents(images, id)
         ]

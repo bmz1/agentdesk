@@ -41,7 +41,11 @@ describe.skipIf(enabled.length === 0)("real harness smoke tests", () => {
         ).pipe(Effect.provide(NodeProcessLayer))
       )
       const types = result.seen.map((e) => e.type)
-      console.log(`[smoke:${id}]`, types.join(" "), result.seen.filter((e) => e.type === "session.error"))
+      console.log(
+        `[smoke:${id}]`,
+        types.join(" "),
+        result.seen.filter((e) => e.type === "session.error")
+      )
       expect(result.providerSessionId).toBeTruthy()
       expect(types).toContain("turn.completed")
       expect(result.seen.find((e) => e.type === "turn.completed")).toMatchObject({ status: "success" })

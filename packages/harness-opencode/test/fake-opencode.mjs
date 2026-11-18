@@ -32,17 +32,43 @@ const info = (id, extra = {}) => ({
 })
 let n = 0
 let pending = null
-const step = (S, m) => send("session.step.started", { sessionID: S, assistantMessageID: m, agent: "build", model: sessions.get(S).model ?? { id: "fake-free", providerID: "opencode" }, started: Date.now() })
+const step = (S, m) =>
+  send("session.step.started", {
+    sessionID: S,
+    assistantMessageID: m,
+    agent: "build",
+    model: sessions.get(S).model ?? { id: "fake-free", providerID: "opencode" },
+    started: Date.now()
+  })
 const finish = (S, m) => {
-  send("session.step.ended", { sessionID: S, assistantMessageID: m, finish: "stop", rawFinish: "stop", tokens: { input: 100, output: 10, reasoning: 0, cache: { read: 50, write: 0 } }, cost: 0.01, files: [] })
+  send("session.step.ended", {
+    sessionID: S,
+    assistantMessageID: m,
+    finish: "stop",
+    rawFinish: "stop",
+    tokens: { input: 100, output: 10, reasoning: 0, cache: { read: 50, write: 0 } },
+    cost: 0.01,
+    files: []
+  })
   send("session.execution.succeeded", { sessionID: S })
 }
-const readBody = (req) => new Promise((r) => { let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => r(b ? JSON.parse(b) : {})) })
+const readBody = (req) =>
+  new Promise((r) => {
+    let b = ""
+    req.on("data", (c) => (b += c))
+    req.on("end", () => r(b ? JSON.parse(b) : {}))
+  })
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, "http://x")
-  const json = (code, data) => { res.writeHead(code, { "content-type": "application/json" }); res.end(data === undefined ? "" : JSON.stringify(data)) }
-  const empty = () => { res.writeHead(204); res.end() }
+  const json = (code, data) => {
+    res.writeHead(code, { "content-type": "application/json" })
+    res.end(data === undefined ? "" : JSON.stringify(data))
+  }
+  const empty = () => {
+    res.writeHead(204)
+    res.end()
+  }
   if (req.headers.authorization !== auth) return json(401, { _tag: "UnauthorizedError", message: "Authentication required" })
   const p = url.pathname
   if (p === "/api/event") {
@@ -56,7 +82,14 @@ const server = createServer(async (req, res) => {
   if (req.method === "POST" && p === "/api/session") {
     const id = `ses_fake${sessions.size || ""}`
     sessions.set(id, { permissions: body.permissions, model: body.model, location: body.location })
-    return json(200, { data: info(id, { title: body.title, permissions: body.permissions, location: body.location, ...(body.model && { model: body.model }) }) })
+    return json(200, {
+      data: info(id, {
+        title: body.title,
+        permissions: body.permissions,
+        location: body.location,
+        ...(body.model && { model: body.model })
+      })
+    })
   }
   if (p === "/api/model" || p === "/api/model/default") return json(500, { _tag: "Unavailable", message: "no models here" })
   const m = /^\/api\/session\/([^/]+)(\/.*)?$/.exec(p)
@@ -64,7 +97,8 @@ const server = createServer(async (req, res) => {
   const [, S, rest = ""] = m
   const s = sessions.get(S)
   if (!s) return json(404, { _tag: "SessionNotFoundError", message: "no session" })
-  if (req.method === "GET" && rest === "") return json(200, { data: info(S, { permissions: s.permissions, location: s.location, ...(s.model && { model: s.model }) }) })
+  if (req.method === "GET" && rest === "")
+    return json(200, { data: info(S, { permissions: s.permissions, location: s.location, ...(s.model && { model: s.model }) }) })
   if (req.method === "PATCH" && rest === "") {
     if (body.permissions) s.permissions = body.permissions
     return empty()
@@ -78,7 +112,9 @@ const server = createServer(async (req, res) => {
   if (rest === "/prompt") {
     const text = body.text
     const msg = `msg_${++n}`
-    json(200, { data: { id: `msg_u${n}`, sessionID: S, time: { created: Date.now() }, type: "user", payload: { text }, delivery: "steer" } })
+    json(200, {
+      data: { id: `msg_u${n}`, sessionID: S, time: { created: Date.now() }, type: "user", payload: { text }, delivery: "steer" }
+    })
     send("session.execution.started", { sessionID: S })
     step(S, msg)
     // Events this client version doesn't know, and garbage, must not end the stream.
@@ -87,14 +123,26 @@ const server = createServer(async (req, res) => {
     send("session.text.delta", { sessionID: S, assistantMessageID: msg, ordinal: 0, delta: "echo " })
     send("session.text.ended", { sessionID: S, assistantMessageID: msg, ordinal: 0, text: `echo ${text}` })
     if (text.includes("model?")) {
-      send("session.text.ended", { sessionID: S, assistantMessageID: msg, ordinal: 1, text: `model ${JSON.stringify(s.model ?? null)} files ${(body.files ?? []).length}` })
+      send("session.text.ended", {
+        sessionID: S,
+        assistantMessageID: msg,
+        ordinal: 1,
+        text: `model ${JSON.stringify(s.model ?? null)} files ${(body.files ?? []).length}`
+      })
       return finish(S, msg)
     }
     if (text.includes("tool")) {
       send("session.tool.input.started", { sessionID: S, assistantMessageID: msg, id: "c1", name: "shell" })
       send("session.tool.called", { sessionID: S, assistantMessageID: msg, id: "c1", input: { command: "ls" }, executed: false })
       pending = { S, msg }
-      return send("permission.asked", { id: "per_1", sessionID: S, action: "shell", resources: ["ls"], save: ["ls *"], source: { type: "tool", messageID: msg, id: "c1" } })
+      return send("permission.asked", {
+        id: "per_1",
+        sessionID: S,
+        action: "shell",
+        resources: ["ls"],
+        save: ["ls *"],
+        source: { type: "tool", messageID: msg, id: "c1" }
+      })
     }
     if (text.includes("subagent")) {
       const child = "ses_child"
@@ -103,7 +151,13 @@ const server = createServer(async (req, res) => {
       // The child's text is the subagent's own business.
       send("session.text.ended", { sessionID: child, assistantMessageID: "msg_c", ordinal: 0, text: "child chatter" })
       pending = { S, msg }
-      return send("permission.asked", { id: "per_child", sessionID: child, action: "webfetch", resources: ["https://example.com"], save: [] })
+      return send("permission.asked", {
+        id: "per_child",
+        sessionID: child,
+        action: "webfetch",
+        resources: ["https://example.com"],
+        save: []
+      })
     }
     if (text.includes("form")) {
       pending = { S, msg }
@@ -113,7 +167,16 @@ const server = createServer(async (req, res) => {
           sessionID: S,
           title: "Setup",
           fields: [
-            { key: "indent", type: "string", title: "Indentation", description: "Tabs or spaces?", options: [{ value: "tab", label: "Tabs" }, { value: "space", label: "Spaces" }] },
+            {
+              key: "indent",
+              type: "string",
+              title: "Indentation",
+              description: "Tabs or spaces?",
+              options: [
+                { value: "tab", label: "Tabs" },
+                { value: "space", label: "Spaces" }
+              ]
+            },
             { key: "tests", type: "boolean", title: "Write tests?" }
           ]
         }
@@ -139,7 +202,9 @@ const server = createServer(async (req, res) => {
       sessionID: owner,
       assistantMessageID: msg,
       id: "c1",
-      ...(ok ? { content: [{ type: "text", text: `file ${body.decision}` }] } : { error: { type: "rejected", message: "rejected by user" } }),
+      ...(ok
+        ? { content: [{ type: "text", text: `file ${body.decision}` }] }
+        : { error: { type: "rejected", message: "rejected by user" } }),
       executed: true
     })
     return finish(owner, msg)

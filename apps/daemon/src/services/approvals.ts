@@ -66,45 +66,50 @@ export const ApprovalsLive = Layer.effect(
 
     return Approvals.of({
       create: Effect.fn("Approvals.create")(function* (input: CreateApprovalInput) {
-          yield* Effect.annotateCurrentSpan({ ticketId: input.ticketId, kind: input.kind, runId: input.runId ?? "", sessionId: input.sessionId ?? "" })
-          const createdAt = yield* nowIso
-          const row: Row = {
-            id: input.id ?? newId(),
-            ticketId: input.ticketId,
-            runId: input.runId ?? null,
-            stepRunId: input.stepRunId ?? null,
-            sessionId: input.sessionId ?? null,
-            kind: input.kind,
-            title: input.title,
-            providerRequestId: input.providerRequestId ?? null,
-            details: input.details ?? null,
-            decision: null,
-            actor: null,
-            note: null,
-            createdAt,
-            decidedAt: null
-          }
-          yield* use((db) => db.insert(approvals).values(row).run())
-          yield* notices.publish({ topic: "approvals", ticketId: input.ticketId })
-          return withProvider(row)
-        }),
+        yield* Effect.annotateCurrentSpan({
+          ticketId: input.ticketId,
+          kind: input.kind,
+          runId: input.runId ?? "",
+          sessionId: input.sessionId ?? ""
+        })
+        const createdAt = yield* nowIso
+        const row: Row = {
+          id: input.id ?? newId(),
+          ticketId: input.ticketId,
+          runId: input.runId ?? null,
+          stepRunId: input.stepRunId ?? null,
+          sessionId: input.sessionId ?? null,
+          kind: input.kind,
+          title: input.title,
+          providerRequestId: input.providerRequestId ?? null,
+          details: input.details ?? null,
+          decision: null,
+          actor: null,
+          note: null,
+          createdAt,
+          decidedAt: null
+        }
+        yield* use((db) => db.insert(approvals).values(row).run())
+        yield* notices.publish({ topic: "approvals", ticketId: input.ticketId })
+        return withProvider(row)
+      }),
       get,
       record: Effect.fn("Approvals.record")(function* (id: string, decision: ApprovalDecision, actor: string, note?: string) {
-          yield* Effect.annotateCurrentSpan({ approvalId: id, decision, actor })
-          const decidedAt = yield* nowIso
-          const changes = yield* use(
-            (db) =>
-              db
-                .update(approvals)
-                .set({ decision, actor, note: note ?? null, decidedAt })
-                .where(and(eq(approvals.id, id), isNull(approvals.decision)))
-                .run().changes
-          )
-          const a = yield* get(id)
-          if (changes === 0) return yield* new Conflict({ message: `Approval already decided (${a.decision})` })
-          yield* notices.publish({ topic: "approvals", ticketId: a.ticketId })
-          return a
-        }),
+        yield* Effect.annotateCurrentSpan({ approvalId: id, decision, actor })
+        const decidedAt = yield* nowIso
+        const changes = yield* use(
+          (db) =>
+            db
+              .update(approvals)
+              .set({ decision, actor, note: note ?? null, decidedAt })
+              .where(and(eq(approvals.id, id), isNull(approvals.decision)))
+              .run().changes
+        )
+        const a = yield* get(id)
+        if (changes === 0) return yield* new Conflict({ message: `Approval already decided (${a.decision})` })
+        yield* notices.publish({ topic: "approvals", ticketId: a.ticketId })
+        return a
+      }),
       list: (filter) =>
         use((db) =>
           db
@@ -123,14 +128,16 @@ export const ApprovalsLive = Layer.effect(
             .map(toApproval)
         ),
       expireForSession: (sessionId) =>
-        Effect.flatMap(nowIso, (decidedAt) => use(
-          (db) =>
-            db
-              .update(approvals)
-              .set({ decision: "deny", actor: "system", note: "Expired: agent process ended", decidedAt })
-              .where(and(eq(approvals.sessionId, sessionId), isNull(approvals.decision)))
-              .run().changes
-        ))
+        Effect.flatMap(nowIso, (decidedAt) =>
+          use(
+            (db) =>
+              db
+                .update(approvals)
+                .set({ decision: "deny", actor: "system", note: "Expired: agent process ended", decidedAt })
+                .where(and(eq(approvals.sessionId, sessionId), isNull(approvals.decision)))
+                .run().changes
+          )
+        )
     })
   })
 )

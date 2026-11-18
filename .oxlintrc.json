@@ -1,0 +1,46 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import"],
+  "categories": {
+    "correctness": "error"
+  },
+  "env": { "browser": true, "node": true, "es2024": true },
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/out/**",
+    "**/node_modules/**",
+    "**/*.gen.ts",
+    "**/coverage/**",
+    "**/test-results/**",
+    "**/playwright-report/**"
+  ],
+  "rules": {
+    "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }]
+  },
+  "overrides": [
+    {
+      "files": ["apps/desktop/src/renderer/**/*.{ts,tsx}"],
+      "plugins": ["typescript", "unicorn", "oxc", "import", "react"],
+      "rules": {
+        "react/rules-of-hooks": "error",
+        "react/exhaustive-deps": "warn",
+        "react/jsx-key": "error",
+        "react/set-state-in-effect": "error",
+        "react/no-deriving-state-in-effects": "error",
+        "react/set-state-in-render": "error",
+        "react/no-unstable-nested-components": "warn",
+        "react/refs": "warn",
+        "react/incompatible-library": "off",
+        "react/react-in-jsx-scope": "off"
+      }
+    },
+    {
+      "files": ["**/test/**", "**/*.test.ts", "**/e2e/**"],
+      "plugins": ["typescript", "unicorn", "oxc", "import", "vitest"],
+      "rules": {
+        "vitest/no-standalone-expect": "off",
+        "vitest/require-mock-type-parameters": "off"
+      }
+    }
+  ]
+}

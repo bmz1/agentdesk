@@ -1,7 +1,7 @@
 import type { HarnessCapabilities, HarnessDefaults, HarnessDetection, HarnessId, HarnessModel, PermissionMode } from "@agentdesk/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2, CircleDashed, RefreshCw, XCircle } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { HARNESS_LABELS } from "@/components/status"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -35,8 +35,9 @@ export const ModelSelect = ({
   onChange: (model: string | null) => void
 }) => {
   const listed = !value || models.some((m) => m.id === value)
-  const [custom, setCustom] = useState(!listed)
-  useEffect(() => { if (!listed) setCustom(true) }, [listed])
+  // A value the harness doesn't list can only be shown in the free-text field.
+  const [customPicked, setCustom] = useState(false)
+  const custom = customPicked || !listed
   const input = (
     <Input
       aria-label={`${HARNESS_LABELS[id]} default model`}
@@ -50,12 +51,17 @@ export const ModelSelect = ({
   )
   if (models.length === 0) return input
   const providers = [...new Set(models.map((m) => m.provider).filter(Boolean))] as Array<string>
-  const option = (m: HarnessModel) => <option key={m.id} value={m.id}>{providers.length ? m.label : modelLabel(m)}{m.id !== m.label && !providers.length ? ` · ${m.id}` : ""}</option>
+  const option = (m: HarnessModel) => (
+    <option key={m.id} value={m.id}>
+      {providers.length ? m.label : modelLabel(m)}
+      {m.id !== m.label && !providers.length ? ` · ${m.id}` : ""}
+    </option>
+  )
   return (
     <div className="space-y-2">
       <Select
         aria-label={`${HARNESS_LABELS[id]} default model`}
-        value={custom ? CUSTOM : value ?? ""}
+        value={custom ? CUSTOM : (value ?? "")}
         onChange={(e) => {
           if (e.target.value === CUSTOM) return setCustom(true)
           setCustom(false)
@@ -66,7 +72,11 @@ export const ModelSelect = ({
       >
         <option value="">{defaultLabel ? `Harness default · ${defaultLabel}` : "Harness default"}</option>
         {providers.length
-          ? providers.map((p) => <optgroup key={p} label={p}>{models.filter((m) => m.provider === p).map(option)}</optgroup>)
+          ? providers.map((p) => (
+              <optgroup key={p} label={p}>
+                {models.filter((m) => m.provider === p).map(option)}
+              </optgroup>
+            ))
           : models.map(option)}
         <option value={CUSTOM}>Other model ID…</option>
       </Select>
@@ -87,11 +97,20 @@ const capabilityRows = (c: HarnessCapabilities) => [
 
 export const HarnessStatus = ({ detection }: { detection?: HarnessDetection }) =>
   !detection ? (
-    <Badge tone="outline"><CircleDashed className="size-3" />Detecting…</Badge>
+    <Badge tone="outline">
+      <CircleDashed className="size-3" />
+      Detecting…
+    </Badge>
   ) : detection.installed ? (
-    <Badge tone="success"><CheckCircle2 className="size-3" />Installed{detection.version ? ` · ${detection.version}` : ""}</Badge>
+    <Badge tone="success">
+      <CheckCircle2 className="size-3" />
+      Installed{detection.version ? ` · ${detection.version}` : ""}
+    </Badge>
   ) : (
-    <Badge tone="neutral"><XCircle className="size-3" />Not installed</Badge>
+    <Badge tone="neutral">
+      <XCircle className="size-3" />
+      Not installed
+    </Badge>
   )
 
 /** One harness: what was detected, what it supports, and the defaults its agents launch with. */
@@ -102,19 +121,32 @@ export const HarnessPanel = ({ id }: { id: HarnessId }) => {
   const detection = harnesses.data?.find((h) => h.id === id)
   const profile = settings.data?.harnesses[id]
   const isDefault = settings.data?.defaultHarness === id
-  const [draft, setDraft] = useState<HarnessDefaults | undefined>(profile)
-  const [dirty, setDirty] = useState(false)
-  useEffect(() => { if (!dirty) setDraft(profile) }, [profile, dirty])
-  const update = (value: Partial<HarnessDefaults>) => { setDraft((p) => (p ? { ...p, ...value } : p)); setDirty(true) }
+  // Unsaved edits; until there are any the form shows the stored profile as it refreshes.
+  const [edits, setEdits] = useState<HarnessDefaults | null>(null)
+  const draft = edits ?? profile
+  const dirty = edits !== null
+  const update = (value: Partial<HarnessDefaults>) =>
+    setEdits((p) => {
+      const base = p ?? profile
+      return base ? { ...base, ...value } : null
+    })
   const save = useMutation({
     mutationFn: () => api.updateHarnessSettings({ harnesses: { [id]: draft! } }),
-    onSuccess: (value) => { qc.setQueryData(qk.harnessSettings, value); setDraft(value.harnesses[id]); setDirty(false) }
+    onSuccess: (value) => {
+      qc.setQueryData(qk.harnessSettings, value)
+      setEdits(null)
+    }
   })
   const makeDefault = useMutation({
     mutationFn: () => api.updateHarnessSettings({ defaultHarness: id }),
     onSuccess: (value) => qc.setQueryData(qk.harnessSettings, value)
   })
-  if (settings.error) return <p role="alert" className="text-xs text-danger">{settings.error.message}</p>
+  if (settings.error)
+    return (
+      <p role="alert" className="text-xs text-danger">
+        {settings.error.message}
+      </p>
+    )
   if (!draft) return <Spinner />
   return (
     <div className="space-y-5" data-testid={`harness-${id}`}>
@@ -125,11 +157,17 @@ export const HarnessPanel = ({ id }: { id: HarnessId }) => {
           {isDefault ? (
             <Badge tone="accent">Default for new projects</Badge>
           ) : (
-            <Button size="sm" variant="ghost" className="ml-auto" disabled={makeDefault.isPending} onClick={() => makeDefault.mutate()}>Make default</Button>
+            <Button size="sm" variant="ghost" className="ml-auto" disabled={makeDefault.isPending} onClick={() => makeDefault.mutate()}>
+              Make default
+            </Button>
           )}
         </div>
         {detection?.detail && <p className="mt-2 text-xs text-fg-muted">{detection.detail}</p>}
-        {detection?.binary && <p className="mt-1 truncate font-mono text-[11px] text-fg-subtle" title={detection.binary}>{detection.binary}</p>}
+        {detection?.binary && (
+          <p className="mt-1 truncate font-mono text-[11px] text-fg-subtle" title={detection.binary}>
+            {detection.binary}
+          </p>
+        )}
         {detection?.capabilities && (
           <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-1.5 border-t pt-3 text-xs sm:grid-cols-3">
             {capabilityRows(detection.capabilities).map((r) => (
@@ -140,29 +178,74 @@ export const HarnessPanel = ({ id }: { id: HarnessId }) => {
             ))}
           </dl>
         )}
-        {makeDefault.error && <p role="alert" className="mt-2 text-xs text-danger">{makeDefault.error.message}</p>}
+        {makeDefault.error && (
+          <p role="alert" className="mt-2 text-xs text-danger">
+            {makeDefault.error.message}
+          </p>
+        )}
       </section>
 
-      <form className="rounded-lg border bg-bg-subtle" onSubmit={(e) => { e.preventDefault(); save.mutate() }}>
+      <form
+        className="rounded-lg border bg-bg-subtle"
+        onSubmit={(e) => {
+          e.preventDefault()
+          save.mutate()
+        }}
+      >
         <header className="border-b px-4 py-3">
           <h3 className="text-sm font-semibold">Launch defaults</h3>
-          <p className="mt-0.5 text-xs text-fg-muted">Apply when an agent starts or resumes, including workflow steps. Projects and tickets can override them; running agents keep theirs.</p>
+          <p className="mt-0.5 text-xs text-fg-muted">
+            Apply when an agent starts or resumes, including workflow steps. Projects and tickets can override them; running agents keep
+            theirs.
+          </p>
         </header>
         <fieldset disabled={save.isPending} className="space-y-5 p-4 disabled:opacity-60">
           <Field label="Model">
-            <ModelSelect id={id} value={draft.model} models={detection?.models ?? []} defaultLabel={detection?.defaultModel} onChange={(model) => update({ model })} />
+            <ModelSelect
+              id={id}
+              value={draft.model}
+              models={detection?.models ?? []}
+              defaultLabel={detection?.defaultModel}
+              onChange={(model) => update({ model })}
+            />
           </Field>
-          <PermissionCards id={id} value={draft.permissionMode} capabilities={detection?.capabilities} onChange={(permissionMode) => update({ permissionMode })} />
+          <PermissionCards
+            id={id}
+            value={draft.permissionMode}
+            capabilities={detection?.capabilities}
+            onChange={(permissionMode) => update({ permissionMode })}
+          />
           <Field label="Extra instructions" hint="Appended to the harness’s system instructions for new and resumed sessions.">
-            <Textarea aria-label={`${HARNESS_LABELS[id]} extra instructions`} rows={4} maxLength={20_000} value={draft.instructions} onChange={(e) => update({ instructions: e.target.value })} placeholder="Project-independent coding preferences…" className="resize-y px-3 py-2" data-testid={`harness-instructions-${id}`} />
+            <Textarea
+              aria-label={`${HARNESS_LABELS[id]} extra instructions`}
+              rows={4}
+              maxLength={20_000}
+              value={draft.instructions}
+              onChange={(e) => update({ instructions: e.target.value })}
+              placeholder="Project-independent coding preferences…"
+              className="resize-y px-3 py-2"
+              data-testid={`harness-instructions-${id}`}
+            />
           </Field>
         </fieldset>
         <footer className="flex items-center justify-end gap-2 rounded-b-lg border-t bg-bg/40 px-4 py-2.5">
-          {save.error && <p role="alert" className="mr-auto text-xs text-danger">{save.error.message}</p>}
-          {save.isSuccess && !dirty && <p role="status" className="mr-auto text-xs text-success">Defaults saved.</p>}
+          {save.error && (
+            <p role="alert" className="mr-auto text-xs text-danger">
+              {save.error.message}
+            </p>
+          )}
+          {save.isSuccess && !dirty && (
+            <p role="status" className="mr-auto text-xs text-success">
+              Defaults saved.
+            </p>
+          )}
           {dirty && !save.error && <p className="mr-auto text-xs text-fg-subtle">Unsaved changes</p>}
-          <Button type="button" variant="ghost" size="sm" disabled={save.isPending || !dirty} onClick={() => { setDraft(profile); setDirty(false) }}>Discard</Button>
-          <Button type="submit" size="sm" disabled={save.isPending || !dirty} data-testid={`harness-defaults-save-${id}`}>{save.isPending && <Spinner />}Save defaults</Button>
+          <Button type="button" variant="ghost" size="sm" disabled={save.isPending || !dirty} onClick={() => setEdits(null)}>
+            Discard
+          </Button>
+          <Button type="submit" size="sm" disabled={save.isPending || !dirty} data-testid={`harness-defaults-save-${id}`}>
+            {save.isPending && <Spinner />}Save defaults
+          </Button>
         </footer>
       </form>
     </div>
@@ -182,7 +265,12 @@ const PermissionCards = ({
 }) => (
   <fieldset className="space-y-1.5">
     <legend className="mb-1.5 text-xs font-medium text-fg-muted">Permissions</legend>
-    <div role="radiogroup" aria-label={`${HARNESS_LABELS[id]} default permissions`} className="grid gap-1.5" data-testid={`harness-permissions-${id}`}>
+    <div
+      role="radiogroup"
+      aria-label={`${HARNESS_LABELS[id]} default permissions`}
+      className="grid gap-1.5"
+      data-testid={`harness-permissions-${id}`}
+    >
       {PERMISSION_MODES.map((m) => {
         const caveat = modeCaveat(m.id, capabilities)
         const selected = value === m.id
@@ -195,7 +283,14 @@ const PermissionCards = ({
               m.id === "unrestricted" && selected && "border-warning/60 bg-warning/5"
             )}
           >
-            <input type="radio" name={`permissions-${id}`} value={m.id} checked={selected} onChange={() => onChange(m.id)} className="mt-0.5 accent-accent" />
+            <input
+              type="radio"
+              name={`permissions-${id}`}
+              value={m.id}
+              checked={selected}
+              onChange={() => onChange(m.id)}
+              className="mt-0.5 accent-accent"
+            />
             <span className="min-w-0">
               <span className="block text-[13px] font-medium">{m.label}</span>
               <span className="block text-[11px] text-fg-subtle">{m.hint}</span>
@@ -241,14 +336,21 @@ export const HarnessSettings = ({ harness, onHarness }: { harness: HarnessId; on
           })}
         </div>
         <Button size="sm" variant="ghost" className="ml-auto shrink-0" disabled={refresh.isPending} onClick={() => refresh.mutate()}>
-          <RefreshCw className={refresh.isPending ? "animate-spin" : ""} />Re-detect
+          <RefreshCw className={refresh.isPending ? "animate-spin" : ""} />
+          Re-detect
         </Button>
       </div>
-      {(harnesses.error || refresh.error) && <p role="alert" className="text-xs text-danger">{(harnesses.error ?? refresh.error)?.message}</p>}
+      {(harnesses.error || refresh.error) && (
+        <p role="alert" className="text-xs text-danger">
+          {(harnesses.error ?? refresh.error)?.message}
+        </p>
+      )}
       <div role="tabpanel">
         <HarnessPanel key={harness} id={harness} />
       </div>
-      <p className="text-[11px] text-fg-subtle">Harnesses use their own login. AgentDesk does not store subscription credentials or edit the harness CLI’s own configuration files.</p>
+      <p className="text-[11px] text-fg-subtle">
+        Harnesses use their own login. AgentDesk does not store subscription credentials or edit the harness CLI’s own configuration files.
+      </p>
     </div>
   )
 }

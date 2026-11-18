@@ -4,15 +4,22 @@ import { makeMockAdapter } from "@agentdesk/harness-core"
 import { makeRepo, startTestDaemon, waitFor } from "./helpers"
 
 const cleanups: Array<() => Promise<void>> = []
-afterEach(async () => { while (cleanups.length) await cleanups.pop()!() })
+afterEach(async () => {
+  while (cleanups.length) await cleanups.pop()!()
+})
 
 describe("harness launch defaults", () => {
   it("persists independent profiles and a default harness across daemon restarts", async () => {
     const first = await startTestDaemon()
     cleanups.push(first.daemon.stop)
     expect((await first.api.get("/settings/harnesses")).defaultHarness).toBe("claude")
-    await first.api.patch("/settings/harnesses", { defaultHarness: "mock", harnesses: { mock: { model: " demo-model ", permissionMode: "accept_edits", instructions: " Run tests. " } } })
-    const value = await first.api.patch("/settings/harnesses", { harnesses: { codex: { model: "codex-model", permissionMode: "plan", instructions: "Plan first." } } })
+    await first.api.patch("/settings/harnesses", {
+      defaultHarness: "mock",
+      harnesses: { mock: { model: " demo-model ", permissionMode: "accept_edits", instructions: " Run tests. " } }
+    })
+    const value = await first.api.patch("/settings/harnesses", {
+      harnesses: { codex: { model: "codex-model", permissionMode: "plan", instructions: "Plan first." } }
+    })
     expect(value.harnesses.mock).toEqual({ model: "demo-model", permissionMode: "accept_edits", instructions: "Run tests." })
     expect(value.harnesses.codex.permissionMode).toBe("plan")
     const p = await first.api.post("/projects", { name: "Defaults", repoPath: makeRepo() })
@@ -30,21 +37,41 @@ describe("harness launch defaults", () => {
     const { api, daemon } = await startTestDaemon()
     cleanups.push(daemon.stop)
     await expect(api.patch("/settings/harnesses", { defaultHarness: "unknown" })).rejects.toMatchObject({ status: 400 })
-    await expect(api.patch("/settings/harnesses", { harnesses: { mock: { model: null, permissionMode: "unrestricted", instructions: "" } } })).rejects.toMatchObject({ status: 400 })
-    await expect(api.patch("/settings/harnesses", { harnesses: { opencode: { model: "missing-provider", permissionMode: "ask", instructions: "" } } })).rejects.toMatchObject({ status: 400 })
-    await expect(api.patch("/settings/harnesses", { harnesses: { codex: { model: "x".repeat(501), permissionMode: "ask", instructions: "" } } })).rejects.toMatchObject({ status: 400 })
+    await expect(
+      api.patch("/settings/harnesses", { harnesses: { mock: { model: null, permissionMode: "unrestricted", instructions: "" } } })
+    ).rejects.toMatchObject({ status: 400 })
+    await expect(
+      api.patch("/settings/harnesses", { harnesses: { opencode: { model: "missing-provider", permissionMode: "ask", instructions: "" } } })
+    ).rejects.toMatchObject({ status: 400 })
+    await expect(
+      api.patch("/settings/harnesses", { harnesses: { codex: { model: "x".repeat(501), permissionMode: "ask", instructions: "" } } })
+    ).rejects.toMatchObject({ status: 400 })
     expect((await api.get("/settings/harnesses")).harnesses.mock.permissionMode).toBe("ask")
   })
 
   it("applies profiles to direct, resumed and workflow sessions while preserving overrides", async () => {
     const policies: Array<RunPolicy> = []
     const mock = makeMockAdapter({ delayMs: 0 })
-    const { api, daemon } = await startTestDaemon({ adapters: [{ ...mock,
-      start: (input) => { policies.push(input.policy); return mock.start(input) },
-      resume: (input) => { policies.push(input.policy); return mock.resume!(input) }
-    }] })
+    const { api, daemon } = await startTestDaemon({
+      adapters: [
+        {
+          ...mock,
+          start: (input) => {
+            policies.push(input.policy)
+            return mock.start(input)
+          },
+          resume: (input) => {
+            policies.push(input.policy)
+            return mock.resume!(input)
+          }
+        }
+      ]
+    })
     cleanups.push(daemon.stop)
-    await api.patch("/settings/harnesses", { defaultHarness: "mock", harnesses: { mock: { model: "default-model", permissionMode: "accept_edits", instructions: "Use tests." } } })
+    await api.patch("/settings/harnesses", {
+      defaultHarness: "mock",
+      harnesses: { mock: { model: "default-model", permissionMode: "accept_edits", instructions: "Use tests." } }
+    })
     const p = await api.post("/projects", { name: "Launch", repoPath: makeRepo() })
     const t = await api.post("/tickets", { projectId: p.id, title: "Defaults [noop]" })
     const s = await api.post(`/tickets/${t.id}/sessions`)
@@ -60,7 +87,9 @@ describe("harness launch defaults", () => {
     await api.post(`/sessions/${s.id}/stop`)
     await waitFor(async () => (await api.get(`/sessions/${s.id}`)).state === "closed" || undefined)
     await api.patch(`/projects/${p.id}`, { inheritHarnessPermissions: true })
-    await api.post("/workflows", { yaml: "id: defaults-test\nversion: 1\nname: Defaults\nsteps:\n  - id: agent\n    kind: agent\n    instructions: Verify defaults [noop]\n" })
+    await api.post("/workflows", {
+      yaml: "id: defaults-test\nversion: 1\nname: Defaults\nsteps:\n  - id: agent\n    kind: agent\n    instructions: Verify defaults [noop]\n"
+    })
     const run = await api.post(`/tickets/${t.id}/start-run`, { workflowId: "defaults-test" })
     await waitFor(async () => (await api.get(`/runs/${run.id}`)).status === "completed" || undefined)
     expect(policies[2]).toMatchObject({ model: "ticket-model", permissionMode: "accept_edits", appendSystemPrompt: "Use tests." })

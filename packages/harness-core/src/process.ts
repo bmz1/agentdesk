@@ -45,10 +45,7 @@ export const SENSITIVE_ENV = [
   "GITHUB_TOKEN"
 ]
 
-export const buildChildEnv = (
-  extra: Readonly<Record<string, string>> = {},
-  strip: ReadonlyArray<string> = []
-): Record<string, string> => {
+export const buildChildEnv = (extra: Readonly<Record<string, string>> = {}, strip: ReadonlyArray<string> = []): Record<string, string> => {
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   for (const k of [...SENSITIVE_ENV, ...strip]) delete env[k]
@@ -128,7 +125,11 @@ export const spawnManaged = (
 
     return {
       pid: Number(handle.pid),
-      lines: handle.stdout.pipe(Stream.decodeText(), Stream.splitLines, Stream.catch(() => Stream.empty)),
+      lines: handle.stdout.pipe(
+        Stream.decodeText(),
+        Stream.splitLines,
+        Stream.catch(() => Stream.empty)
+      ),
       stderrTail: () => stderr,
       write: (data) =>
         Effect.gen(function* () {
@@ -173,7 +174,11 @@ export interface CommandResult {
 }
 
 const collect = (s: Stream.Stream<Uint8Array, unknown>) =>
-  s.pipe(Stream.decodeText(), Stream.mkString, Effect.orElseSucceed(() => ""))
+  s.pipe(
+    Stream.decodeText(),
+    Stream.mkString,
+    Effect.orElseSucceed(() => "")
+  )
 
 /**
  * Run a short-lived command and collect its output. Never fails: a spawn
@@ -200,7 +205,14 @@ export const runCommand = (
       const input = options.input ?? ""
       yield* Stream.make(new TextEncoder().encode(input)).pipe(Stream.run(handle.stdin), Effect.ignore, Effect.forkScoped)
       const [stdout, stderr, code] = yield* Effect.all(
-        [collect(handle.stdout), collect(handle.stderr), handle.exitCode.pipe(Effect.map(Number), Effect.orElseSucceed(() => -1))],
+        [
+          collect(handle.stdout),
+          collect(handle.stderr),
+          handle.exitCode.pipe(
+            Effect.map(Number),
+            Effect.orElseSucceed(() => -1)
+          )
+        ],
         { concurrency: "unbounded" }
       )
       return { code, stdout, stderr } satisfies CommandResult
