@@ -18,7 +18,7 @@ import {
   X,
   XCircle
 } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { HARNESS_LABELS, RunStatusBadge } from "@/components/status"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -70,14 +70,11 @@ const StartRunForm = ({ ticket, hasActive }: { ticket: Ticket; hasActive: boolea
   const workflows = useQuery(q.workflows())
   const project = useQuery(q.project(ticket.projectId))
   const harnesses = useQuery(q.harnesses())
-  const [workflowId, setWorkflowId] = useState("")
+  const [picked, setWorkflowId] = useState("")
+  // Until one is picked: the ticket's workflow, the project's default, else the first listed.
+  const workflowId = picked || ticket.workflowId || project.data?.defaultWorkflowId || workflows.data?.[0]?.id || ""
   const [harness, setHarness] = useState("")
   const qc = useQueryClient()
-  useEffect(() => {
-    if (!workflowId && workflows.data?.length) {
-      setWorkflowId(ticket.workflowId ?? project.data?.defaultWorkflowId ?? workflows.data[0]!.id)
-    }
-  }, [workflows.data, project.data, ticket.workflowId, workflowId])
   const start = useMutation({
     mutationFn: () => api.startRun(ticket.id, { workflowId, harness: (harness || undefined) as never }),
     onSettled: () => qc.invalidateQueries({ queryKey: qk.ticketRuns(ticket.id) })

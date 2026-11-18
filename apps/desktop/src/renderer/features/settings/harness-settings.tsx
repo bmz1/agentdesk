@@ -1,7 +1,7 @@
 import type { HarnessCapabilities, HarnessDefaults, HarnessDetection, HarnessId, HarnessModel, PermissionMode } from "@agentdesk/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2, CircleDashed, RefreshCw, XCircle } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { HARNESS_LABELS } from "@/components/status"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -35,8 +35,9 @@ export const ModelSelect = ({
   onChange: (model: string | null) => void
 }) => {
   const listed = !value || models.some((m) => m.id === value)
-  const [custom, setCustom] = useState(!listed)
-  useEffect(() => { if (!listed) setCustom(true) }, [listed])
+  // A value the harness doesn't list can only be shown in the free-text field.
+  const [customPicked, setCustom] = useState(false)
+  const custom = customPicked || !listed
   const input = (
     <Input
       aria-label={`${HARNESS_LABELS[id]} default model`}
@@ -102,13 +103,17 @@ export const HarnessPanel = ({ id }: { id: HarnessId }) => {
   const detection = harnesses.data?.find((h) => h.id === id)
   const profile = settings.data?.harnesses[id]
   const isDefault = settings.data?.defaultHarness === id
-  const [draft, setDraft] = useState<HarnessDefaults | undefined>(profile)
-  const [dirty, setDirty] = useState(false)
-  useEffect(() => { if (!dirty) setDraft(profile) }, [profile, dirty])
-  const update = (value: Partial<HarnessDefaults>) => { setDraft((p) => (p ? { ...p, ...value } : p)); setDirty(true) }
+  // Unsaved edits; until there are any the form shows the stored profile as it refreshes.
+  const [edits, setEdits] = useState<HarnessDefaults | null>(null)
+  const draft = edits ?? profile
+  const dirty = edits !== null
+  const update = (value: Partial<HarnessDefaults>) => setEdits((p) => {
+    const base = p ?? profile
+    return base ? { ...base, ...value } : null
+  })
   const save = useMutation({
     mutationFn: () => api.updateHarnessSettings({ harnesses: { [id]: draft! } }),
-    onSuccess: (value) => { qc.setQueryData(qk.harnessSettings, value); setDraft(value.harnesses[id]); setDirty(false) }
+    onSuccess: (value) => { qc.setQueryData(qk.harnessSettings, value); setEdits(null) }
   })
   const makeDefault = useMutation({
     mutationFn: () => api.updateHarnessSettings({ defaultHarness: id }),
@@ -161,7 +166,7 @@ export const HarnessPanel = ({ id }: { id: HarnessId }) => {
           {save.error && <p role="alert" className="mr-auto text-xs text-danger">{save.error.message}</p>}
           {save.isSuccess && !dirty && <p role="status" className="mr-auto text-xs text-success">Defaults saved.</p>}
           {dirty && !save.error && <p className="mr-auto text-xs text-fg-subtle">Unsaved changes</p>}
-          <Button type="button" variant="ghost" size="sm" disabled={save.isPending || !dirty} onClick={() => { setDraft(profile); setDirty(false) }}>Discard</Button>
+          <Button type="button" variant="ghost" size="sm" disabled={save.isPending || !dirty} onClick={() => setEdits(null)}>Discard</Button>
           <Button type="submit" size="sm" disabled={save.isPending || !dirty} data-testid={`harness-defaults-save-${id}`}>{save.isPending && <Spinner />}Save defaults</Button>
         </footer>
       </form>

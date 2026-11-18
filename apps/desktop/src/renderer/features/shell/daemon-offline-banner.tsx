@@ -13,6 +13,7 @@ export const DaemonOfflineBanner = () => {
   useEffect(() => {
     if (connected) {
       seen.current = true
+      // oxlint-disable-next-line react/set-state-in-effect -- TODO: move the offline timer into the store (useEffect cleanup, group B)
       setShow(false)
       return
     }

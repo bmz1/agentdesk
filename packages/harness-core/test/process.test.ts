@@ -1,5 +1,5 @@
 import { tmpdir } from "node:os"
-import { describe, expect, layer } from "@effect/vitest"
+import { expect, layer } from "@effect/vitest"
 import { Effect, Exit, Schedule, Scope, Stream } from "effect"
 import { NodeProcessLayer, runCommand, spawnManaged } from "../src"
 

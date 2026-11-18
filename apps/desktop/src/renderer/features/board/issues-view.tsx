@@ -1,7 +1,7 @@
 import type { HarnessId, TicketSource } from "@agentdesk/contracts"
 import { useQuery } from "@tanstack/react-query"
 import { Columns3, List, Plus, Search } from "lucide-react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { HARNESS_LABELS } from "@/components/status"
 import { agentGroup, ticketSession } from "@/lib/agent-state"
 import { Button } from "@/components/ui/button"
@@ -10,6 +10,7 @@ import { EmptyState, Spinner } from "@/components/ui/misc"
 import type { TicketQuery } from "@/lib/api"
 import { q } from "@/lib/queries"
 import { useUi } from "@/lib/store"
+import { useDraft } from "@/lib/use-draft"
 import { cn } from "@/lib/utils"
 import { Board } from "./board"
 import { TicketList } from "./ticket-list"
@@ -83,8 +84,7 @@ export const IssuesView = ({
   const sources = useQuery(q.sources())
   const projectNames = useMemo(() => new Map((projects.data ?? []).map((p) => [p.id, p.name])), [projects.data])
   const openCreate = useUi((s) => s.openCreateTicket)
-  const [text, setText] = useState(search.q ?? "")
-  useEffect(() => setText(search.q ?? ""), [search.q])
+  const [text, setText] = useDraft(search.q ?? "")
   useEffect(() => {
     const id = setTimeout(() => {
       if ((text || undefined) !== search.q) onSearch({ ...search, q: text || undefined })

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useEffectEvent } from "react"
 
 /**
  * One table of keyboard shortcuts. Global handlers, the command palette's hints and tooltips
@@ -75,8 +75,8 @@ export const isTypingTarget = (target: EventTarget | null) => {
  * chords with one work everywhere, including the composer.
  */
 export const useShortcut = (id: ShortcutId, handler: (e: KeyboardEvent) => void, enabled = true) => {
-  const latest = useRef(handler)
-  latest.current = handler
+  // Always the latest handler, without re-subscribing when it changes.
+  const onShortcut = useEffectEvent(handler)
   useEffect(() => {
     if (!enabled) return
     const keys = SHORTCUTS[id].keys
@@ -85,7 +85,7 @@ export const useShortcut = (id: ShortcutId, handler: (e: KeyboardEvent) => void,
       if (e.defaultPrevented || !matchesChord(e, keys)) return
       if (bare && isTypingTarget(e.target)) return
       e.preventDefault()
-      latest.current(e)
+      onShortcut(e)
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)

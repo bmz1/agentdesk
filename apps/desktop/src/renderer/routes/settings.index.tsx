@@ -137,7 +137,7 @@ const DaemonSettings = () => {
   const rows: Array<[string, React.ReactNode]> = [
     ["Version", info.data.version],
     ["Process", `pid ${info.data.pid}`],
-    ["Data directory", <span className="font-mono">{info.data.dataDir}</span>],
+    ["Data directory", <span key="dataDir" className="font-mono">{info.data.dataDir}</span>],
     ["Active sessions", info.data.activeSessions],
     ["Active runs", info.data.activeRuns]
   ]

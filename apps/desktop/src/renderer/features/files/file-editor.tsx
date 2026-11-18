@@ -51,8 +51,13 @@ export const FileEditor = ({
   const [conflict, setConflict] = useState(false)
   const dirty = text !== base.content
 
-  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange])
+  // The parent hears about dirtiness where it changes (edits, save, discard, adoption), not from an
+  // Effect watching it; it only needs a final "clean" when the editor goes away.
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
+  const edit = (value: string) => {
+    setText(value)
+    onDirtyChange(value !== base.content)
+  }
 
   const save = useMutation({
     mutationFn: (force: boolean) => api.writeTicketFile(ticketId, { path: base.path, content: text, baseVersion: base.version, force }),
@@ -75,12 +80,14 @@ export const FileEditor = ({
     if (disk.version === base.version || save.isPending) return
     // Nothing to lose, or the disk already has exactly our text: adopt the new version quietly.
     if (!dirty || disk.content === text) {
+      // oxlint-disable-next-line react/set-state-in-effect -- TODO: reconcile disk versions during render (useEffect cleanup, group B)
       setBase(disk)
       setText(disk.content)
+      onDirtyChange(false)
       return
     }
     if (dismissed !== disk.version) setConflict(true)
-  }, [disk, base.version, dirty, text, dismissed, save.isPending])
+  }, [disk, base.version, dirty, text, dismissed, save.isPending, onDirtyChange])
 
   /** Drop unsaved changes and show the newest version on disk. */
   // Read the file fresh: the last poll may predate the write that caused a conflict, and adopting
@@ -149,7 +156,7 @@ export const FileEditor = ({
       <CodeSurface
         text={text}
         path={base.path}
-        edit={{ label: `Edit ${base.path}`, onChange: setText, onKeyDown }}
+        edit={{ label: `Edit ${base.path}`, onChange: edit, onKeyDown }}
         data-testid="file-content"
       />
       <Dialog open={conflict} onOpenChange={(open) => !open && !save.isPending && keepEditing()}>

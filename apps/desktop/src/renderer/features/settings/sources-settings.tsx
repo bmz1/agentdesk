@@ -2,7 +2,7 @@ import type { SourceConnection, SourceDescriptor, SourceField } from "@agentdesk
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2, Plus, RefreshCw, Trash2, XCircle } from "lucide-react"
 import { Link } from "@tanstack/react-router"
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Field, Input, Select, Textarea } from "@/components/ui/input"
@@ -152,10 +152,13 @@ const NewConnection = ({ sources, onDone }: { sources: ReadonlyArray<SourceDescr
   const [name, setName] = useState("")
   const [token, setToken] = useState("")
   const [pollMinutes, setPollMinutes] = useState(5)
-  const [settings, setSettings] = useState<Record<string, string>>({})
-  useEffect(() => {
-    if (source) setSettings(defaultsOf(source))
-  }, [source])
+  const [settings, setSettings] = useState<Record<string, string>>(() => (source ? defaultsOf(source) : {}))
+  // Each provider has its own fields: switching starts from that provider's defaults.
+  const pickProvider = (id: string) => {
+    const next = sources.find((s) => s.id === id)
+    setProvider(id)
+    setSettings(next ? defaultsOf(next) : {})
+  }
 
   const create = useMutation({
     mutationFn: () =>
@@ -184,7 +187,7 @@ const NewConnection = ({ sources, onDone }: { sources: ReadonlyArray<SourceDescr
     >
       <div className="grid grid-cols-2 gap-2">
         <Field label="Source" hint={source?.description}>
-          <Select value={provider} onChange={(e) => setProvider(e.target.value)} data-testid="source-provider">
+          <Select value={provider} onChange={(e) => pickProvider(e.target.value)} data-testid="source-provider">
             {sources.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.displayName}

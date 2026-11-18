@@ -1,7 +1,7 @@
 import type { HarnessId, PermissionMode, Priority, Ticket } from "@agentdesk/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { HARNESS_LABELS, PRIORITIES } from "@/components/status"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -13,6 +13,9 @@ import { api } from "@/lib/api"
 import { q } from "@/lib/queries"
 import { useUi } from "@/lib/store"
 import { cn } from "@/lib/utils"
+
+type AgentPick = { harness?: HarnessId; model: string | null; effort: string | null }
+const NO_PICK: AgentPick = { model: null, effort: null }
 
 /** A thread's name: the first line of what the user asked, trimmed to fit lists. */
 export const threadTitle = (prompt: string) => {
@@ -29,30 +32,38 @@ export const CreateTicketDialog = () => {
   const qc = useQueryClient()
   const navigate = useNavigate()
   // These drafts intentionally survive closing the dialog, but clear after success.
-  const [projectId, setProjectId] = useState("")
+  const [pickedProject, setProjectId] = useState("")
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const [acceptance, setAcceptance] = useState("")
   const [priority, setPriority] = useState<Priority>("none")
   const [harness, setHarness] = useState<HarnessId | "">("")
-  const [model, setModel] = useState<string | null>(null)
-  const [effort, setEffort] = useState<string | null>(null)
+  const [agentPick, setAgentPick] = useState<AgentPick>(NO_PICK)
   const [permissionMode, setPermissionMode] = useState<PermissionMode | null>(null)
   const [created, setCreated] = useState<Ticket | null>(null)
   const [kind, setKind] = useState<"thread" | "ticket">(presetKind)
   const [prompt, setPrompt] = useState("")
   const isThread = kind === "thread"
 
-  useEffect(() => {
-    if (open && !created) setProjectId(presetProject ?? projects.data?.[0]?.id ?? "")
-  }, [open, presetProject, projects.data, created])
-  useEffect(() => {
-    if (open && !created) setKind(presetKind)
-  }, [open, presetKind, created])
+  // Each opening starts from what the opener asked for, unless a created ticket is still waiting
+  // for its agent. Adjusted during render so the dialog never paints the previous opening's choice.
+  const openedFor = open ? `${presetKind}:${presetProject ?? ""}` : null
+  const [seenOpening, setSeenOpening] = useState<string | null>(null)
+  if (openedFor !== seenOpening) {
+    setSeenOpening(openedFor)
+    if (openedFor !== null && !created) {
+      setProjectId(presetProject ?? "")
+      setKind(presetKind)
+    }
+  }
+  const projectId = pickedProject || projects.data?.[0]?.id || ""
   const project = projects.data?.find((p) => p.id === projectId)
   const effectiveHarness = harness || project?.defaultHarness
   // Models and effort levels belong to one harness: another harness starts from its own defaults.
-  useEffect(() => { setModel(null); setEffort(null) }, [effectiveHarness])
+  const pick = agentPick.harness === effectiveHarness ? agentPick : NO_PICK
+  const { model, effort } = pick
+  const setModel = (value: string | null) => setAgentPick({ harness: effectiveHarness, model: value, effort: null })
+  const setEffort = (value: string | null) => setAgentPick({ harness: effectiveHarness, model, effort: value })
   const options = useHarnessOptions(effectiveHarness, model, effort)
   const permissionDefault = usePermissionDefault(project, effectiveHarness)
   const installed = options.detection?.installed
@@ -78,7 +89,7 @@ export const CreateTicketDialog = () => {
     onSuccess: ({ ticket, session }) => {
       void qc.invalidateQueries({ queryKey: ["tickets"] })
       void qc.invalidateQueries({ queryKey: ["sessions"] })
-      setTitle(""); setDescription(""); setAcceptance(""); setPriority("none"); setHarness(""); setModel(null); setEffort(null); setPermissionMode(null); setCreated(null); setPrompt("")
+      setTitle(""); setDescription(""); setAcceptance(""); setPriority("none"); setHarness(""); setAgentPick(NO_PICK); setPermissionMode(null); setCreated(null); setPrompt("")
       close()
       void navigate({ to: "/issues/$ticketId", params: { ticketId: ticket.id }, search: { tab: session ? "agent" : "overview", session: session?.id } })
     }
@@ -105,7 +116,7 @@ export const CreateTicketDialog = () => {
         <Field label="Model">
           <Select
             value={model ?? ""}
-            onChange={(e) => { setModel(e.target.value || null); setEffort(null) }}
+            onChange={(e) => setModel(e.target.value || null)}
             disabled={options.models.length === 0}
             className="h-8"
             data-testid="ticket-model"

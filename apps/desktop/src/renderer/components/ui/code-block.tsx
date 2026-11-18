@@ -92,15 +92,7 @@ function CodeBlockCopyButton({
   ...props
 }: React.ComponentProps<typeof Button> & { value: string }) {
   const [copied, setCopied] = React.useState(false)
-
-  React.useEffect(() => {
-    if (!copied) {
-      return
-    }
-
-    const timeout = setTimeout(() => setCopied(false), 2000)
-    return () => clearTimeout(timeout)
-  }, [copied])
+  const reset = React.useRef<ReturnType<typeof setTimeout>>(undefined)
 
   return (
     <>
@@ -118,7 +110,11 @@ function CodeBlockCopyButton({
           onClick?.(event)
           navigator.clipboard
             .writeText(value)
-            .then(() => setCopied(true))
+            .then(() => {
+              setCopied(true)
+              clearTimeout(reset.current)
+              reset.current = setTimeout(() => setCopied(false), 2000)
+            })
             .catch(() => {})
         }}
         {...props}

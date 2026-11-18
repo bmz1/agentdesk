@@ -4,7 +4,6 @@ import { createInterface } from "node:readline"
 const out = (o) => process.stdout.write(JSON.stringify(o) + "\n")
 const sid = process.argv.includes("--resume") ? process.argv[process.argv.indexOf("--resume") + 1] : "fake-session"
 let inited = false
-let pending = null
 const rl = createInterface({ input: process.stdin })
 rl.on("line", (line) => {
   const msg = JSON.parse(line)
@@ -26,7 +25,6 @@ rl.on("line", (line) => {
     out({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", content: behavior === "allow" ? "ok" : "denied", is_error: behavior !== "allow" }] }, session_id: sid, parent_tool_use_id: null })
     out({ type: "assistant", message: { id: "msg_2", role: "assistant", content: [{ type: "text", text: "Finished" }] }, session_id: sid, parent_tool_use_id: null })
     out({ type: "result", subtype: "success", is_error: false, result: "Finished", session_id: sid, total_cost_usd: 0 })
-    pending = null
     return
   }
   if (msg.type === "user") {
@@ -43,7 +41,6 @@ rl.on("line", (line) => {
       out({ type: "control_request", request_id: "hook-1", request: { subtype: "hook_callback", callback_id: "x", input: {} } })
     } else if (text.includes("tool")) {
       out({ type: "assistant", message: { id: "msg_1", role: "assistant", content: [{ type: "tool_use", id: "toolu_1", name: "Bash", input: { command: "ls" } }] }, session_id: sid, parent_tool_use_id: null })
-      pending = "req-1"
       out({ type: "control_request", request_id: "req-1", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" }, tool_use_id: "toolu_1" } })
     } else {
       out({ type: "result", subtype: "success", is_error: false, result: "Echo: " + text, session_id: sid, total_cost_usd: 0 })

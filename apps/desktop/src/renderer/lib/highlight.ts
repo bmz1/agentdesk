@@ -100,6 +100,7 @@ export type HighlightedLines = ReadonlyArray<ReadonlyArray<ThemedToken>>
 export const useHighlightedLines = (code: string | undefined, lang: string | undefined, { live = false } = {}) => {
   const [lines, setLines] = useState<HighlightedLines>()
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- TODO: move highlighting to useQuery (useEffect cleanup, group B)
     if (!live) setLines(undefined)
     if (code === undefined || !lang || code.length > MAX_CHARS) {
       if (live) setLines(undefined)

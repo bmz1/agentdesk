@@ -18,7 +18,7 @@ import {
   Workflow,
   X
 } from "lucide-react"
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useState } from "react"
 import {
   HARNESS_LABELS,
   PRIORITIES,
@@ -34,6 +34,7 @@ import { Tooltip } from "@/components/ui/misc"
 import { api } from "@/lib/api"
 import { bridge, openExternal } from "@/lib/connection"
 import { q } from "@/lib/queries"
+import { useDraft } from "@/lib/use-draft"
 import { cn, relativeTime } from "@/lib/utils"
 import { AssignProject, NeedsProject } from "./assign-project"
 import { IssueMarkdown } from "./issue-markdown"
@@ -396,8 +397,7 @@ const ModelProps = ({ harness, value, onChange }: { harness: HarnessId; value: s
   const defaults = useQuery(q.harnessSettings())
   const defaultModel = defaults.data?.harnesses[harness].model
   const models: ReadonlyArray<HarnessModel> = detections.data?.find((d) => d.id === harness)?.models ?? []
-  const [draft, setDraft] = useState(value ?? "")
-  useEffect(() => setDraft(value ?? ""), [value])
+  const [draft, setDraft] = useDraft(value ?? "")
 
   // No catalog (CLI missing or not reporting models): accept any model name.
   if (models.length === 0) {
@@ -611,18 +611,9 @@ const EditableText = ({
   className?: string
   singleLine?: boolean
 }) => {
-  const [draft, setDraft] = useState(value)
-  const ref = useRef<HTMLTextAreaElement>(null)
-  useEffect(() => setDraft(value), [value])
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (!el) return
-    el.style.height = "auto"
-    el.style.height = `${el.scrollHeight}px`
-  }, [draft])
+  const [draft, setDraft] = useDraft(value)
   return (
     <textarea
-      ref={ref}
       rows={1}
       value={draft}
       placeholder={placeholder}
@@ -639,7 +630,7 @@ const EditableText = ({
         }
       }}
       className={cn(
-        "-mx-2 block w-[calc(100%+1rem)] resize-none overflow-hidden rounded-md border border-transparent bg-transparent px-2 py-1 text-fg placeholder:text-fg-subtle hover:bg-bg-subtle focus:border-border focus:bg-bg-subtle focus:outline-none",
+        "-mx-2 block w-[calc(100%+1rem)] field-sizing-content resize-none overflow-hidden rounded-md border border-transparent bg-transparent px-2 py-1 text-fg placeholder:text-fg-subtle hover:bg-bg-subtle focus:border-border focus:bg-bg-subtle focus:outline-none",
         className
       )}
     />

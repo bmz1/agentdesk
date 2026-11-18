@@ -1,6 +1,6 @@
 import type { Ticket } from "@agentdesk/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { HARNESS_LABELS } from "@/components/status"
 import { Button } from "@/components/ui/button"
 import { Select } from "@/components/ui/input"
@@ -19,14 +19,13 @@ export const ReviewChanges = ({ ticket, onSelectSession }: { ticket: Ticket; onS
   const stored = useUi((s) => s.reviewComments[ticket.id])
   const comments = stored ?? []
   const setComments = useUi((s) => s.setReviewComments)
-  const [target, setTarget] = useState("")
+  const [picked, setTarget] = useState("")
   const qc = useQueryClient()
   const available = (sessions.data ?? []).filter((s) => s.state === "idle" || (!s.runId && ["completed", "closed", "failed", "interrupted"].includes(s.state) && s.providerSessionId))
   const hasLiveSession = (sessions.data ?? []).some((s) => ["starting", "running", "idle", "waiting_for_approval"].includes(s.state))
   const installed = (detections.data ?? []).filter((h) => h.installed)
-  useEffect(() => {
-    if (!target && (available.length || project.data)) setTarget(available[0]?.id ?? `new:${ticket.harness ?? project.data!.defaultHarness}`)
-  }, [sessions.data, project.data, ticket.harness, target])
+  // Until one is picked: the first session that can take feedback, else a new session on the ticket's harness.
+  const target = picked || available[0]?.id || (project.data ? `new:${ticket.harness ?? project.data.defaultHarness}` : "")
   const unresolved = comments.filter((c) => !c.resolved)
   const send = useMutation({
     mutationFn: async () => {

@@ -25,6 +25,7 @@ export const useSessionEvents = (sessionId: string | null | undefined) => {
   useEffect(() => {
     builderRef.current = new TranscriptBuilder()
     eventsRef.current = []
+    // oxlint-disable-next-line react/set-state-in-effect -- resets the transcript when the subscribed session changes (external stream sync)
     setHasEarlier(false)
     setVersion((v) => v + 1)
     if (!sessionId) return

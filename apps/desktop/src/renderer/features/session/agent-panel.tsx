@@ -246,12 +246,11 @@ export const StartSession = (props: { ticket: Ticket; onStarted: (s: AgentSessio
 const StartSessionForm = ({ ticket, onStarted }: { ticket: Ticket; onStarted: (s: AgentSession) => void }) => {
   const harnesses = useQuery(q.harnesses())
   const project = useQuery(q.project(ticket.projectId))
-  const [harness, setHarness] = useState<HarnessId | "">("")
+  const [picked, setHarness] = useState<HarnessId | "">("")
+  // Until one is picked, the ticket's harness, else the project's default once it loads.
+  const harness = picked || ticket.harness || project.data?.defaultHarness || ""
   const [prompt, setPrompt] = useState("")
   const qc = useQueryClient()
-  useEffect(() => {
-    if (!harness && project.data) setHarness(ticket.harness ?? project.data.defaultHarness)
-  }, [project.data, ticket.harness, harness])
   const start = useMutation({
     mutationFn: () => api.startSession(ticket.id, { harness: harness || undefined, prompt: prompt || undefined }),
     onSuccess: (s) => {

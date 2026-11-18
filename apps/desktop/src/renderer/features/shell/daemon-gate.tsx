@@ -48,7 +48,7 @@ export const DaemonGate = ({ children }: { children: React.ReactNode }) => {
         }
       }
     )
-  }, [conn, setDaemonConnected, setConnection])
+  }, [conn, setDaemonConnected])
 
   if (conn === undefined) {
     return (

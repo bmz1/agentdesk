@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils"
 export const useObjectUrl = (blob: Blob | undefined) => {
   const [url, setUrl] = useState<string>()
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- object URLs are an external resource created and revoked with the blob
     if (!blob) return setUrl(undefined)
     const u = URL.createObjectURL(blob)
     setUrl(u)
