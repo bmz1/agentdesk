@@ -5,7 +5,15 @@ import type { AgentEvent } from "@agentdesk/contracts"
 import { NodeProcessLayer, parseJsonLine } from "@agentdesk/harness-core"
 import { describe, expect, it, layer } from "@effect/vitest"
 import { Effect, Exit, Stream } from "effect"
-import { claudeApprovalResponse, ClaudeNormalizer, makeClaudeAdapter } from "../src"
+import { claudeApprovalResponse, ClaudeNormalizer, makeClaudeAdapter, permissionFlags } from "../src"
+
+describe("Claude permission flags", () => {
+  it("maps auto to Claude's classifier-reviewed auto mode", () => {
+    expect(permissionFlags("auto")).toEqual(["--permission-mode", "auto"])
+    expect(permissionFlags("accept_edits")).toEqual(["--permission-mode", "acceptEdits"])
+    expect(permissionFlags("ask")).toEqual([])
+  })
+})
 
 describe("ClaudeNormalizer", () => {
   it("normalizes a golden stream-json transcript", () => {

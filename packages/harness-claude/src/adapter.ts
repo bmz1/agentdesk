@@ -23,10 +23,14 @@ export interface ClaudeAdapterOptions {
   readonly binary?: string
 }
 
-const permissionFlags = (mode: PermissionMode): Array<string> => {
+export const permissionFlags = (mode: PermissionMode): Array<string> => {
   switch (mode) {
     case "accept_edits":
       return ["--permission-mode", "acceptEdits"]
+    // Claude's classifier approves routine actions and blocks risky ones;
+    // only what it escalates reaches AgentDesk as an approval card.
+    case "auto":
+      return ["--permission-mode", "auto"]
     case "plan":
       return ["--permission-mode", "plan"]
     case "unrestricted":

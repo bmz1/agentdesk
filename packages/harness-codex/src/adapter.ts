@@ -35,6 +35,9 @@ export const codexPolicy = (mode: PermissionMode) => {
       return { approvalPolicy: "untrusted", sandbox: "workspace-write" } as const
     case "accept_edits":
       return { approvalPolicy: "untrusted", sandbox: "workspace-write" } as const
+    // Escalations go to Codex's auto-review subagent instead of the user.
+    case "auto":
+      return { approvalPolicy: "on-request", sandbox: "workspace-write", approvalsReviewer: "auto_review" } as const
     case "plan":
       return { approvalPolicy: "on-request", sandbox: "read-only" } as const
     case "unrestricted":

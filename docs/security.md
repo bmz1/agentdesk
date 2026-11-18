@@ -22,6 +22,7 @@
   - `ask` (default): risky tool calls produce approval cards.
     **Allow for session** widens that for the rest of the agent process, in the harness's own terms: Claude applies the permission update it proposed (for edits, accept-edits mode), Codex approves that kind of request for the session, and OpenCode allows the pattern it proposed (for example `echo *`). It ends with the process; a resumed conversation asks again. On Codex, `ask` uses the `untrusted` approval policy and `accept_edits` has AgentDesk approve edit requests itself, so shell commands still ask.
   - `accept_edits`: file edits are allowed, while shell and network still ask (Codex: workspace-write sandbox).
+  - `auto`: the harness reviews its own approvals. Claude runs with `--permission-mode auto` (a classifier approves routine actions and blocks risky ones); Codex routes escalations to its `auto_review` subagent inside the workspace-write sandbox. OpenCode has no reviewer, so edits and web fetches are allowed and shell still asks. Only escalations reach AgentDesk as approval cards. The reviewer is a model, not a sandbox.
   - `plan`: read-only planning.
   - `unrestricted`: refused unless `AGENTDESK_SANDBOX_CMD` configures a real sandbox command prefix, for example `["bwrap","--bind","{cwd}","{cwd}",...]` or a container runner. That prefix wraps the harness process.
 - PRs need explicit approval, are created as drafts and are never merged. Every task source is read-only.

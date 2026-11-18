@@ -32,6 +32,7 @@ describe("OpenCodeNormalizer", () => {
 
   it("maps policies to permission rules", () => {
     expect(openCodePermissions("accept_edits")).toContainEqual({ permission: "edit", pattern: "*", action: "allow" })
+    expect(openCodePermissions("auto")).toContainEqual({ permission: "bash", pattern: "*", action: "ask" })
     expect(openCodePermissions("plan")).toContainEqual({ permission: "edit", pattern: "*", action: "deny" })
   })
 })

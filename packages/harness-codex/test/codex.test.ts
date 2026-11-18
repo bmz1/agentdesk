@@ -7,6 +7,13 @@ import { Effect, Stream } from "effect"
 import { describe, expect, it, layer } from "@effect/vitest"
 import { CodexNormalizer, codexPolicy, makeCodexAdapter } from "../src"
 
+describe("codexPolicy", () => {
+  it("routes auto-mode escalations to Codex's auto reviewer inside the workspace sandbox", () => {
+    expect(codexPolicy("auto")).toEqual({ approvalPolicy: "on-request", sandbox: "workspace-write", approvalsReviewer: "auto_review" })
+    expect(codexPolicy("accept_edits")).not.toHaveProperty("approvalsReviewer")
+  })
+})
+
 describe("CodexNormalizer", () => {
   it("normalizes a golden app-server transcript", () => {
     const n = new CodexNormalizer()

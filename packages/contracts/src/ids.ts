@@ -63,5 +63,5 @@ export type StepState = typeof StepState.Type
 export const ApprovalDecision = Schema.Literals(["allow", "deny"])
 export type ApprovalDecision = typeof ApprovalDecision.Type
 
-export const PermissionMode = Schema.Literals(["ask", "accept_edits", "plan", "unrestricted"])
+export const PermissionMode = Schema.Literals(["ask", "accept_edits", "auto", "plan", "unrestricted"])
 export type PermissionMode = typeof PermissionMode.Type
