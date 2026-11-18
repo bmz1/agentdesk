@@ -33,7 +33,7 @@ Installed builds check this repository's GitHub releases 15 seconds after launch
 
 Updates work for the macOS app, the AppImage and the deb package (the deb update asks for an admin password). **macOS can only update signed builds**: unsigned builds show the error in Settings → Updates with a link to download the release manually.
 
-Without them, macOS builds are ad-hoc signed only. Signing needs the `CSC_LINK` and `CSC_KEY_PASSWORD` secrets (a base64 Developer ID `.p12` and its password). Add `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` to notarize. Unsigned downloads are quarantined by Gatekeeper; clear that with `xattr -dr com.apple.quarantine /Applications/AgentDesk.app`.
+macOS builds are signed with a Developer ID when the repository has the `CSC_LINK` and `CSC_KEY_PASSWORD` secrets (a base64 `.p12` and its password); without them they are only ad-hoc signed. Add `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` to notarize. Unsigned downloads are quarantined by Gatekeeper; clear that with `xattr -dr com.apple.quarantine /Applications/AgentDesk.app`.
 
 ## Harness login
 | Harness | Install | Login |
