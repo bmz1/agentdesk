@@ -60,6 +60,8 @@ jobs:
             apps/desktop/release/*.zip
             apps/desktop/release/*.AppImage
             apps/desktop/release/*.deb
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest*.yml
 
   release:
     name: Draft GitHub release

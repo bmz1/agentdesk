@@ -24,8 +24,12 @@ extraResources:
     to: prompts
     filter: ["**/*.md"]
 npmRebuild: true
-# Installers are attached to the GitHub release by .github/workflows/release.yml.
-publish: null
+# Embedded as app-update.yml so electron-updater checks this repository's releases.
+# Files are uploaded by .github/workflows/release.yml (the CLI runs with --publish never).
+publish:
+  provider: github
+  owner: bmz1
+  repo: agentdesk
 mac:
   category: public.app-category.developer-tools
   icon: resources/icon.png

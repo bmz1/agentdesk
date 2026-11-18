@@ -1,5 +1,6 @@
 // Stages the packaged app in build/app: the electron-vite output, the bundled daemon,
-// and the daemon's only native dependency (better-sqlite3). electron-builder packages
+// and the runtime dependencies left external: the daemon's native better-sqlite3 and
+// the main process's electron-updater. electron-builder packages
 // this directory (directories.app) and rebuilds better-sqlite3 for Electron's ABI and
 // the target arch, so the workspace's pnpm node_modules never reach the installer.
 import { execFileSync } from "node:child_process"
@@ -25,7 +26,10 @@ mkdirSync(stageDir, { recursive: true })
 cpSync(join(desktopDir, "out"), join(stageDir, "out"), { recursive: true })
 cpSync(join(daemonDir, "dist"), join(stageDir, "daemon"), { recursive: true })
 
-const sqliteVersion = daemonPkg.dependencies["better-sqlite3"]
+const dependencies = {
+  "better-sqlite3": daemonPkg.dependencies["better-sqlite3"],
+  "electron-updater": desktopPkg.dependencies["electron-updater"]
+}
 writeFileSync(
   join(stageDir, "package.json"),
   `${JSON.stringify(
@@ -40,7 +44,7 @@ writeFileSync(
       private: true,
       type: "module",
       main: desktopPkg.main,
-      dependencies: { "better-sqlite3": sqliteVersion }
+      dependencies
     },
     null,
     2
@@ -48,8 +52,10 @@ writeFileSync(
 )
 
 // Plain npm keeps a flat, self-contained node_modules (no pnpm symlinks into the store).
+// The "package" script hides pnpm's npm_config_user_agent/npm_execpath from electron-builder,
+// which would otherwise collect modules from the pnpm workspace instead of this directory.
 // Scripts are skipped: electron-builder compiles the native module for Electron afterwards.
-execFileSync("npm", ["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock"], {
+execFileSync("npm", ["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], {
   cwd: stageDir,
   stdio: "inherit",
   shell: process.platform === "win32"

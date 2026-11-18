@@ -6,6 +6,7 @@ import { CreateTicketDialog } from "@/features/shell/create-ticket-dialog"
 import { GlobalShortcuts } from "@/features/shell/global-shortcuts"
 import { DaemonOfflineBanner } from "@/features/shell/daemon-offline-banner"
 import { Sidebar } from "@/features/shell/sidebar"
+import { UpdateNotifier } from "@/features/updates/update-notifier"
 import { useUi } from "@/lib/store"
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
@@ -44,6 +45,7 @@ function RootLayout() {
       <GlobalShortcuts />
       <CommandPalette />
       <CreateTicketDialog />
+      <UpdateNotifier />
     </div>
   )
 }
