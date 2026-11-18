@@ -13,6 +13,11 @@ import { q } from "@/lib/queries"
 export const PERMISSION_MODES: ReadonlyArray<{ id: PermissionMode; label: string; hint: string }> = [
   { id: "ask", label: "Ask for risky tools", hint: "Agent tool calls that need permission show approval cards (recommended)." },
   { id: "accept_edits", label: "Auto-accept file edits", hint: "File edits in the worktree are allowed; shell commands still ask." },
+  {
+    id: "auto",
+    label: "Auto (agent reviews approvals)",
+    hint: "Claude's auto mode and Codex's auto-review approve routine actions and block risky ones; only escalations ask. OpenCode still asks for shell commands."
+  },
   { id: "plan", label: "Plan only", hint: "The agent may read and plan but not modify files." },
   {
     id: "unrestricted",
