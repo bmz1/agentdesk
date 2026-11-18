@@ -21,7 +21,8 @@
     "test:watch": "vitest",
     "test:smoke": "AGENTDESK_SMOKE=${AGENTDESK_SMOKE:-claude} vitest run apps/daemon/test/smoke.real-cli.test.ts",
     "test:permissions": "AGENTDESK_SMOKE=${AGENTDESK_SMOKE:-claude} vitest run apps/daemon/test/permissions.real-cli.test.ts",
-    "e2e": "pnpm --filter @agentdesk/desktop e2e"
+    "e2e": "pnpm --filter @agentdesk/desktop e2e",
+    "package:desktop": "pnpm --filter @agentdesk/daemon build && pnpm --filter @agentdesk/desktop build && pnpm --filter @agentdesk/desktop package"
   },
   "devDependencies": {
     "@effect/vitest": "4.1.4",

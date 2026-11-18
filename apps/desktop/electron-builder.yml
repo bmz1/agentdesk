@@ -1,0 +1,49 @@
+# Packages build/app (staged by scripts/stage-package.mjs). See docs/operations.md#releases.
+appId: dev.agentdesk.app
+productName: AgentDesk
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+directories:
+  app: build/app
+  output: release
+  buildResources: resources
+files:
+  - out/**
+  - daemon/**
+  - node_modules/**
+  - package.json
+# The daemon runs as a separate (ELECTRON_RUN_AS_NODE) process; keep it and its native
+# module on disk so ESM loading and dlopen don't go through the asar archive.
+asarUnpack:
+  - daemon/**
+  - node_modules/**
+extraResources:
+  - from: ../../workflows
+    to: workflows
+    filter: ["**/*.yaml", "**/*.yml"]
+  - from: ../../prompts
+    to: prompts
+    filter: ["**/*.md"]
+npmRebuild: true
+# Embedded as app-update.yml so electron-updater checks this repository's releases.
+# Files are uploaded by .github/workflows/release.yml (the CLI runs with --publish never).
+publish:
+  provider: github
+  owner: bmz1
+  repo: agentdesk
+mac:
+  category: public.app-category.developer-tools
+  icon: resources/icon.png
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+linux:
+  icon: resources/icon.png
+  category: Development
+  maintainer: AgentDesk
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]

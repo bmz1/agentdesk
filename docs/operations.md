@@ -17,6 +17,24 @@ pnpm --filter @agentdesk/daemon install-service --uninstall
 
 The service runs with `AGENTDESK_PERSISTENT=1`. The desktop app uses the running service automatically.
 
+## Releases
+Desktop installers are built with electron-builder. `pnpm package:desktop` builds the daemon and desktop, stages them in `apps/desktop/build/app`, and writes installers for the current OS to `apps/desktop/release` (pass `-- --linux dir` for an unpacked build). The packaged app runs its bundled daemon on Electron's Node (`ELECTRON_RUN_AS_NODE`) from `app.asar.unpacked/daemon`, with `workflows/` and `prompts/` in the app's resources directory.
+
+To publish a release, bump `version` in `apps/desktop/package.json`, merge, then push a matching tag:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+`.github/workflows/release.yml` packages macOS (dmg and zip, arm64 and x64) and Linux (AppImage and deb, x64), then creates a **draft** GitHub release with the installers and generated notes; publish it from the Releases page. A tag that does not match the app version fails the run. Running the workflow manually builds the installers as workflow artifacts without a release.
+
+### Auto-update
+Installed builds check this repository's GitHub releases 15 seconds after launch and every 4 hours (electron-updater, using `latest-mac.yml` / `latest-linux.yml` uploaded with each release). A newer version downloads in the background; the app then offers **Restart** in a toast and in Settings → Updates, and never installs silently on quit. Installing stops the background daemon the app started (after confirming if agent sessions or runs are active) so the new version starts its own; a supervised `install-service` daemon is left running. Only published releases are offered, so a draft rolls out when you publish it.
+
+Updates work for the macOS app, the AppImage and the deb package (the deb update asks for an admin password). **macOS can only update signed builds**: unsigned builds show the error in Settings → Updates with a link to download the release manually.
+
+macOS builds are signed with a Developer ID when the repository has the `CSC_LINK` and `CSC_KEY_PASSWORD` secrets (a base64 `.p12` and its password); without them they are only ad-hoc signed. Add `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` to notarize. Unsigned downloads are quarantined by Gatekeeper; clear that with `xattr -dr com.apple.quarantine /Applications/AgentDesk.app`.
+
 ## Harness login
 | Harness | Install | Login |
 | --- | --- | --- |

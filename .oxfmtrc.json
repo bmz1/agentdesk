@@ -6,5 +6,5 @@
   "trailingComma": "none",
   "arrowParens": "always",
   "sortPackageJson": false,
-  "ignorePatterns": ["pnpm-lock.yaml", "**/*.md"]
+  "ignorePatterns": ["pnpm-lock.yaml", "**/*.md", "**/routeTree.gen.ts"]
 }

@@ -1,3 +1,5 @@
+import type { UpdateState } from "../../main/updater"
+
 export interface Connection {
   readonly url: string
   readonly token: string
@@ -11,6 +13,12 @@ interface Bridge {
   revealPath(path: string): Promise<void>
   pickDirectory(): Promise<string | null>
   updateNotificationState?(count: number, seen: Record<string, number>): Promise<void>
+  updates?: {
+    getState(): Promise<UpdateState>
+    check(): Promise<UpdateState>
+    install(): Promise<boolean>
+    subscribe(listener: (state: UpdateState) => void): () => void
+  }
 }
 
 declare global {

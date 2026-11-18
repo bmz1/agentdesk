@@ -36,7 +36,23 @@ const healthy = async (url: string) => {
 
 /** Locate the daemon entrypoint: bundled build in production, TS sources in development. */
 const daemonCommand = (): { command: string; args: Array<string>; env: NodeJS.ProcessEnv } | undefined => {
-  const bundled = app.isPackaged ? join(process.resourcesPath, "daemon", "main.js") : resolve(__dirname, "../../../daemon/dist/main.js")
+  if (app.isPackaged) {
+    // The installer ships better-sqlite3 built for Electron's ABI, so run the daemon on
+    // Electron's own Node rather than whatever Node (if any) is on the user's PATH.
+    const entry = join(process.resourcesPath, "app.asar.unpacked", "daemon", "main.js")
+    if (!existsSync(entry)) return undefined
+    return {
+      command: process.execPath,
+      args: [entry],
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: "1",
+        AGENTDESK_WORKFLOWS_DIR: process.env.AGENTDESK_WORKFLOWS_DIR ?? join(process.resourcesPath, "workflows"),
+        AGENTDESK_PROMPTS_DIR: process.env.AGENTDESK_PROMPTS_DIR ?? join(process.resourcesPath, "prompts")
+      }
+    }
+  }
+  const bundled = resolve(__dirname, "../../../daemon/dist/main.js")
   if (existsSync(bundled)) {
     // Prefer the system Node: better-sqlite3 is built for Node's ABI, not Electron's.
     const node = findNode()

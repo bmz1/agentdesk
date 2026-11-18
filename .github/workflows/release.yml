@@ -1,0 +1,129 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+    # Branch pushes and PRs that touch what ships build the installers as workflow
+    # artifacts without creating a release (path filters don't apply to tags).
+    branches: ["**"]
+    paths:
+      - apps/desktop/**
+      - apps/daemon/**
+      - packages/**
+      - workflows/**
+      - prompts/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/release.yml
+  pull_request:
+    paths:
+      - apps/desktop/**
+      - apps/daemon/**
+      - packages/**
+      - workflows/**
+      - prompts/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/release.yml
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            args: --mac
+          - os: ubuntu-latest
+            args: --linux
+    runs-on: ${{ matrix.os }}
+    env:
+      # electron-builder downloads its own Electron for each target.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Check tag matches app version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(node -p "require('./apps/desktop/package.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match apps/desktop/package.json version $version"
+            exit 1
+          fi
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @agentdesk/daemon build
+      - run: pnpm --filter @agentdesk/desktop build
+      - name: Package
+        env:
+          # Exported only when set: electron-builder treats an empty CSC_LINK as a file path.
+          SECRET_CSC_LINK: ${{ secrets.CSC_LINK }}
+          SECRET_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          SECRET_APPLE_ID: ${{ secrets.APPLE_ID }}
+          SECRET_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          SECRET_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          extra=()
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            if [ -n "$SECRET_CSC_LINK" ]; then
+              export CSC_LINK="$SECRET_CSC_LINK" CSC_KEY_PASSWORD="$SECRET_CSC_KEY_PASSWORD"
+              if [ -n "$SECRET_APPLE_ID" ]; then
+                export APPLE_ID="$SECRET_APPLE_ID" APPLE_APP_SPECIFIC_PASSWORD="$SECRET_APPLE_APP_SPECIFIC_PASSWORD" APPLE_TEAM_ID="$SECRET_APPLE_TEAM_ID"
+              fi
+            else
+              # No Developer ID: ad-hoc sign so Apple Silicon builds launch once un-quarantined.
+              echo "::warning::CSC_LINK is not set; macOS build is ad-hoc signed (no notarization or auto-update)"
+              export CSC_IDENTITY_AUTO_DISCOVERY=false
+              extra=(-c.mac.identity=- -c.mac.hardenedRuntime=false)
+            fi
+          fi
+          pnpm --filter @agentdesk/desktop run package ${{ matrix.args }} "${extra[@]}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest*.yml
+
+  release:
+    name: Draft GitHub release
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installers-*
+          path: installers
+          merge-multiple: true
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" installers/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft \
+            --verify-tag \
+            --generate-notes \
+            --title "AgentDesk $GITHUB_REF_NAME"
