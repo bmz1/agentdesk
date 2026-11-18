@@ -32,7 +32,8 @@ export const makeFakeLinear = (opts: { issues: Array<FakeLinearIssue>; pageSize?
     const body = JSON.parse(String(init?.body))
     const auth = new Headers(init?.headers).get("authorization")
     state.calls.push({ query: body.query, variables: body.variables, auth })
-    const json = (status: number, data: unknown) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } })
+    const json = (status: number, data: unknown) =>
+      new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } })
     if (state.failAuth) return json(400, { errors: [{ message: "Authentication required", extensions: { code: "AUTHENTICATION_ERROR" } }] })
     if (state.rateLimitNext > 0) {
       state.rateLimitNext--

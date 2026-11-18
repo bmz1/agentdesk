@@ -147,7 +147,11 @@ export const upsertTasks = (database: DatabaseShape, conn: UpsertConnection, tas
       }
       // Content is compared too, so a sync after a converter change (e.g. Jira ADF → Markdown)
       // rewrites stored descriptions even when the remote issue itself did not change.
-      const local = db.select({ title: tickets.title, description: tickets.description }).from(tickets).where(eq(tickets.id, link.ticketId)).get()
+      const local = db
+        .select({ title: tickets.title, description: tickets.description })
+        .from(tickets)
+        .where(eq(tickets.id, link.ticketId))
+        .get()
       const unchanged =
         link.remoteUpdatedAt === task.updatedAt &&
         link.remoteState === "active" &&
@@ -344,7 +348,9 @@ export const TaskSyncLive = (options: TaskSyncOptions = {}) =>
           Effect.tapError((e) =>
             Effect.gen(function* () {
               yield* recordFailure(id, e.message).pipe(Effect.ignore)
-              yield* activity.record({ kind: "source.sync.failed", message: `Sync failed: ${e.message}`, data: { connectionId: id } }).pipe(Effect.ignore)
+              yield* activity
+                .record({ kind: "source.sync.failed", message: `Sync failed: ${e.message}`, data: { connectionId: id } })
+                .pipe(Effect.ignore)
               yield* notices.publish({ topic: "sources" })
             })
           ),

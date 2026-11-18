@@ -144,7 +144,13 @@ export const FileEditor = ({
           )}
           {dirty && <span className="text-warning">Unsaved</span>}
           {dirty && (
-            <Button size="sm" variant="ghost" disabled={save.isPending || discard.isPending} onClick={() => discard.mutate()} data-testid="file-discard">
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={save.isPending || discard.isPending}
+              onClick={() => discard.mutate()}
+              data-testid="file-discard"
+            >
               Discard
             </Button>
           )}
@@ -168,13 +174,20 @@ export const FileEditor = ({
           <div className="space-y-3 p-4 text-xs text-fg-muted">
             <p>Overwrite it with your version, or discard your changes and load the version on disk.</p>
             {save.error && !(save.error instanceof ApiError && save.error.code === "StaleFile") && (
-              <p role="alert" className="text-danger">{save.error.message}</p>
+              <p role="alert" className="text-danger">
+                {save.error.message}
+              </p>
             )}
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="ghost" disabled={save.isPending} onClick={keepEditing}>
                 Keep editing
               </Button>
-              <Button variant="secondary" disabled={save.isPending || discard.isPending} onClick={() => discard.mutate()} data-testid="file-conflict-discard">
+              <Button
+                variant="secondary"
+                disabled={save.isPending || discard.isPending}
+                onClick={() => discard.mutate()}
+                data-testid="file-conflict-discard"
+              >
                 Discard my changes
               </Button>
               <Button variant="danger" disabled={save.isPending} onClick={() => save.mutate(true)} data-testid="file-conflict-overwrite">

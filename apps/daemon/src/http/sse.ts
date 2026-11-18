@@ -19,14 +19,13 @@ export const sseFromStream = <A, E>(
     sse.onAbort(() => controller.abort())
     const write = (m: { id?: string; event?: string; data: string }) => Effect.promise(() => sse.writeSSE(m))
     const heartbeat = Stream.tick("15 seconds").pipe(Stream.mapEffect(() => Effect.promise(() => sse.write(": ping\n\n"))))
-    await runtime
-      .runPromiseExit(
-        write({ event: "ready", data: "{}" }).pipe(
-          Effect.andThen(
-            Stream.merge(stream.pipe(Stream.mapEffect((a) => write(encode(a)))), heartbeat, { haltStrategy: "left" }).pipe(Stream.runDrain)
-          ),
-          Effect.withSpan(`SSE ${c.req.routePath}`, { kind: "server", attributes: { "http.route": c.req.routePath } })
+    await runtime.runPromiseExit(
+      write({ event: "ready", data: "{}" }).pipe(
+        Effect.andThen(
+          Stream.merge(stream.pipe(Stream.mapEffect((a) => write(encode(a)))), heartbeat, { haltStrategy: "left" }).pipe(Stream.runDrain)
         ),
-        { signal: controller.signal }
-      )
+        Effect.withSpan(`SSE ${c.req.routePath}`, { kind: "server", attributes: { "http.route": c.req.routePath } })
+      ),
+      { signal: controller.signal }
+    )
   })

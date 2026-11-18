@@ -46,7 +46,10 @@ export const ImageFrame = ({
   const [open, setOpen] = useState(false)
   if (failed || (!loading && !url)) {
     return (
-      <div className={cn("flex size-24 items-center justify-center rounded-xl border bg-muted text-muted-foreground", className)} title="Image unavailable">
+      <div
+        className={cn("flex size-24 items-center justify-center rounded-xl border bg-muted text-muted-foreground", className)}
+        title="Image unavailable"
+      >
         <ImageOff className="size-4" />
       </div>
     )
@@ -63,7 +66,10 @@ export const ImageFrame = ({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className={cn("block overflow-hidden rounded-xl border bg-muted transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none", className)}
+        className={cn(
+          "block overflow-hidden rounded-xl border bg-muted transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none",
+          className
+        )}
         title={name ?? "View image"}
       >
         <img src={url} alt={name ?? "Image"} className="block max-h-80 w-auto max-w-full object-contain" draggable={false} />

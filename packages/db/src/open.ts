@@ -23,12 +23,8 @@ export const openDatabase = (filename: string, extra: ReadonlyArray<Migration> =
 }
 
 export const migrate = (sqlite: Database.Database, all: ReadonlyArray<Migration>) => {
-  sqlite.exec(
-    "CREATE TABLE IF NOT EXISTS _migrations (id INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)"
-  )
-  const applied = new Set(
-    (sqlite.prepare("SELECT id FROM _migrations").all() as Array<{ id: number }>).map((r) => r.id)
-  )
+  sqlite.exec("CREATE TABLE IF NOT EXISTS _migrations (id INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)")
+  const applied = new Set((sqlite.prepare("SELECT id FROM _migrations").all() as Array<{ id: number }>).map((r) => r.id))
   const pending = [...all].sort((a, b) => a.id - b.id).filter((m) => !applied.has(m.id))
   for (const m of pending) {
     // foreign_keys cannot change inside a transaction, so it is switched around it.
@@ -41,9 +37,7 @@ export const migrate = (sqlite: Database.Database, all: ReadonlyArray<Migration>
           const broken = sqlite.prepare("PRAGMA foreign_key_check").all()
           if (broken.length > 0) throw new Error(`Migration ${m.id} (${m.name}) broke foreign keys: ${JSON.stringify(broken.slice(0, 5))}`)
         }
-        sqlite
-          .prepare("INSERT INTO _migrations (id, name, applied_at) VALUES (?, ?, ?)")
-          .run(m.id, m.name, new Date().toISOString())
+        sqlite.prepare("INSERT INTO _migrations (id, name, applied_at) VALUES (?, ?, ?)").run(m.id, m.name, new Date().toISOString())
       })()
     } finally {
       if (restoreForeignKeys) sqlite.pragma("foreign_keys = ON")

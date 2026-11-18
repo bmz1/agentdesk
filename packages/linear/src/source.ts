@@ -43,12 +43,30 @@ export const ISSUES_QUERY = /* GraphQL */ `
   query AgentDeskIssues($filter: IssueFilter, $after: String, $first: Int!) {
     issues(filter: $filter, after: $after, first: $first, orderBy: updatedAt) {
       nodes {
-        id identifier url title description updatedAt priority
-        state { name type }
-        assignee { displayName }
-        labels { nodes { name } }
+        id
+        identifier
+        url
+        title
+        description
+        updatedAt
+        priority
+        state {
+          name
+          type
+        }
+        assignee {
+          displayName
+        }
+        labels {
+          nodes {
+            name
+          }
+        }
       }
-      pageInfo { hasNextPage endCursor }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
     }
   }
 `

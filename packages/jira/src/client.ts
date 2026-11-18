@@ -205,9 +205,7 @@ export const makeJiraClient = (config: JiraClientConfig): JiraClient => {
             cursor: p.isLast === true || !p.nextPageToken ? undefined : p.nextPageToken
           }))
         )
-      : withRetry(
-          request("POST", `${api}/search`, { jql, startAt: Number(cursor ?? 0), maxResults: pageSize, fields: FIELDS })
-        ).pipe(
+      : withRetry(request("POST", `${api}/search`, { jql, startAt: Number(cursor ?? 0), maxResults: pageSize, fields: FIELDS })).pipe(
           Effect.flatMap((u) => decode(DcPage, u)),
           Effect.map((p) => {
             const next = p.startAt + p.issues.length

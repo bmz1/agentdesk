@@ -11,7 +11,15 @@ import { cn } from "@/lib/utils"
  * source start unassigned and can also be unassigned again; local tickets always keep a project.
  * The daemon refuses while an agent or workflow is active on the ticket.
  */
-export const AssignProject = ({ ticket, className, placeholder = "Assign to project…" }: { ticket: Ticket; className?: string; placeholder?: string }) => {
+export const AssignProject = ({
+  ticket,
+  className,
+  placeholder = "Assign to project…"
+}: {
+  ticket: Ticket
+  className?: string
+  placeholder?: string
+}) => {
   const qc = useQueryClient()
   const projects = useQuery(q.projects())
   const assign = useMutation({
@@ -43,7 +51,9 @@ export const NeedsProject = ({ ticket }: { ticket: Ticket }) => (
   <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-bg p-4 text-sm" data-testid="needs-project">
     <div className="min-w-0 flex-1">
       <p className="font-medium">Assign {ticket.identifier} to a project</p>
-      <p className="text-xs text-fg-muted">Agents work in a worktree of the project's repository, so pick where this ticket belongs first.</p>
+      <p className="text-xs text-fg-muted">
+        Agents work in a worktree of the project's repository, so pick where this ticket belongs first.
+      </p>
     </div>
     <AssignProject ticket={ticket} className="w-56" />
   </div>

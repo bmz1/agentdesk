@@ -10,7 +10,12 @@ const planStatus = (v: unknown): PlanItem["status"] => {
   return PLAN_STATUSES.includes(s as PlanItem["status"]) ? (s as PlanItem["status"]) : "pending"
 }
 
-const WINDOW_LABELS: Record<string, string> = { five_hour: "5-hour", seven_day: "Weekly", seven_day_opus: "Weekly (Opus)", seven_day_sonnet: "Weekly (Sonnet)" }
+const WINDOW_LABELS: Record<string, string> = {
+  five_hour: "5-hour",
+  seven_day: "Weekly",
+  seven_day_opus: "Weekly (Opus)",
+  seven_day_sonnet: "Weekly (Sonnet)"
+}
 
 /** AskUserQuestion input → canonical questions. Claude keys answers by the question text. */
 export const claudeQuestions = (input: unknown): Array<AgentQuestion> => {
@@ -21,7 +26,16 @@ export const claudeQuestions = (input: unknown): Array<AgentQuestion> => {
     const options = (Array.isArray(q.options) ? q.options.filter(isRecord) : []).flatMap((o) =>
       str(o.label) ? [{ label: str(o.label)!, ...(str(o.description) && { description: str(o.description) }) }] : []
     )
-    return [{ id: question, ...(str(q.header) && { header: str(q.header) }), question, options, multiSelect: q.multiSelect === true, allowOther: true }]
+    return [
+      {
+        id: question,
+        ...(str(q.header) && { header: str(q.header) }),
+        question,
+        options,
+        multiSelect: q.multiSelect === true,
+        allowOther: true
+      }
+    ]
   })
 }
 
@@ -164,9 +178,7 @@ export class ClaudeNormalizer implements Normalizer {
         approvalId: requestId,
         providerRequestId: requestId,
         toolName,
-        summary: str(req.description)
-          ? `${toolName}: ${str(req.description)}`
-          : summarizeToolInput(toolName, req.input),
+        summary: str(req.description) ? `${toolName}: ${str(req.description)}` : summarizeToolInput(toolName, req.input),
         details: { input: req.input, toolUseId: req.tool_use_id, blockedPath: req.blocked_path },
         canAllowForSession: suggestions.length > 0
       }
@@ -235,7 +247,11 @@ export class ClaudeNormalizer implements Normalizer {
       const task = id ? this.tasks.get(id) : undefined
       if (!id || !task) return []
       if (str(input.status) === "deleted") this.tasks.delete(id)
-      else this.tasks.set(id, { text: str(input.subject) ?? task.text, status: input.status === undefined ? task.status : planStatus(input.status) })
+      else
+        this.tasks.set(id, {
+          text: str(input.subject) ?? task.text,
+          status: input.status === undefined ? task.status : planStatus(input.status)
+        })
       return [this.taskPlan()]
     }
     return []

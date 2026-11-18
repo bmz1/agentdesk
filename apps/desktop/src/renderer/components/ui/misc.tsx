@@ -42,10 +42,7 @@ export const Tooltip = ({ content, children }: { content: React.ReactNode; child
   <Tip.Root>
     <Tip.Trigger asChild>{children}</Tip.Trigger>
     <Tip.Portal>
-      <Tip.Content
-        sideOffset={4}
-        className="tooltip-motion z-50 rounded border bg-bg-elevated px-2 py-1 text-[11px] text-fg shadow-lg"
-      >
+      <Tip.Content sideOffset={4} className="tooltip-motion z-50 rounded border bg-bg-elevated px-2 py-1 text-[11px] text-fg shadow-lg">
         {content}
       </Tip.Content>
     </Tip.Portal>
@@ -67,7 +64,17 @@ export const TabsTrigger = ({ className, ...p }: React.ComponentProps<typeof T.T
 )
 export const TabsContent = T.Content
 
-export const Section = ({ title, actions, children, className }: { title: string; actions?: React.ReactNode; children: React.ReactNode; className?: string }) => (
+export const Section = ({
+  title,
+  actions,
+  children,
+  className
+}: {
+  title: string
+  actions?: React.ReactNode
+  children: React.ReactNode
+  className?: string
+}) => (
   <section className={cn("rounded-lg border bg-bg-subtle", className)}>
     <header className="flex items-center justify-between border-b px-3 py-2">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-fg-muted">{title}</h3>

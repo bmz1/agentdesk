@@ -36,9 +36,7 @@ layer(NodeProcessLayer, { excludeTestServices: true })("process supervision (eff
         Effect.map((r) => r.stdout.trim())
       )
       // Signal delivery is asynchronous: poll briefly for the group to disappear.
-      const state = yield* probe.pipe(
-        Effect.repeat({ until: (s) => s === "gone", schedule: Schedule.spaced("50 millis"), times: 40 })
-      )
+      const state = yield* probe.pipe(Effect.repeat({ until: (s) => s === "gone", schedule: Schedule.spaced("50 millis"), times: 40 }))
       expect(state).toBe("gone")
     })
   )

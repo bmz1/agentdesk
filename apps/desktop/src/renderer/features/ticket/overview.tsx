@@ -19,14 +19,7 @@ import {
   X
 } from "lucide-react"
 import { useState } from "react"
-import {
-  HARNESS_LABELS,
-  PRIORITIES,
-  PriorityIcon,
-  RunStatusBadge,
-  SessionStateBadge,
-  sourceLabel
-} from "@/components/status"
+import { HARNESS_LABELS, PRIORITIES, PriorityIcon, RunStatusBadge, SessionStateBadge, sourceLabel } from "@/components/status"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input, Select } from "@/components/ui/input"
@@ -44,7 +37,15 @@ import type { TicketTab } from "./ticket-detail"
 
 type UpdateBody = Parameters<typeof api.updateTicket>[1]
 
-export const Overview = ({ ticket, onUpdate, onTab }: { ticket: Ticket; onUpdate: (b: UpdateBody) => void; onTab: (t: TicketTab) => void }) => {
+export const Overview = ({
+  ticket,
+  onUpdate,
+  onTab
+}: {
+  ticket: Ticket
+  onUpdate: (b: UpdateBody) => void
+  onTab: (t: TicketTab) => void
+}) => {
   const editable = ticket.source === "local"
   const activity = useQuery(q.ticketActivity(ticket.id))
 
@@ -295,7 +296,9 @@ const Sidebar = ({ ticket, onUpdate }: { ticket: Ticket; onUpdate: (b: UpdateBod
             onChange={(e) => onUpdate({ harness: (e.target.value || null) as HarnessId | null })}
             className={ghostSelect}
           >
-            <option value="">Default · {project.data ? HARNESS_LABELS[project.data.defaultHarness] : ticket.projectId ? "…" : "project's"}</option>
+            <option value="">
+              Default · {project.data ? HARNESS_LABELS[project.data.defaultHarness] : ticket.projectId ? "…" : "project's"}
+            </option>
             {(Object.keys(HARNESS_LABELS) as Array<HarnessId>).map((h) => (
               <option key={h} value={h}>
                 {HARNESS_LABELS[h]}
@@ -305,12 +308,25 @@ const Sidebar = ({ ticket, onUpdate }: { ticket: Ticket; onUpdate: (b: UpdateBod
         </Prop>
         {project.data && (
           <>
-            <ModelProps harness={ticket.harness ?? project.data.defaultHarness} value={ticket.model} onChange={(model) => onUpdate({ model })} />
-            <EffortProp harness={ticket.harness ?? project.data.defaultHarness} model={ticket.model} value={ticket.effort} onChange={(effort) => onUpdate({ effort })} />
+            <ModelProps
+              harness={ticket.harness ?? project.data.defaultHarness}
+              value={ticket.model}
+              onChange={(model) => onUpdate({ model })}
+            />
+            <EffortProp
+              harness={ticket.harness ?? project.data.defaultHarness}
+              model={ticket.model}
+              value={ticket.effort}
+              onChange={(effort) => onUpdate({ effort })}
+            />
           </>
         )}
         <Prop label="Workflow">
-          <Select value={ticket.workflowId ?? ""} onChange={(e) => onUpdate({ workflowId: e.target.value || null })} className={ghostSelect}>
+          <Select
+            value={ticket.workflowId ?? ""}
+            onChange={(e) => onUpdate({ workflowId: e.target.value || null })}
+            className={ghostSelect}
+          >
             <option value="">Default · {defaultWorkflow?.name ?? "none"}</option>
             {(workflows.data ?? []).map((w) => (
               <option key={w.id} value={w.id}>
@@ -328,7 +344,12 @@ const Sidebar = ({ ticket, onUpdate }: { ticket: Ticket; onUpdate: (b: UpdateBod
         <Prop label="Project">
           <span className="flex w-full min-w-0 items-center gap-1">
             {ticket.projectId ? (
-              <Link to="/projects/$projectId" params={{ projectId: ticket.projectId }} title="Open project" className="shrink-0 rounded p-1 text-fg-muted hover:bg-bg-muted hover:text-fg">
+              <Link
+                to="/projects/$projectId"
+                params={{ projectId: ticket.projectId }}
+                title="Open project"
+                className="shrink-0 rounded p-1 text-fg-muted hover:bg-bg-muted hover:text-fg"
+              >
                 <FolderGit2 className="size-3.5" />
               </Link>
             ) : (
@@ -360,9 +381,13 @@ const Sidebar = ({ ticket, onUpdate }: { ticket: Ticket; onUpdate: (b: UpdateBod
           </Prop>
           <Prop label="Assignee">{ticket.external.remoteAssignee ?? "Unassigned"}</Prop>
           {ticket.external.remoteState === "missing" && (
-            <p className="text-xs text-warning">No longer returned by the sync scope (deleted, moved or no permission). Local history is kept.</p>
+            <p className="text-xs text-warning">
+              No longer returned by the sync scope (deleted, moved or no permission). Local history is kept.
+            </p>
           )}
-          <p className="text-[11px] text-fg-subtle">Board moves stay local; AgentDesk never writes back to {sourceLabel(ticket.external.provider)}.</p>
+          <p className="text-[11px] text-fg-subtle">
+            Board moves stay local; AgentDesk never writes back to {sourceLabel(ticket.external.provider)}.
+          </p>
         </SideSection>
       )}
 
@@ -392,7 +417,15 @@ const ghostSelect = "h-7 min-w-0 flex-1 w-full border-transparent bg-transparent
  * Model picker for the ticket's effective harness. Harnesses that route to several
  * providers (OpenCode) get a Provider picker first; the stored value stays `provider/model`.
  */
-const ModelProps = ({ harness, value, onChange }: { harness: HarnessId; value: string | null; onChange: (model: string | null) => void }) => {
+const ModelProps = ({
+  harness,
+  value,
+  onChange
+}: {
+  harness: HarnessId
+  value: string | null
+  onChange: (model: string | null) => void
+}) => {
   const detections = useQuery(q.harnesses())
   const defaults = useQuery(q.harnessSettings())
   const defaultModel = defaults.data?.harnesses[harness].model
@@ -426,7 +459,11 @@ const ModelProps = ({ harness, value, onChange }: { harness: HarnessId; value: s
     <>
       {providers.length > 0 && (
         <Prop label="Provider">
-          <Select value={provider} onChange={(e) => onChange(options.find((m) => m.provider === e.target.value)?.id ?? null)} className={ghostSelect}>
+          <Select
+            value={provider}
+            onChange={(e) => onChange(options.find((m) => m.provider === e.target.value)?.id ?? null)}
+            className={ghostSelect}
+          >
             <option value="">{defaultModel ? `Default · ${defaultModel}` : "Harness default"}</option>
             {providers.map((p) => (
               <option key={p} value={p}>
@@ -456,11 +493,25 @@ const ModelProps = ({ harness, value, onChange }: { harness: HarnessId; value: s
 }
 
 /** Reasoning effort for the ticket's harness; hidden when the harness reports no levels. */
-const EffortProp = ({ harness, model, value, onChange }: { harness: HarnessId; model: string | null; value: string | null; onChange: (effort: string | null) => void }) => {
+const EffortProp = ({
+  harness,
+  model,
+  value,
+  onChange
+}: {
+  harness: HarnessId
+  model: string | null
+  value: string | null
+  onChange: (effort: string | null) => void
+}) => {
   const detections = useQuery(q.harnesses())
   const defaults = useQuery(q.harnessSettings())
   const detection = detections.data?.find((d) => d.id === harness)
-  const { levels, defaultLevel } = effortsFor(detection?.efforts, detection?.models ?? [], model ?? defaults.data?.harnesses[harness]?.model)
+  const { levels, defaultLevel } = effortsFor(
+    detection?.efforts,
+    detection?.models ?? [],
+    model ?? defaults.data?.harnesses[harness]?.model
+  )
   if (levels.length === 0 && !value) return null
   const options = value && !levels.includes(value) ? [...levels, value] : levels
   return (
@@ -537,7 +588,10 @@ const PathProp = ({ label, path }: { label: string; path: string }) => (
       </span>
       {bridge() && (
         <Tooltip content="Reveal in Finder">
-          <button className="shrink-0 rounded p-1 text-fg-subtle hover:bg-bg-muted hover:text-fg" onClick={() => void bridge()!.revealPath(path)}>
+          <button
+            className="shrink-0 rounded p-1 text-fg-subtle hover:bg-bg-muted hover:text-fg"
+            onClick={() => void bridge()!.revealPath(path)}
+          >
             <FolderSearch className="size-3" />
           </button>
         </Tooltip>
@@ -571,7 +625,17 @@ const CopyValue = ({ value }: { value: string }) => {
 
 // ---- building blocks ---------------------------------------------------------------
 
-const Block = ({ title, hint, action, children }: { title: string; hint?: string; action?: React.ReactNode; children: React.ReactNode }) => (
+const Block = ({
+  title,
+  hint,
+  action,
+  children
+}: {
+  title: string
+  hint?: string
+  action?: React.ReactNode
+  children: React.ReactNode
+}) => (
   <section className="space-y-2">
     <header className="flex items-baseline justify-between gap-2">
       <h3 className="text-xs font-medium text-fg-muted" title={hint}>
@@ -636,4 +700,3 @@ const EditableText = ({
     />
   )
 }
-

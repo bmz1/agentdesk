@@ -13,7 +13,12 @@ const boot = async (setupCommand?: string) => {
   const { daemon, api } = await startTestDaemon()
   cleanups.push(daemon.stop)
   const repo = makeRepo()
-  const project = await api.post("/projects", { name: "Setup", repoPath: repo, defaultHarness: "mock", ...(setupCommand && { setupCommand }) })
+  const project = await api.post("/projects", {
+    name: "Setup",
+    repoPath: repo,
+    defaultHarness: "mock",
+    ...(setupCommand && { setupCommand })
+  })
   return { api, repo, project }
 }
 
@@ -24,9 +29,7 @@ const stateOf = (api: any, id: string, states: Array<string>) =>
   }, 15_000)
 
 const setupEvents = async (api: any, sessionId: string) =>
-  (await api.get(`/sessions/${sessionId}/history`))
-    .map((e: any) => e.event)
-    .filter((e: any) => e.toolCallId === "agentdesk-setup")
+  (await api.get(`/sessions/${sessionId}/history`)).map((e: any) => e.event).filter((e: any) => e.toolCallId === "agentdesk-setup")
 
 describe("every agent works in its own worktree", () => {
   it("starts threads in a new worktree, never the main checkout", async () => {
@@ -66,7 +69,9 @@ describe("every agent works in its own worktree", () => {
 
 describe("worktree setup script", () => {
   it("runs once in a new worktree before the agent starts, with the worktree's paths", async () => {
-    const { api, repo, project } = await boot('printf "%s|%s|%s" "$AGENTDESK_ROOT_PATH" "$AGENTDESK_WORKSPACE_PATH" "$PWD" > .setup-ran; echo installed')
+    const { api, repo, project } = await boot(
+      'printf "%s|%s|%s" "$AGENTDESK_ROOT_PATH" "$AGENTDESK_WORKSPACE_PATH" "$PWD" > .setup-ran; echo installed'
+    )
     const ticket = await api.post("/tickets", { projectId: project.id, title: "Needs deps" })
     const session = await api.post(`/tickets/${ticket.id}/sessions`, { prompt: "answer only [noop]" })
     // The request answers while setup runs; the session boots in the background.

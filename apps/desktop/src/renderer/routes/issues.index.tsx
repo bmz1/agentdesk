@@ -6,7 +6,9 @@ export const Route = createFileRoute("/issues/")({
   validateSearch: validateIssuesSearch,
   loaderDeps: ({ search }) => ({ project: search.project, source: search.source, q: search.q }),
   loader: ({ context, deps }) =>
-    context.queryClient.ensureQueryData(q.tickets({ ...projectFilter(deps.project), source: deps.source, q: deps.q, pinned: undefined, tracked: true })),
+    context.queryClient.ensureQueryData(
+      q.tickets({ ...projectFilter(deps.project), source: deps.source, q: deps.q, pinned: undefined, tracked: true })
+    ),
   component: AllIssues
 })
 

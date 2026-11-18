@@ -89,7 +89,10 @@ const startServer = (
         return m ? Deferred.succeed(ready, m[1]!.replace(/\/$/, "")) : Effect.void
       }),
       Effect.andThen(
-        Deferred.fail(ready, new HarnessError({ harness: "opencode", reason: "spawn_failed", message: proc.stderrTail().trim() || "opencode serve exited" }))
+        Deferred.fail(
+          ready,
+          new HarnessError({ harness: "opencode", reason: "spawn_failed", message: proc.stderrTail().trim() || "opencode serve exited" })
+        )
       ),
       Effect.forkScoped
     )
@@ -120,7 +123,9 @@ const eventStream = (server: Server): Stream.Stream<OpenCodeEvent, HarnessError>
     Stream.pipeThroughChannel(Sse.decode()),
     Stream.map((e) => parseEvent(e.data)),
     Stream.filter((e): e is OpenCodeEvent => e !== undefined),
-    Stream.mapError((e) => new HarnessError({ harness: "opencode", reason: "io", message: `opencode event stream: ${errorMessage(e)}`, cause: e }))
+    Stream.mapError(
+      (e) => new HarnessError({ harness: "opencode", reason: "io", message: `opencode event stream: ${errorMessage(e)}`, cause: e })
+    )
   )
 
 export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): HarnessAdapter => {
@@ -133,7 +138,11 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
       if (!binary) {
         return yield* new HarnessError({ harness: "opencode", reason: "not_installed", message: "opencode CLI not found on PATH" })
       }
-      const server = yield* startServer(binary, { cwd: input.cwd, env: input.policy.env, sandboxPrefix: input.policy.sandboxPrefix }, startupTimeoutMs)
+      const server = yield* startServer(
+        binary,
+        { cwd: input.cwd, env: input.policy.env, sandboxPrefix: input.policy.sandboxPrefix },
+        startupTimeoutMs
+      )
       const { client } = server
 
       // Listen before creating or prompting the session, so nothing it does is missed.
@@ -148,13 +157,17 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
               title: "AgentDesk",
               location: Location.PublicRef.make({ directory: AbsolutePath.make(input.cwd) }) as never,
               permissions: permissions as never,
-              ...(openCodeModel(input.policy.model, input.policy.effort) && { model: openCodeModel(input.policy.model, input.policy.effort) as never })
+              ...(openCodeModel(input.policy.model, input.policy.effort) && {
+                model: openCodeModel(input.policy.model, input.policy.effort) as never
+              })
             })
             .pipe(Effect.mapError(protocolError("session.create")))
       const sessionID = session.id
       // A resumed session keeps the rules it was created with: apply the current permission mode.
       if (input.providerSessionId) {
-        yield* client.session.update({ sessionID, permissions: permissions as never }).pipe(Effect.mapError(protocolError("session.update")))
+        yield* client.session
+          .update({ sessionID, permissions: permissions as never })
+          .pipe(Effect.mapError(protocolError("session.update")))
       }
       if (input.policy.appendSystemPrompt) {
         yield* client.experimental.session.instructions.entry
@@ -195,10 +208,15 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
           let ref = openCodeModel(nextModel, nextEffort)
           if (!ref && nextEffort) {
             // An effort for the default model: name that model explicitly.
-            const fallback = yield* client.model.default({ location: { directory: input.cwd } }).pipe(Effect.mapError(protocolError("model.default")))
+            const fallback = yield* client.model
+              .default({ location: { directory: input.cwd } })
+              .pipe(Effect.mapError(protocolError("model.default")))
             ref = fallback.data ? { providerID: fallback.data.providerID, id: fallback.data.id, variant: nextEffort } : undefined
           }
-          if (ref) yield* client.session.switchModel({ sessionID, model: ref as never }).pipe(Effect.mapError(protocolError("session.switchModel")))
+          if (ref)
+            yield* client.session
+              .switchModel({ sessionID, model: ref as never })
+              .pipe(Effect.mapError(protocolError("session.switchModel")))
         })
 
       const prompt = (text: string, images: ReadonlyArray<PromptImage> = [], opts?: PromptOptions) =>
@@ -226,13 +244,22 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
           normalizer.pending.delete(requestId)
           return (
             response.decision === "allow"
-              ? client.session.form.reply({ sessionID: target, formID: requestId as never, answer: formAnswer(request.form, response.answers) as never })
+              ? client.session.form.reply({
+                  sessionID: target,
+                  formID: requestId as never,
+                  answer: formAnswer(request.form, response.answers) as never
+                })
               : client.session.form.cancel({ sessionID: target, formID: requestId as never } as never)
           ).pipe(Effect.mapError(protocolError("form reply")), Effect.asVoid)
         }
         const decision = response.decision === "deny" ? "reject" : response.scope === "session" ? "always" : "once"
         return client.permission
-          .reply({ sessionID: target, requestID: requestId as never, decision, ...(decision === "reject" && response.note && { message: response.note }) })
+          .reply({
+            sessionID: target,
+            requestID: requestId as never,
+            decision,
+            ...(decision === "reject" && response.note && { message: response.note })
+          })
           .pipe(Effect.mapError(protocolError("permission.reply")), Effect.asVoid)
       }
 
@@ -254,7 +281,9 @@ export const makeOpenCodeAdapter = (options: OpenCodeAdapterOptions = {}): Harne
     Effect.scoped(
       Effect.gen(function* () {
         const server = yield* startServer(binary, { cwd: tmpdir() }, 15_000)
-        const res = yield* server.client.model.list({ location: { directory: tmpdir() } }).pipe(Effect.mapError(protocolError("model.list")))
+        const res = yield* server.client.model
+          .list({ location: { directory: tmpdir() } })
+          .pipe(Effect.mapError(protocolError("model.list")))
         return parseModels(res.data)
       })
     ).pipe(

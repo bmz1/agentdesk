@@ -24,7 +24,11 @@ export const DaemonOfflineBanner = () => {
   }, [connected])
   if (!show) return null
   return (
-    <div role="status" className="flex items-center gap-2 border-b border-warning/30 bg-warning/10 px-4 py-1.5 text-xs text-warning" data-testid="daemon-offline">
+    <div
+      role="status"
+      className="flex items-center gap-2 border-b border-warning/30 bg-warning/10 px-4 py-1.5 text-xs text-warning"
+      data-testid="daemon-offline"
+    >
       <WifiOff className="size-3.5 shrink-0" />
       <span>The AgentDesk daemon isn't reachable. Reconnecting… Agents' conversations resume once it's back.</span>
     </div>

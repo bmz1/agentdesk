@@ -185,11 +185,25 @@ export const Composer = ({
           <InputGroupText className="min-w-0 truncate text-xs font-normal text-fg-subtle">{meta}</InputGroupText>
           <div className="ml-auto flex items-center gap-1.5">
             {running && onInterrupt && (
-              <InputGroupButton type="button" size="icon-sm" variant="outline" aria-label="Interrupt the agent" title={`Interrupt (${shortcutHint("interrupt")})`} onClick={onInterrupt}>
+              <InputGroupButton
+                type="button"
+                size="icon-sm"
+                variant="outline"
+                aria-label="Interrupt the agent"
+                title={`Interrupt (${shortcutHint("interrupt")})`}
+                onClick={onInterrupt}
+              >
                 <Square />
               </InputGroupButton>
             )}
-            <InputGroupButton type="submit" size="icon-sm" variant="default" aria-label="Send message" disabled={!canSend} data-testid="composer-send">
+            <InputGroupButton
+              type="submit"
+              size="icon-sm"
+              variant="default"
+              aria-label="Send message"
+              disabled={!canSend}
+              data-testid="composer-send"
+            >
               {sending || uploading ? <LoaderCircle className="animate-spin" /> : <ArrowUp />}
             </InputGroupButton>
           </div>

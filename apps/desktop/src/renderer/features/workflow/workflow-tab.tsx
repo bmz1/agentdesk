@@ -45,7 +45,10 @@ export const WorkflowTab = ({ ticket }: { ticket: Ticket }) => {
   if (runs.isLoading) return <Spinner />
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-6">
-      <StartRun ticket={ticket} hasActive={!!runs.data?.some((r) => !["completed", "failed", "cancelled", "interrupted"].includes(r.status))} />
+      <StartRun
+        ticket={ticket}
+        hasActive={!!runs.data?.some((r) => !["completed", "failed", "cancelled", "interrupted"].includes(r.status))}
+      />
       {runs.data && runs.data.length > 1 && (
         <div className="flex items-center gap-2 text-xs">
           <span className="text-fg-muted">Run</span>
@@ -83,7 +86,13 @@ const StartRunForm = ({ ticket, hasActive }: { ticket: Ticket; hasActive: boolea
   return (
     <div className="rounded-lg border bg-bg-subtle p-3">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <Select aria-label="Workflow" className="min-w-0 max-w-full sm:max-w-80" value={workflowId} onChange={(e) => setWorkflowId(e.target.value)} data-testid="workflow-select">
+        <Select
+          aria-label="Workflow"
+          className="min-w-0 max-w-full sm:max-w-80"
+          value={workflowId}
+          onChange={(e) => setWorkflowId(e.target.value)}
+          data-testid="workflow-select"
+        >
           {(workflows.data ?? []).map((w) => (
             <option key={w.id} value={w.id}>
               {w.name} (v{w.version})
@@ -92,11 +101,13 @@ const StartRunForm = ({ ticket, hasActive }: { ticket: Ticket; hasActive: boolea
         </Select>
         <Select value={harness} onChange={(e) => setHarness(e.target.value)} title="Override the harness for every agent step">
           <option value="">Harness per step</option>
-          {(harnesses.data ?? []).filter((h) => h.installed).map((h) => (
-            <option key={h.id} value={h.id}>
-              All steps: {HARNESS_LABELS[h.id]}
-            </option>
-          ))}
+          {(harnesses.data ?? [])
+            .filter((h) => h.installed)
+            .map((h) => (
+              <option key={h.id} value={h.id}>
+                All steps: {HARNESS_LABELS[h.id]}
+              </option>
+            ))}
         </Select>
         <div className="flex-1" />
         <Button onClick={() => start.mutate()} disabled={!workflowId || start.isPending || hasActive} data-testid="start-run">
@@ -132,7 +143,11 @@ const RunView = ({ runId, ticket }: { runId: string; ticket: Ticket }) => {
         <span className="text-xs text-fg-muted">
           {r.workflowId} v{r.workflowVersion} · started {relativeTime(r.startedAt ?? r.createdAt)}
         </span>
-        {r.workspace && <Badge tone="outline" className="font-mono">{r.workspace.branch}</Badge>}
+        {r.workspace && (
+          <Badge tone="outline" className="font-mono">
+            {r.workspace.branch}
+          </Badge>
+        )}
         <div className="flex-1" />
         {pr?.url && (
           <Button size="sm" variant="secondary" onClick={() => openExternal(pr.url!)}>
@@ -243,7 +258,12 @@ const StepCard = ({
               <div className="mb-1 flex items-center gap-1.5 text-[11px] text-fg-muted">
                 <FileText className="size-3" /> {a.name} <Badge tone="outline">{a.type}</Badge>
               </div>
-              {a.content && (a.type === "check" ? <pre className="max-h-64 overflow-auto font-mono text-[11px]">{a.content}</pre> : <RichText text={a.content} />)}
+              {a.content &&
+                (a.type === "check" ? (
+                  <pre className="max-h-64 overflow-auto font-mono text-[11px]">{a.content}</pre>
+                ) : (
+                  <RichText text={a.content} />
+                ))}
               {a.url && (
                 <button className="text-xs text-accent hover:underline" onClick={() => openExternal(a.url!)}>
                   {a.url}
@@ -264,7 +284,11 @@ const ApprovalGate = ({ approval }: { approval: Approval }) => {
     mutationFn: (d: "allow" | "deny") => api.decide(approval.id, d, note ? { note } : {}),
     onSettled: () => qc.invalidateQueries({ queryKey: ["runs"] })
   })
-  const details = approval.details as { content?: string | null; files?: Array<{ path: string; additions: number; deletions: number }>; branch?: string }
+  const details = approval.details as {
+    content?: string | null
+    files?: Array<{ path: string; additions: number; deletions: number }>
+    branch?: string
+  }
   return (
     <div className="space-y-2 border-t border-warning/40 bg-warning/5 px-3 py-2.5" data-testid="workflow-approval">
       <div className="flex items-center gap-2 text-xs font-semibold">
@@ -304,7 +328,12 @@ export const ChecksTab = ({ ticket }: { ticket: Ticket }) => {
   const runId = runs.data?.[0]?.id
   const run = useQuery({ ...q.run(runId ?? ""), enabled: !!runId })
   const checks = (run.data?.artifacts ?? []).filter((a) => a.type === "check")
-  if (!runId) return <EmptyState icon={<Terminal />} title="No checks yet">Command steps of workflow runs report here.</EmptyState>
+  if (!runId)
+    return (
+      <EmptyState icon={<Terminal />} title="No checks yet">
+        Command steps of workflow runs report here.
+      </EmptyState>
+    )
   return (
     <div className="mx-auto max-w-4xl space-y-3 p-6">
       {checks.length === 0 && <p className="text-xs text-fg-muted">No command output yet for the latest run.</p>}

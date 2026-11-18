@@ -20,7 +20,6 @@ export const CommandPalette = () => {
   const tickets = useQuery({ ...q.tickets({ q: search.trim() || undefined }), enabled: open })
   const projects = useQuery({ ...q.projects(), enabled: open })
 
-
   const go = (fn: () => void) => {
     setOpen(false)
     setSearch("")
@@ -114,7 +113,13 @@ export const CommandPalette = () => {
   )
 }
 
-const Item = ({ children, icon, onSelect, value, shortcut }: {
+const Item = ({
+  children,
+  icon,
+  onSelect,
+  value,
+  shortcut
+}: {
   children: React.ReactNode
   icon: React.ReactNode
   onSelect: () => void

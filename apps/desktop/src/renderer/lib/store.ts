@@ -60,7 +60,8 @@ export const useUi = create<UiState>()(
       views: {},
       setView: (key, value) => set((s) => ({ views: { ...s.views, [key]: value } })),
       sessionSeen: {},
-      markSessionRead: (id, eventId) => set((s) => ({ sessionSeen: { ...s.sessionSeen, [id]: Math.max(s.sessionSeen[id] ?? 0, eventId) } })),
+      markSessionRead: (id, eventId) =>
+        set((s) => ({ sessionSeen: { ...s.sessionSeen, [id]: Math.max(s.sessionSeen[id] ?? 0, eventId) } })),
       markSessionUnread: (id) => set((s) => ({ sessionSeen: { ...s.sessionSeen, [id]: -1 } })),
       ticketLayouts: {},
       setTicketLayout: (id, layout) => set((s) => ({ ticketLayouts: { ...s.ticketLayouts, [id]: layout } })),
@@ -94,7 +95,16 @@ export const useUi = create<UiState>()(
         if (version < 1) state.sessionSeen = { ...state.sessionSeen, [READ_BASELINE_KEY]: Date.now() }
         return state as UiState
       },
-      partialize: (s) => ({ sidebarCollapsed: s.sidebarCollapsed, collapsedProjects: s.collapsedProjects, theme: s.theme, lastRoute: s.lastRoute, views: s.views, sessionSeen: s.sessionSeen, ticketLayouts: s.ticketLayouts, reviewComments: s.reviewComments })
+      partialize: (s) => ({
+        sidebarCollapsed: s.sidebarCollapsed,
+        collapsedProjects: s.collapsedProjects,
+        theme: s.theme,
+        lastRoute: s.lastRoute,
+        views: s.views,
+        sessionSeen: s.sessionSeen,
+        ticketLayouts: s.ticketLayouts,
+        reviewComments: s.reviewComments
+      })
     }
   )
 )

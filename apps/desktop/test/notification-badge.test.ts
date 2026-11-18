@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from "vitest"
 import { notificationCount } from "../src/renderer/lib/agent-state"
 import { createNotificationBadge } from "../src/main/notification-badge"
 
-const sessions = [{ id: "waiting", state: "waiting_for_approval", lastEventId: 3 }, { id: "done", state: "idle", lastEventId: 5 }, { id: "running", state: "running", lastEventId: 9 }] as Array<AgentSession>
+const sessions = [
+  { id: "waiting", state: "waiting_for_approval", lastEventId: 3 },
+  { id: "done", state: "idle", lastEventId: 5 },
+  { id: "running", state: "running", lastEventId: 9 }
+] as Array<AgentSession>
 const approvals = [{ sessionId: "waiting" }] as Array<Approval>
 
 describe("native notification badge", () => {
@@ -15,8 +19,14 @@ describe("native notification badge", () => {
   })
   it("updates from the renderer and polls independently after the window closes", async () => {
     const setBadge = vi.fn()
-    const get = vi.fn(async (url: string | URL | Request) => new Response(JSON.stringify(String(url).includes("approvals") ? approvals : sessions)))
-    const badge = createNotificationBadge({ connection: () => ({ url: "http://localhost", token: "test" }), setBadge, fetch: get as typeof fetch })
+    const get = vi.fn(
+      async (url: string | URL | Request) => new Response(JSON.stringify(String(url).includes("approvals") ? approvals : sessions))
+    )
+    const badge = createNotificationBadge({
+      connection: () => ({ url: "http://localhost", token: "test" }),
+      setBadge,
+      fetch: get as typeof fetch
+    })
     badge.update(0, { waiting: 3, done: 5 })
     await badge.refresh()
     expect(setBadge.mock.calls.map((c) => c[0])).toEqual([0, 1])

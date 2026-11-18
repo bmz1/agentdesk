@@ -44,7 +44,11 @@ const run = (id: HarnessId, mode: PermissionMode) => {
             e.type === "approval.requested"
               ? Effect.sync(() => asked.push(kind(e.toolName))).pipe(
                   // Accepting a plan ends plan mode (Claude); the plan check is about staying in it.
-                  Effect.andThen(s.respondToApproval(e.providerRequestId ?? e.approvalId, { decision: /exitplanmode/i.test(e.toolName) ? "deny" : "allow" }))
+                  Effect.andThen(
+                    s.respondToApproval(e.providerRequestId ?? e.approvalId, {
+                      decision: /exitplanmode/i.test(e.toolName) ? "deny" : "allow"
+                    })
+                  )
                 )
               : Effect.void
           ),

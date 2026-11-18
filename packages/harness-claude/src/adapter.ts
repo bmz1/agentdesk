@@ -136,7 +136,10 @@ interface PendingRequest {
  */
 export const claudeApprovalResponse = (pending: PendingRequest | undefined, r: ApprovalResponse) => {
   if (r.decision === "deny") {
-    return { behavior: "deny", message: r.note ?? (pending?.toolName === QUESTION_TOOL ? "The user chose not to answer." : "Denied by the user in AgentDesk") }
+    return {
+      behavior: "deny",
+      message: r.note ?? (pending?.toolName === QUESTION_TOOL ? "The user chose not to answer." : "Denied by the user in AgentDesk")
+    }
   }
   const input = (pending?.input ?? {}) as Record<string, unknown>
   if (pending?.toolName === QUESTION_TOOL) {
@@ -188,8 +191,7 @@ export const makeClaudeAdapter = (options: ClaudeAdapterOptions = {}): HarnessAd
       const pendingRequests = new Map<string, PendingRequest>()
       const sendControl = (request: Record<string, unknown>) =>
         proc.write(JSON.stringify({ type: "control_request", request_id: randomUUID(), request }) + "\n")
-      const sendResponse = (response: Record<string, unknown>) =>
-        proc.write(JSON.stringify({ type: "control_response", response }) + "\n")
+      const sendResponse = (response: Record<string, unknown>) => proc.write(JSON.stringify({ type: "control_response", response }) + "\n")
 
       const { events } = yield* wireLineProcess({
         harness: "claude",
@@ -209,9 +211,11 @@ export const makeClaudeAdapter = (options: ClaudeAdapterOptions = {}): HarnessAd
                 return false
               }
               // Anything else (hook callbacks, SDK MCP calls) is not ours to serve: answer at once so Claude never waits.
-              yield* sendResponse({ subtype: "error", request_id: id, error: `AgentDesk does not handle ${str(msg.request.subtype) ?? "this request"}` }).pipe(
-                Effect.ignore
-              )
+              yield* sendResponse({
+                subtype: "error",
+                request_id: id,
+                error: `AgentDesk does not handle ${str(msg.request.subtype) ?? "this request"}`
+              }).pipe(Effect.ignore)
               return true
             }
             return isRecord(msg) && msg.type === "control_response"
@@ -252,14 +256,15 @@ export const makeClaudeAdapter = (options: ClaudeAdapterOptions = {}): HarnessAd
       if (!binary) return { id: "claude" as const, installed: false, detail: "claude CLI not found on PATH" }
       const r = yield* runCommand(binary, ["--version"], { timeoutMs: 10_000 })
       // Ask the CLI which models this account has; older CLIs (or a failure) fall back to the aliases.
-      const probe = r.code === 0
-        ? yield* runCommand(binary, CLAUDE_MODEL_PROBE_ARGS, {
-            timeoutMs: 15_000,
-            input: CLAUDE_MODEL_PROBE_INPUT,
-            cwd: tmpdir(),
-            env: { CLAUDE_CODE_ENTRYPOINT: "sdk-ts" }
-          })
-        : undefined
+      const probe =
+        r.code === 0
+          ? yield* runCommand(binary, CLAUDE_MODEL_PROBE_ARGS, {
+              timeoutMs: 15_000,
+              input: CLAUDE_MODEL_PROBE_INPUT,
+              cwd: tmpdir(),
+              env: { CLAUDE_CODE_ENTRYPOINT: "sdk-ts" }
+            })
+          : undefined
       const listed = probe ? parseClaudeModels(probe.stdout) : undefined
       return {
         id: "claude" as const,

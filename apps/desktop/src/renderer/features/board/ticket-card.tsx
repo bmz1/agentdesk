@@ -3,7 +3,17 @@ import { Link } from "@tanstack/react-router"
 import { HARNESS_LABELS, NeedsInputDot, PriorityIcon, RunStatusBadge, SessionStateBadge, SourceBadge } from "@/components/status"
 import { cn, relativeTime } from "@/lib/utils"
 
-export const TicketCard = ({ ticket, dragging, projectName, session }: { ticket: Ticket; dragging?: boolean; projectName?: string; session?: AgentSession }) => {
+export const TicketCard = ({
+  ticket,
+  dragging,
+  projectName,
+  session
+}: {
+  ticket: Ticket
+  dragging?: boolean
+  projectName?: string
+  session?: AgentSession
+}) => {
   const needsInput = ticket.latestRun?.needsInput || session?.state === "waiting_for_approval"
   return (
     <Link

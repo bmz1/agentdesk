@@ -9,7 +9,16 @@ const issues = [
   { id: "u2", identifier: "ENG-2", title: "Mine, done", isMine: true, stateType: "completed", stateName: "Done" },
   { id: "u3", identifier: "ENG-3", title: "Someone else", assignee: "Bob" },
   { id: "u4", identifier: "OPS-1", title: "Other team", team: "OPS", isMine: true },
-  { id: "u5", identifier: "ENG-5", title: "Mine, backlog", isMine: true, stateType: "backlog", stateName: "Backlog", labels: ["agent"], updatedAt: "2026-11-10T00:00:00.000Z" }
+  {
+    id: "u5",
+    identifier: "ENG-5",
+    title: "Mine, backlog",
+    isMine: true,
+    stateType: "backlog",
+    stateName: "Backlog",
+    labels: ["agent"],
+    updatedAt: "2026-11-10T00:00:00.000Z"
+  }
 ]
 const settings = Schema.decodeUnknownSync(linearSource.settings)({ teamKey: "ENG", assignee: "mine", states: "open" })
 const key = Redacted.make("lin_api_secret")

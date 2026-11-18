@@ -23,10 +23,18 @@ describe("session status line", () => {
     expect(describeEvent({ type: "turn.completed", status: "error" })).toBe("Turn failed")
     // Events that say nothing about progress leave the line as it was.
     expect(describeEvent({ type: "session.status", state: "model_changed" })).toBeUndefined()
-    expect(describeEvent({ type: "approval.requested", approvalId: "q", toolName: "AskUserQuestion", kind: "question", summary: "Tabs or spaces?" })).toBe(
-      "Asks: Tabs or spaces?"
+    expect(
+      describeEvent({
+        type: "approval.requested",
+        approvalId: "q",
+        toolName: "AskUserQuestion",
+        kind: "question",
+        summary: "Tabs or spaces?"
+      })
+    ).toBe("Asks: Tabs or spaces?")
+    expect(describeEvent({ type: "approval.resolved", approvalId: "q", decision: "allow", answers: { q: ["Tabs"] } })).toBe(
+      "Answered, continuing"
     )
-    expect(describeEvent({ type: "approval.resolved", approvalId: "q", decision: "allow", answers: { q: ["Tabs"] } })).toBe("Answered, continuing")
     const plan = (statuses: Array<"pending" | "in_progress" | "completed" | "cancelled">) => ({
       type: "plan.updated" as const,
       items: statuses.map((status, i) => ({ text: `Step ${i}`, status }))
@@ -39,7 +47,13 @@ describe("session status line", () => {
 
 describe("session summaries", () => {
   it("counts plan progress without cancelled steps", () => {
-    expect(planSummary([{ text: "a", status: "completed" }, { text: "b", status: "cancelled" }, { text: "c", status: "pending" }])).toEqual({
+    expect(
+      planSummary([
+        { text: "a", status: "completed" },
+        { text: "b", status: "cancelled" },
+        { text: "c", status: "pending" }
+      ])
+    ).toEqual({
       done: 1,
       total: 2,
       current: "c"

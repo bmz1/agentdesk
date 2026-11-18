@@ -94,14 +94,10 @@ export class EventLog extends Context.Service<EventLog, EventLogShape>()("agentd
       // Hot path (every streamed token): untraced on purpose.
       const append = Effect.fnUntraced(function* (sessionId: string, raw: AgentEvent) {
         const event = yield* decodeEvent(redactDeep(raw)).pipe(
-          Effect.orElseSucceed(
-            (): AgentEvent => ({ type: "session.error", message: `Dropped malformed ${String(raw?.type)} event` })
-          )
+          Effect.orElseSucceed((): AgentEvent => ({ type: "session.error", message: `Dropped malformed ${String(raw?.type)} event` }))
         )
         const at = yield* nowIso
-        const row = yield* use((db) =>
-          db.insert(agentEvents).values({ sessionId, type: event.type, payload: event, at }).returning().get()
-        )
+        const row = yield* use((db) => db.insert(agentEvents).values({ sessionId, type: event.type, payload: event, at }).returning().get())
         const stored = toStored(row)
         yield* PubSub.publish(pubsub, stored)
         return stored
@@ -131,12 +127,17 @@ export class EventLog extends Context.Service<EventLog, EventLogShape>()("agentd
         )
 
       // Fetch one meaningful event rather than downloading a transcript per dashboard card.
-      const preview = (sessionId: string) => use((db) => {
-        const row = db.select().from(agentEvents)
-          .where(and(eq(agentEvents.sessionId, sessionId), inArray(agentEvents.type, [...PREVIEW_TYPES])))
-          .orderBy(desc(agentEvents.id)).limit(1).get()
-        return row ? previewText(row.payload as AgentEvent) : null
-      })
+      const preview = (sessionId: string) =>
+        use((db) => {
+          const row = db
+            .select()
+            .from(agentEvents)
+            .where(and(eq(agentEvents.sessionId, sessionId), inArray(agentEvents.type, [...PREVIEW_TYPES])))
+            .orderBy(desc(agentEvents.id))
+            .limit(1)
+            .get()
+          return row ? previewText(row.payload as AgentEvent) : null
+        })
 
       const lastEventId = (sessionId: string) =>
         use(
@@ -172,9 +173,7 @@ export class EventLog extends Context.Service<EventLog, EventLogShape>()("agentd
             const subscription = yield* PubSub.subscribe(pubsub)
             const replay = yield* history(sessionId, { after })
             const lastReplayed = replay.at(-1)?.id ?? after
-            const live = Stream.fromSubscription(subscription).pipe(
-              Stream.filter((e) => e.sessionId === sessionId && e.id > lastReplayed)
-            )
+            const live = Stream.fromSubscription(subscription).pipe(Stream.filter((e) => e.sessionId === sessionId && e.id > lastReplayed))
             return Stream.concat(Stream.fromIterable(replay), live)
           })
         )
@@ -224,7 +223,9 @@ export class EventLog extends Context.Service<EventLog, EventLogShape>()("agentd
                 rows.flatMap((r) => {
                   const read = (r.input ?? 0) + (r.cacheRead ?? 0) + (r.cacheWrite ?? 0)
                   if (r.costs === 0 && read === 0 && !r.output) return []
-                  return [[r.sessionId, { costUsd: r.costs > 0 ? (r.cost ?? 0) : null, inputTokens: read, outputTokens: r.output ?? 0 }] as const]
+                  return [
+                    [r.sessionId, { costUsd: r.costs > 0 ? (r.cost ?? 0) : null, inputTokens: read, outputTokens: r.output ?? 0 }] as const
+                  ]
                 })
               )
             })

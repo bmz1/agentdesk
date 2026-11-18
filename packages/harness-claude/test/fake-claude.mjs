@@ -22,8 +22,23 @@ rl.on("line", (line) => {
   }
   if (msg.type === "control_response") {
     const behavior = msg.response.response.behavior
-    out({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", content: behavior === "allow" ? "ok" : "denied", is_error: behavior !== "allow" }] }, session_id: sid, parent_tool_use_id: null })
-    out({ type: "assistant", message: { id: "msg_2", role: "assistant", content: [{ type: "text", text: "Finished" }] }, session_id: sid, parent_tool_use_id: null })
+    out({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "toolu_1", content: behavior === "allow" ? "ok" : "denied", is_error: behavior !== "allow" }
+        ]
+      },
+      session_id: sid,
+      parent_tool_use_id: null
+    })
+    out({
+      type: "assistant",
+      message: { id: "msg_2", role: "assistant", content: [{ type: "text", text: "Finished" }] },
+      session_id: sid,
+      parent_tool_use_id: null
+    })
     out({ type: "result", subtype: "success", is_error: false, result: "Finished", session_id: sid, total_cost_usd: 0 })
     return
   }
@@ -33,15 +48,41 @@ rl.on("line", (line) => {
       inited = true
     }
     const text = msg.message.content[0].text
-    out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Echo: " } }, session_id: sid, parent_tool_use_id: null, api_message_id: "msg_1" })
-    out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } }, session_id: sid, parent_tool_use_id: null, api_message_id: "msg_1" })
-    out({ type: "assistant", message: { id: "msg_1", role: "assistant", content: [{ type: "text", text: "Echo: " + text }] }, session_id: sid, parent_tool_use_id: null })
+    out({
+      type: "stream_event",
+      event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Echo: " } },
+      session_id: sid,
+      parent_tool_use_id: null,
+      api_message_id: "msg_1"
+    })
+    out({
+      type: "stream_event",
+      event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } },
+      session_id: sid,
+      parent_tool_use_id: null,
+      api_message_id: "msg_1"
+    })
+    out({
+      type: "assistant",
+      message: { id: "msg_1", role: "assistant", content: [{ type: "text", text: "Echo: " + text }] },
+      session_id: sid,
+      parent_tool_use_id: null
+    })
     if (text.includes("hook")) {
       // A request type AgentDesk does not serve; the real CLI would wait for the answer forever.
       out({ type: "control_request", request_id: "hook-1", request: { subtype: "hook_callback", callback_id: "x", input: {} } })
     } else if (text.includes("tool")) {
-      out({ type: "assistant", message: { id: "msg_1", role: "assistant", content: [{ type: "tool_use", id: "toolu_1", name: "Bash", input: { command: "ls" } }] }, session_id: sid, parent_tool_use_id: null })
-      out({ type: "control_request", request_id: "req-1", request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" }, tool_use_id: "toolu_1" } })
+      out({
+        type: "assistant",
+        message: { id: "msg_1", role: "assistant", content: [{ type: "tool_use", id: "toolu_1", name: "Bash", input: { command: "ls" } }] },
+        session_id: sid,
+        parent_tool_use_id: null
+      })
+      out({
+        type: "control_request",
+        request_id: "req-1",
+        request: { subtype: "can_use_tool", tool_name: "Bash", input: { command: "ls" }, tool_use_id: "toolu_1" }
+      })
     } else {
       out({ type: "result", subtype: "success", is_error: false, result: "Echo: " + text, session_id: sid, total_cost_usd: 0 })
     }

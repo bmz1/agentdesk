@@ -62,9 +62,10 @@ export const parseSandbox = (raw: string | undefined): ReadonlyArray<string> | u
 const EnvConfig = Config.all({
   home: Config.String("AGENTDESK_HOME").pipe(Config.withDefault(join(homedir(), ".agentdesk"))),
   // 0 = ephemeral port (tests, embedded use); otherwise a regular TCP port.
-  port: Config.schema(Schema.NumberFromString.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: 65535 })), "AGENTDESK_PORT").pipe(
-    Config.withDefault(4317)
-  ),
+  port: Config.schema(
+    Schema.NumberFromString.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: 65535 })),
+    "AGENTDESK_PORT"
+  ).pipe(Config.withDefault(4317)),
   token: Config.Redacted("AGENTDESK_TOKEN").pipe(Config.option),
   allowedOrigins: Config.String("AGENTDESK_ALLOWED_ORIGINS").pipe(Config.withDefault("")),
   persistent: Config.String("AGENTDESK_PERSISTENT").pipe(Config.withDefault("0")),
@@ -132,8 +133,7 @@ export const loadConfig = Effect.fn("DaemonConfig.load")(function* (overrides: C
     enableSourcePolling: overrides.enableSourcePolling ?? (env.disableSourcePolling !== "1" && env.disableJiraPolling !== "1"),
     workflowsDir:
       overrides.workflowsDir ?? Option.getOrElse(env.workflowsDir, () => fileURLToPath(new URL("../../../workflows", import.meta.url))),
-    promptsDir:
-      overrides.promptsDir ?? Option.getOrElse(env.promptsDir, () => fileURLToPath(new URL("../../../prompts", import.meta.url))),
+    promptsDir: overrides.promptsDir ?? Option.getOrElse(env.promptsDir, () => fileURLToPath(new URL("../../../prompts", import.meta.url))),
     sandboxPrefix: overrides.sandboxPrefix ?? parseSandbox(Option.getOrUndefined(env.sandbox)),
     retentionDays: overrides.retentionDays ?? env.retentionDays,
     logFile: "logFile" in overrides ? overrides.logFile : join(dataDir, "logs", "daemon.log"),

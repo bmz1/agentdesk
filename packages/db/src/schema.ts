@@ -54,7 +54,9 @@ export const tickets = sqliteTable(
 export const ticketExternalLinks = sqliteTable(
   "ticket_external_links",
   {
-    ticketId: text("ticket_id").primaryKey().references(() => tickets.id),
+    ticketId: text("ticket_id")
+      .primaryKey()
+      .references(() => tickets.id),
     provider: text("provider").notNull(),
     connectionId: text("connection_id").notNull(),
     remoteId: text("remote_id").notNull(),
@@ -87,7 +89,9 @@ export const sourceConnections = sqliteTable("source_connections", {
 })
 
 export const sourceSyncState = sqliteTable("source_sync_state", {
-  connectionId: text("connection_id").primaryKey().references(() => sourceConnections.id),
+  connectionId: text("connection_id")
+    .primaryKey()
+    .references(() => sourceConnections.id),
   lastSyncAt: text("last_sync_at"),
   lastFullSyncAt: text("last_full_sync_at"),
   /** Highest remote `updated` timestamp observed; used for incremental fetches. */
@@ -111,7 +115,9 @@ export const workflowDefinitions = sqliteTable(
 
 export const workspaces = sqliteTable("workspaces", {
   id: text("id").primaryKey(),
-  projectId: text("project_id").notNull().references(() => projects.id),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id),
   runId: text("run_id"),
   ticketId: text("ticket_id"),
   branch: text("branch").notNull(),
@@ -129,7 +135,9 @@ export const workflowRuns = sqliteTable(
   "workflow_runs",
   {
     id: text("id").primaryKey(),
-    ticketId: text("ticket_id").notNull().references(() => tickets.id),
+    ticketId: text("ticket_id")
+      .notNull()
+      .references(() => tickets.id),
     workflowId: text("workflow_id").notNull(),
     workflowVersion: integer("workflow_version").notNull(),
     status: text("status").notNull(),
@@ -148,7 +156,9 @@ export const stepRuns = sqliteTable(
   "step_runs",
   {
     id: text("id").primaryKey(),
-    runId: text("run_id").notNull().references(() => workflowRuns.id),
+    runId: text("run_id")
+      .notNull()
+      .references(() => workflowRuns.id),
     stepId: text("step_id").notNull(),
     stepIndex: integer("step_index").notNull(),
     kind: text("kind").notNull(),
@@ -169,7 +179,9 @@ export const agentSessions = sqliteTable(
   "agent_sessions",
   {
     id: text("id").primaryKey(),
-    ticketId: text("ticket_id").notNull().references(() => tickets.id),
+    ticketId: text("ticket_id")
+      .notNull()
+      .references(() => tickets.id),
     runId: text("run_id"),
     stepRunId: text("step_run_id"),
     workspaceId: text("workspace_id"),

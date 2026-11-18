@@ -65,7 +65,12 @@ export const makeFakeJira = (opts: { deployment: "cloud" | "datacenter"; issues:
     }
     if (opts.deployment === "datacenter" && path === "/rest/api/2/search") {
       const start = body.startAt ?? 0
-      return json(200, { issues: visible.slice(start, start + size).map(toPayload), startAt: start, maxResults: size, total: visible.length })
+      return json(200, {
+        issues: visible.slice(start, start + size).map(toPayload),
+        startAt: start,
+        maxResults: size,
+        total: visible.length
+      })
     }
     return json(404, {})
   }) as typeof globalThis.fetch

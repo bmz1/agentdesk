@@ -57,28 +57,28 @@ const MarkdownPre = ({ node, children, ...props }: React.ComponentProps<"pre"> &
 export const Code = ({ code, title, tone, lang }: { code: string; title?: string; tone?: "default" | "destructive"; lang?: string }) => {
   const highlighted = useHighlightedLines(lang ? code : undefined, lang)
   return (
-  <CodeBlock size="sm" variant={tone} className="my-2">
-    {title && (
-      <CodeBlockHeader>
-        <CodeBlockTitle>{title}</CodeBlockTitle>
-        <CodeBlockActions>
-          <CodeBlockCopyButton value={code} />
-        </CodeBlockActions>
-      </CodeBlockHeader>
-    )}
-    <CodeBlockContent className="shiki-code max-h-80 text-[12px]">
-      {highlighted
-        ? highlighted.map((line, i) => (
-            <CodeBlockLine key={i}>
-              {line.map((t, j) => (
-                <span key={j} style={tokenStyle(t)}>
-                  {t.content}
-                </span>
-              ))}
-            </CodeBlockLine>
-          ))
-        : code}
-    </CodeBlockContent>
-  </CodeBlock>
+    <CodeBlock size="sm" variant={tone} className="my-2">
+      {title && (
+        <CodeBlockHeader>
+          <CodeBlockTitle>{title}</CodeBlockTitle>
+          <CodeBlockActions>
+            <CodeBlockCopyButton value={code} />
+          </CodeBlockActions>
+        </CodeBlockHeader>
+      )}
+      <CodeBlockContent className="shiki-code max-h-80 text-[12px]">
+        {highlighted
+          ? highlighted.map((line, i) => (
+              <CodeBlockLine key={i}>
+                {line.map((t, j) => (
+                  <span key={j} style={tokenStyle(t)}>
+                    {t.content}
+                  </span>
+                ))}
+              </CodeBlockLine>
+            ))
+          : code}
+      </CodeBlockContent>
+    </CodeBlock>
   )
 }

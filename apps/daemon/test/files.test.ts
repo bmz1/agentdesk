@@ -72,11 +72,15 @@ describe("ticket file browser", () => {
     // Redacted and binary files cannot round-trip, so they are read-only.
     const creds = await api.get(`${file}?path=creds.ts`)
     expect(creds).toMatchObject({ editable: false, readonlyReason: expect.any(String) })
-    await expect(api.put(file, { path: "creds.ts", content: "x", baseVersion: creds.version, force: true })).rejects.toMatchObject({ status: 400 })
+    await expect(api.put(file, { path: "creds.ts", content: "x", baseVersion: creds.version, force: true })).rejects.toMatchObject({
+      status: 400
+    })
     expect((await api.get(`${file}?path=blob.bin`)).editable).toBe(false)
 
     for (const bad of ["../../etc/passwd", ".git/config", "missing.txt"]) {
-      await expect(api.put(file, { path: bad, content: "x", baseVersion: "", force: true })).rejects.toMatchObject({ status: expect.any(Number) })
+      await expect(api.put(file, { path: bad, content: "x", baseVersion: "", force: true })).rejects.toMatchObject({
+        status: expect.any(Number)
+      })
     }
   })
 })

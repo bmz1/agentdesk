@@ -69,7 +69,13 @@ const SessionHeader = ({
   return (
     <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
       <Bot className="size-4 shrink-0 text-fg-muted" />
-      <Select value={selected.id} onChange={(e) => onSelect(e.target.value)} className="min-w-32 max-w-72 flex-1" aria-label="Agent session" data-testid="session-select">
+      <Select
+        value={selected.id}
+        onChange={(e) => onSelect(e.target.value)}
+        className="min-w-32 max-w-72 flex-1"
+        aria-label="Agent session"
+        data-testid="session-select"
+      >
         {sessions.map((s) => (
           <option key={s.id} value={s.id}>
             {HARNESS_LABELS[s.harness]} · {relativeTime(s.createdAt)} · {s.state}
@@ -78,7 +84,9 @@ const SessionHeader = ({
       </Select>
       <SessionStateBadge state={selected.state} />
       <Tooltip content={selected.cwd}>
-        <span className="min-w-0 max-w-48 truncate font-mono text-[11px] text-fg-subtle">{selected.cwd.split("/").slice(-2).join("/")}</span>
+        <span className="min-w-0 max-w-48 truncate font-mono text-[11px] text-fg-subtle">
+          {selected.cwd.split("/").slice(-2).join("/")}
+        </span>
       </Tooltip>
       <div className="flex-1" />
       {live ? (
@@ -137,7 +145,10 @@ const SessionView = ({ session, ticket }: { session: AgentSession; ticket: Ticke
     read()
     window.addEventListener("focus", read)
     document.addEventListener("visibilitychange", read)
-    return () => { window.removeEventListener("focus", read); document.removeEventListener("visibilitychange", read) }
+    return () => {
+      window.removeEventListener("focus", read)
+      document.removeEventListener("visibilitychange", read)
+    }
   }, [session.id, lastId, markRead])
   const qc = useQueryClient()
   const [deciding, setDeciding] = useState<string | null>(null)
@@ -160,7 +171,11 @@ const SessionView = ({ session, ticket }: { session: AgentSession; ticket: Ticke
   // Questions are answered on their card: the allow/deny keys only act on tool approvals.
   const toolPending = !!pendingId && !pending?.question && !deciding
   useShortcut("approve", () => pendingId && void decide(pendingId, "allow"), toolPending)
-  useShortcut("approveSession", () => pendingId && void decide(pendingId, "allow", { scope: "session" }), toolPending && !!pending?.canAllowForSession)
+  useShortcut(
+    "approveSession",
+    () => pendingId && void decide(pendingId, "allow", { scope: "session" }),
+    toolPending && !!pending?.canAllowForSession
+  )
   useShortcut("deny", () => pendingId && void decide(pendingId, "deny"), toolPending)
   useShortcut("interrupt", () => void api.interrupt(session.id), session.state === "running")
   const live = ["starting", "running", "waiting_for_approval", "idle"].includes(session.state)

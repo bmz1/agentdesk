@@ -9,12 +9,5 @@ export const Route = createFileRoute("/my-issues")({
 function MyIssues() {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
-  return (
-    <IssuesView
-      title="My issues"
-      pinnedOnly
-      search={search}
-      onSearch={(s) => navigate({ search: s, replace: true })}
-    />
-  )
+  return <IssuesView title="My issues" pinnedOnly search={search} onSearch={(s) => navigate({ search: s, replace: true })} />
 }

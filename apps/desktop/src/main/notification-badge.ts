@@ -14,7 +14,10 @@ export const createNotificationBadge = (options: Options) => {
   let polling = false
   let stopped = false
   const apply = (count: number) => {
-    if (!stopped && count !== lastCount) { lastCount = count; options.setBadge(count) }
+    if (!stopped && count !== lastCount) {
+      lastCount = count
+      options.setBadge(count)
+    }
   }
   const refresh = async () => {
     if (polling || stopped) return
@@ -24,25 +27,35 @@ export const createNotificationBadge = (options: Options) => {
     try {
       const get = async (path: string) => {
         const res = await (options.fetch ?? fetch)(connection.url + path, {
-          headers: { Authorization: `Bearer ${connection.token}` }, signal: AbortSignal.timeout(4000)
+          headers: { Authorization: `Bearer ${connection.token}` },
+          signal: AbortSignal.timeout(4000)
         })
         if (!res.ok) throw new Error("Badge data unavailable")
         return res.json()
       }
       const [sessions, approvals] = await Promise.all([get("/sessions"), get("/approvals?pending=1")])
-      if (Array.isArray(sessions) && Array.isArray(approvals)) apply(notificationCount(sessions as Array<AgentSession>, approvals as Array<Approval>, seen))
+      if (Array.isArray(sessions) && Array.isArray(approvals))
+        apply(notificationCount(sessions as Array<AgentSession>, approvals as Array<Approval>, seen))
     } catch {
       // A temporary daemon outage must not clear outstanding attention.
-    } finally { polling = false }
+    } finally {
+      polling = false
+    }
   }
   return {
     refresh,
-    stop: () => { stopped = true },
+    stop: () => {
+      stopped = true
+    },
     update: (count: unknown, readState: unknown) => {
       if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) return
       if (!readState || typeof readState !== "object" || Array.isArray(readState)) return
       const entries = Object.entries(readState)
-      if (entries.length > 10_000 || entries.some(([id, value]) => id.length > 256 || typeof value !== "number" || !Number.isSafeInteger(value) || value < -1)) return
+      if (
+        entries.length > 10_000 ||
+        entries.some(([id, value]) => id.length > 256 || typeof value !== "number" || !Number.isSafeInteger(value) || value < -1)
+      )
+        return
       seen = Object.fromEntries(entries)
       apply(count)
     }

@@ -110,9 +110,7 @@ export const AgentSession = Schema.Struct({
   /** The latest prompt, reply, approval or error text (trimmed), for cards and lists. */
   preview: NullableString,
   /** Progress through the agent's latest plan or to-do list, when it keeps one. */
-  plan: Schema.optional(
-    Schema.NullOr(Schema.Struct({ done: Schema.Number, total: Schema.Number, current: NullableString }))
-  ),
+  plan: Schema.optional(Schema.NullOr(Schema.Struct({ done: Schema.Number, total: Schema.Number, current: NullableString }))),
   /** Totals over the session's turns. `costUsd` is null when the harness reports tokens only. */
   usage: Schema.optional(
     Schema.NullOr(Schema.Struct({ costUsd: Schema.NullOr(Schema.Number), inputTokens: Schema.Number, outputTokens: Schema.Number }))
@@ -186,9 +184,7 @@ export type WorkflowRun = typeof WorkflowRun.Type
 export const WorkflowRunDetail = Schema.Struct({
   ...WorkflowRun.fields,
   steps: Schema.Array(StepRun),
-  plan: Schema.Array(
-    Schema.Struct({ id: Schema.String, kind: Schema.String, name: Schema.String })
-  ),
+  plan: Schema.Array(Schema.Struct({ id: Schema.String, kind: Schema.String, name: Schema.String })),
   workspace: Schema.NullOr(Workspace),
   artifacts: Schema.Array(Artifact),
   approvals: Schema.Array(Schema.suspend(() => Approval))

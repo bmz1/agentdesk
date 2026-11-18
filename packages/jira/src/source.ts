@@ -31,7 +31,14 @@ const toTask = (i: JiraIssue): RemoteTask => ({
   title: i.title,
   description: i.description,
   status: i.status,
-  statusCategory: i.statusCategory === "done" ? "done" : i.statusCategory === "indeterminate" ? "in_progress" : i.statusCategory === "new" ? "todo" : null,
+  statusCategory:
+    i.statusCategory === "done"
+      ? "done"
+      : i.statusCategory === "indeterminate"
+        ? "in_progress"
+        : i.statusCategory === "new"
+          ? "todo"
+          : null,
   assignee: i.assignee,
   labels: i.labels,
   updatedAt: i.updated,

@@ -5,7 +5,15 @@
     "correctness": "error"
   },
   "env": { "browser": true, "node": true, "es2024": true },
-  "ignorePatterns": ["**/dist/**", "**/out/**", "**/node_modules/**", "**/*.gen.ts", "**/coverage/**", "**/test-results/**", "**/playwright-report/**"],
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/out/**",
+    "**/node_modules/**",
+    "**/*.gen.ts",
+    "**/coverage/**",
+    "**/test-results/**",
+    "**/playwright-report/**"
+  ],
   "rules": {
     "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }]
   },

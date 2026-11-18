@@ -39,8 +39,7 @@ describe("board ordering", () => {
     expect(sortKeyBetween(1, 2)).toBe(1.5)
   })
   it("groups by status ordered by sortOrder", () => {
-    const t = (id: string, status: Ticket["status"], sortOrder: number) =>
-      ({ id, status, sortOrder, updatedAt: "2026-01-01" }) as Ticket
+    const t = (id: string, status: Ticket["status"], sortOrder: number) => ({ id, status, sortOrder, updatedAt: "2026-01-01" }) as Ticket
     const g = groupByStatus([t("a", "todo", 2), t("b", "todo", 1), t("c", "done", 0)])
     expect(g.get("todo")!.map((x) => x.id)).toEqual(["b", "a"])
     expect(g.get("blocked")).toEqual([])
@@ -49,9 +48,7 @@ describe("board ordering", () => {
 
 describe("parsePatch", () => {
   it("parses files, hunks and line numbers", () => {
-    const files = parsePatch(
-      "diff --git a/x.ts b/x.ts\nindex 1..2 100644\n--- a/x.ts\n+++ b/x.ts\n@@ -1,2 +1,2 @@\n keep\n-old\n+new\n"
-    )
+    const files = parsePatch("diff --git a/x.ts b/x.ts\nindex 1..2 100644\n--- a/x.ts\n+++ b/x.ts\n@@ -1,2 +1,2 @@\n keep\n-old\n+new\n")
     expect(files).toHaveLength(1)
     expect(files[0]!.lines.map((l) => l.kind)).toEqual(["hunk", "ctx", "del", "add"])
     expect(files[0]!.lines[3]).toMatchObject({ newNo: 2, text: "new" })

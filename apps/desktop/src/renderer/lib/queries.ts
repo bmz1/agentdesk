@@ -79,22 +79,22 @@ type Sessions = ReadonlyArray<AgentSession>
  */
 export const upsertSession = (session: AgentSession) => {
   const live = LIVE_SESSION_STATES.includes(session.state)
-  const merge = (keep: boolean) => (list: Sessions | undefined): Sessions | undefined => {
-    if (!list) return list
-    const i = list.findIndex((s) => s.id === session.id)
-    if (i === -1) return keep ? [session, ...list] : list
-    if (list[i]!.lastEventId > session.lastEventId) return list
-    if (!keep) return list.filter((s) => s.id !== session.id)
-    const next = [...list]
-    next[i] = session
-    return next
-  }
+  const merge =
+    (keep: boolean) =>
+    (list: Sessions | undefined): Sessions | undefined => {
+      if (!list) return list
+      const i = list.findIndex((s) => s.id === session.id)
+      if (i === -1) return keep ? [session, ...list] : list
+      if (list[i]!.lastEventId > session.lastEventId) return list
+      if (!keep) return list.filter((s) => s.id !== session.id)
+      const next = [...list]
+      next[i] = session
+      return next
+    }
   queryClient.setQueryData<Sessions>(qk.sessions(false), merge(true))
   queryClient.setQueryData<Sessions>(qk.sessions(true), merge(live))
   queryClient.setQueryData<Sessions>(qk.ticketSessions(session.ticketId), merge(true))
-  queryClient.setQueryData<AgentSession>(qk.session(session.id), (old) =>
-    old && old.lastEventId > session.lastEventId ? old : session
-  )
+  queryClient.setQueryData<AgentSession>(qk.session(session.id), (old) => (old && old.lastEventId > session.lastEventId ? old : session))
 }
 
 /** Map daemon change notices to cache updates (pushed sessions) or query invalidations. */

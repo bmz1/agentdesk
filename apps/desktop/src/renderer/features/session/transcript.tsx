@@ -1,6 +1,21 @@
 import { useState } from "react"
 import type { AgentQuestion, PlanItem, QuestionAnswers, TokenUsage } from "@agentdesk/contracts"
-import { Check, Circle, CircleAlert, CircleCheck, CircleDot, CircleHelp, CircleSlash, Hand, Info, ListChecks, LoaderCircle, Terminal, Wrench, X } from "lucide-react"
+import {
+  Check,
+  Circle,
+  CircleAlert,
+  CircleCheck,
+  CircleDot,
+  CircleHelp,
+  CircleSlash,
+  Hand,
+  Info,
+  ListChecks,
+  LoaderCircle,
+  Terminal,
+  Wrench,
+  X
+} from "lucide-react"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
 import { Button } from "@/components/ui/button"
 import { Message, MessageContent, MessageFooter } from "@/components/ui/message"
@@ -96,7 +111,14 @@ export const Transcript = ({ items, plan, working, onDecide, deciding, hasEarlie
           {plan && plan.length > 0 && <PlanChecklist items={plan} />}
           <MessageScrollerContent className="mx-auto w-full max-w-3xl gap-6 px-6 py-6">
             {hasEarlier && onLoadEarlier && (
-              <Button variant="ghost" size="sm" className="self-center text-xs text-muted-foreground" onClick={onLoadEarlier} disabled={loadingEarlier} data-testid="load-earlier">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="self-center text-xs text-muted-foreground"
+                onClick={onLoadEarlier}
+                disabled={loadingEarlier}
+                data-testid="load-earlier"
+              >
                 {loadingEarlier ? <LoaderCircle className="animate-spin" /> : null}
                 Load earlier messages
               </Button>
@@ -121,7 +143,13 @@ export const Transcript = ({ items, plan, working, onDecide, deciding, hasEarlie
           </MessageScrollerContent>
           {pending &&
             (pending.question ? (
-              <PendingQuestion key={pending.approvalId} item={pending} questions={pending.question} onDecide={onDecide} deciding={deciding === pending.approvalId} />
+              <PendingQuestion
+                key={pending.approvalId}
+                item={pending}
+                questions={pending.question}
+                onDecide={onDecide}
+                deciding={deciding === pending.approvalId}
+              />
             ) : (
               <PendingApproval item={pending} onDecide={onDecide} deciding={deciding === pending.approvalId} />
             ))}
@@ -149,7 +177,9 @@ const UserMessage = ({ item }: { item: Item<"user"> }) => {
         <Bubble align="end" variant="muted">
           <BubbleContent className={cn("relative rounded-2xl whitespace-pre-wrap", long && !open && "max-h-56")}>
             {item.text}
-            {long && !open && <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-linear-to-t from-muted to-transparent" />}
+            {long && !open && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-linear-to-t from-muted to-transparent" />
+            )}
           </BubbleContent>
           {long && (
             <button onClick={() => setOpen(!open)} className="self-end px-2 text-xs text-muted-foreground hover:text-foreground">
@@ -189,7 +219,8 @@ const AgentMessage = ({ items }: { items: ReadonlyArray<TranscriptItem> }) => (
 )
 
 /** "12.3k" style token counts. */
-export const formatTokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
+export const formatTokens = (n: number) =>
+  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 
 const tokensLabel = (u: TokenUsage | undefined) => {
   if (!u) return undefined
@@ -255,7 +286,17 @@ const StepLine = ({ step }: { step: Step }) => {
         <TraceCollapsible>
           <TraceCollapsibleTrigger>
             <TraceLine status={status}>
-              <TraceIcon>{status === "running" ? <LoaderCircle className="animate-spin" /> : status === "error" ? <CircleAlert /> : shell ? <Terminal /> : <Wrench />}</TraceIcon>
+              <TraceIcon>
+                {status === "running" ? (
+                  <LoaderCircle className="animate-spin" />
+                ) : status === "error" ? (
+                  <CircleAlert />
+                ) : shell ? (
+                  <Terminal />
+                ) : (
+                  <Wrench />
+                )}
+              </TraceIcon>
               <TraceTitle>
                 {step.name}
                 {summary && <span className="ml-1.5 font-mono text-[12px] opacity-80">{summary}</span>}
@@ -278,13 +319,18 @@ const StepLine = ({ step }: { step: Step }) => {
     }
     case "approval":
       if (step.question) {
-        const answered = (step.question ?? []).map((q) => (step.answers?.[q.id] ?? []).join(", ")).filter(Boolean).join(" · ")
+        const answered = (step.question ?? [])
+          .map((q) => (step.answers?.[q.id] ?? []).join(", "))
+          .filter(Boolean)
+          .join(" · ")
         return (
           <TraceLine status={step.decision ? (step.decision === "deny" ? "error" : undefined) : "pending"}>
             <TraceIcon>
               <CircleHelp />
             </TraceIcon>
-            <TraceTitle>{step.decision ? (step.decision === "allow" ? "Answered" : "Declined to answer") : "Waiting for your answer"}</TraceTitle>
+            <TraceTitle>
+              {step.decision ? (step.decision === "allow" ? "Answered" : "Declined to answer") : "Waiting for your answer"}
+            </TraceTitle>
             <TraceDescription className="truncate text-[12px]" title={step.summary}>
               {step.summary}
               {answered && <span className="text-foreground"> → {answered}</span>}
@@ -298,7 +344,14 @@ const StepLine = ({ step }: { step: Step }) => {
             <Hand />
           </TraceIcon>
           <TraceTitle>
-            {step.decision ? (step.decision === "allow" ? (step.scope === "session" ? "Allowed for the session" : "Allowed") : "Denied") : "Waiting for approval"} · {step.toolName}
+            {step.decision
+              ? step.decision === "allow"
+                ? step.scope === "session"
+                  ? "Allowed for the session"
+                  : "Allowed"
+                : "Denied"
+              : "Waiting for approval"}{" "}
+            · {step.toolName}
           </TraceTitle>
           <TraceDescription className="truncate font-mono text-[12px]">{step.summary}</TraceDescription>
         </TraceLine>
@@ -314,15 +367,7 @@ const StepLine = ({ step }: { step: Step }) => {
 }
 
 /** Pinned above the composer, like the template's question card, until decided. */
-const PendingApproval = ({
-  item,
-  onDecide,
-  deciding
-}: {
-  item: Item<"approval">
-  onDecide?: DecideFn
-  deciding?: boolean
-}) => {
+const PendingApproval = ({ item, onDecide, deciding }: { item: Item<"approval">; onDecide?: DecideFn; deciding?: boolean }) => {
   const details = item.details as { input?: unknown } | undefined
   return (
     <div className="sticky bottom-2 isolate z-20 mx-auto w-full max-w-3xl px-6 pt-2">
@@ -343,7 +388,12 @@ const PendingApproval = ({
             </div>
           </div>
           <div className="flex shrink-0 gap-2">
-            <Button variant="outline" disabled={deciding} onClick={() => onDecide?.(item.approvalId, "deny")} title={`Deny (${shortcutHint("deny")})`}>
+            <Button
+              variant="outline"
+              disabled={deciding}
+              onClick={() => onDecide?.(item.approvalId, "deny")}
+              title={`Deny (${shortcutHint("deny")})`}
+            >
               <X /> Deny
             </Button>
             {item.canAllowForSession && (
@@ -387,7 +437,8 @@ const PendingQuestion = ({
   const [other, setOther] = useState<Record<string, string>>({})
   const answerOf = (q: AgentQuestion) => [...(picked[q.id] ?? []), ...(other[q.id]?.trim() ? [other[q.id]!.trim()] : [])]
   const complete = questions.length > 0 && questions.every((q) => answerOf(q).length > 0)
-  const submit = () => complete && onDecide?.(item.approvalId, "allow", { answers: Object.fromEntries(questions.map((q) => [q.id, answerOf(q)])) })
+  const submit = () =>
+    complete && onDecide?.(item.approvalId, "allow", { answers: Object.fromEntries(questions.map((q) => [q.id, answerOf(q)])) })
   const toggle = (q: AgentQuestion, label: string) =>
     setPicked((p) => {
       const current = p[q.id] ?? []
@@ -396,7 +447,10 @@ const PendingQuestion = ({
     })
   return (
     <div className="sticky bottom-2 isolate z-20 mx-auto w-full max-w-3xl px-6 pt-2">
-      <div className="w-full rounded-2xl border border-primary/40 bg-bg-elevated p-4 text-sm shadow-lg ring-1 ring-foreground/5" data-testid="question-card">
+      <div
+        className="w-full rounded-2xl border border-primary/40 bg-bg-elevated p-4 text-sm shadow-lg ring-1 ring-foreground/5"
+        data-testid="question-card"
+      >
         <div className="mb-3 flex items-center gap-2 font-medium">
           <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
             <CircleHelp className="size-4" />
@@ -489,8 +543,21 @@ const PlanChecklist = ({ items }: { items: ReadonlyArray<PlanItem> }) => {
             {items.map((i, n) => {
               const Icon = PLAN_ICONS[i.status]
               return (
-                <li key={n} className={cn("flex items-start gap-2", i.status === "completed" && "text-fg-muted line-through", i.status === "cancelled" && "text-fg-subtle line-through")}>
-                  <Icon className={cn("mt-0.5 size-3.5 shrink-0", i.status === "in_progress" && "text-primary", i.status === "completed" && "text-success")} />
+                <li
+                  key={n}
+                  className={cn(
+                    "flex items-start gap-2",
+                    i.status === "completed" && "text-fg-muted line-through",
+                    i.status === "cancelled" && "text-fg-subtle line-through"
+                  )}
+                >
+                  <Icon
+                    className={cn(
+                      "mt-0.5 size-3.5 shrink-0",
+                      i.status === "in_progress" && "text-primary",
+                      i.status === "completed" && "text-success"
+                    )}
+                  />
                   {i.text}
                 </li>
               )

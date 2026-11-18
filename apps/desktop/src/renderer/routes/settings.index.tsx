@@ -92,11 +92,28 @@ const DefaultHarness = () => {
         <p className="text-[11px] text-fg-subtle">Existing projects keep theirs. Tickets can override model, effort and permissions.</p>
       </div>
       {settings.data ? (
-        <Select aria-label="Default harness for new projects" value={settings.data.defaultHarness} disabled={saveDefault.isPending} onChange={(e) => saveDefault.mutate(e.target.value as HarnessId)} className="h-8 w-44" data-testid="default-harness">
-          {HARNESS_IDS.map((id) => <option key={id} value={id}>{HARNESS_LABELS[id]}</option>)}
+        <Select
+          aria-label="Default harness for new projects"
+          value={settings.data.defaultHarness}
+          disabled={saveDefault.isPending}
+          onChange={(e) => saveDefault.mutate(e.target.value as HarnessId)}
+          className="h-8 w-44"
+          data-testid="default-harness"
+        >
+          {HARNESS_IDS.map((id) => (
+            <option key={id} value={id}>
+              {HARNESS_LABELS[id]}
+            </option>
+          ))}
         </Select>
-      ) : <Spinner />}
-      {saveDefault.error && <p role="alert" className="w-full text-xs text-danger">{saveDefault.error.message}</p>}
+      ) : (
+        <Spinner />
+      )}
+      {saveDefault.error && (
+        <p role="alert" className="w-full text-xs text-danger">
+          {saveDefault.error.message}
+        </p>
+      )}
     </section>
   )
 }
@@ -109,7 +126,13 @@ const AppearanceSettings = () => {
       <p className="text-[13px] font-medium">Theme</p>
       <p className="mb-3 text-[11px] text-fg-subtle">System follows your OS appearance.</p>
       <div role="radiogroup" aria-label="Theme" className="grid max-w-md grid-cols-3 gap-2">
-        {([["dark", "Dark", Moon], ["light", "Light", Sun], ["system", "System", Monitor]] as const).map(([value, label, Icon]) => (
+        {(
+          [
+            ["dark", "Dark", Moon],
+            ["light", "Light", Sun],
+            ["system", "System", Monitor]
+          ] as const
+        ).map(([value, label, Icon]) => (
           <button
             key={value}
             type="button"
@@ -137,7 +160,12 @@ const DaemonSettings = () => {
   const rows: Array<[string, React.ReactNode]> = [
     ["Version", info.data.version],
     ["Process", `pid ${info.data.pid}`],
-    ["Data directory", <span key="dataDir" className="font-mono">{info.data.dataDir}</span>],
+    [
+      "Data directory",
+      <span key="dataDir" className="font-mono">
+        {info.data.dataDir}
+      </span>
+    ],
     ["Active sessions", info.data.activeSessions],
     ["Active runs", info.data.activeRuns]
   ]
@@ -153,7 +181,12 @@ const DaemonSettings = () => {
           ))}
         </dl>
       </section>
-      <section className={cn("rounded-lg border p-4 text-xs", info.data.persistent ? "border-success/30 bg-success/5" : "border-warning/30 bg-warning/5")}>
+      <section
+        className={cn(
+          "rounded-lg border p-4 text-xs",
+          info.data.persistent ? "border-success/30 bg-success/5" : "border-warning/30 bg-warning/5"
+        )}
+      >
         <p className={info.data.persistent ? "text-success" : "text-warning"}>
           {info.data.persistent
             ? "Supervised service: survives the app quitting and restarts on login."
