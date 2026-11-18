@@ -2,8 +2,35 @@ name: Release
 on:
   push:
     tags: ["v*"]
-  # Manual runs build the installers as workflow artifacts without creating a release.
+    # Branch pushes and PRs that touch what ships build the installers as workflow
+    # artifacts without creating a release (path filters don't apply to tags).
+    branches: ["**"]
+    paths:
+      - apps/desktop/**
+      - apps/daemon/**
+      - packages/**
+      - workflows/**
+      - prompts/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/release.yml
+  pull_request:
+    paths:
+      - apps/desktop/**
+      - apps/daemon/**
+      - packages/**
+      - workflows/**
+      - prompts/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/release.yml
   workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 permissions:
   contents: read
