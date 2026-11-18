@@ -27,6 +27,8 @@ export type JiraSettings = typeof JiraSettings.Type
 const toTask = (i: JiraIssue): RemoteTask => ({
   remoteId: i.id,
   key: i.key,
+  // Issue keys are always <project key>-<number>, so the prefix names the Jira project.
+  scope: i.key.slice(0, i.key.lastIndexOf("-")) || i.key,
   url: i.url,
   title: i.title,
   description: i.description,
@@ -44,7 +46,8 @@ const toSourceError = (e: JiraError) => new TaskSourceError({ source: "jira", ki
 export const jiraSource: TaskSourceAdapter<JiraSettings> = {
   id: "jira",
   displayName: "Jira",
-  description: "Import issues matching a JQL query from Jira Cloud or Data Center (read-only).",
+  description: "Import issues matching a JQL query from Jira Cloud or Data Center (read-only). One connection can span many Jira projects.",
+  scopeLabel: "Jira project",
   settings: JiraSettings,
   fields: [
     {
@@ -67,7 +70,7 @@ export const jiraSource: TaskSourceAdapter<JiraSettings> = {
       type: "textarea",
       required: true,
       default: "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC",
-      hint: "Only issues matching this query are imported. Keep it narrow."
+      hint: "Only issues matching this query are imported. It may span several Jira projects; each is routed to an AgentDesk project below."
     }
   ],
   credential: { label: "API token / personal access token", hint: "Stored in the OS credential store.", required: true },

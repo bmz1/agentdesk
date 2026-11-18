@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 import { resolve } from "node:path"
 import type { CreateProjectBody, Project, UpdateProjectBody } from "@agentdesk/contracts"
-import { projects, tickets } from "@agentdesk/db"
+import { projects, sourceConnections, tickets } from "@agentdesk/db"
 import * as Git from "@agentdesk/git"
 import { asc, count, eq } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
@@ -51,7 +51,7 @@ export const deriveKey = (name: string) => {
 export const ProjectsLive = Layer.effect(
   Projects,
   Effect.gen(function* () {
-    const { use } = yield* Database
+    const { use, tx } = yield* Database
     const activity = yield* Activity
     const notices = yield* Notices
     const defaults = yield* HarnessSettings
@@ -136,7 +136,19 @@ export const ProjectsLive = Layer.effect(
         yield* get(id)
         const n = yield* use((db) => db.select({ n: count() }).from(tickets).where(eq(tickets.projectId, id)).get()?.n ?? 0)
         if (n > 0) return yield* new Conflict({ message: "Project still has tickets; move or delete them first" })
-        yield* use((db) => db.delete(projects).where(eq(projects.id, id)).run())
+        yield* tx((db) => {
+          // Task source connections are global: drop this project from their routing instead.
+          for (const c of db.select().from(sourceConnections).all()) {
+            const projectRoutes = Object.fromEntries(Object.entries(c.projectRoutes ?? {}).filter(([, p]) => p !== id))
+            if (c.projectId === id || Object.keys(projectRoutes).length !== Object.keys(c.projectRoutes ?? {}).length) {
+              db.update(sourceConnections)
+                .set({ projectId: c.projectId === id ? null : c.projectId, projectRoutes })
+                .where(eq(sourceConnections.id, c.id))
+                .run()
+            }
+          }
+          db.delete(projects).where(eq(projects.id, id)).run()
+        })
         yield* notices.publish({ topic: "projects" })
       })
 

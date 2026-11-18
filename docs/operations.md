@@ -64,5 +64,6 @@ Settings → Agent harnesses shows detected versions. Verify end to end with `AG
 - *"Another AgentDesk daemon is already using …"*: a daemon already runs for this data dir. Check `daemon.json` for its pid.
 - *Harness shows "not installed"*: the daemon's PATH differs from your shell's. Set `AGENTDESK_*_BIN` or the service's PATH.
 - *Jira "rejected credentials"*: use an email plus API token for Cloud, or a PAT for Data Center. Re-enter the token in Settings → Task sources.
+- *Task source issues not showing up*: connections route each issue by its remote project/team key. Issues whose key has no route and no fallback project are skipped and listed under "Not imported" in Settings → Task sources; route them there and the next sync (a full one) imports them.
 - *Linear "rejected the API key"*: create a personal API key in Linear → Settings → API and re-enter it in Settings → Task sources.
 - *Packaged Electron:* the daemon is started with the system `node` so that the native `better-sqlite3` matches Node's ABI.

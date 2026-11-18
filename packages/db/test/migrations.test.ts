@@ -148,3 +148,38 @@ describe("migration 9: restarts keep conversations", () => {
     sqlite.close()
   })
 })
+
+describe("migration 10: global task sources", () => {
+  it("keeps each connection's project as its default, makes the project optional and keeps sync state", () => {
+    const Database = require("better-sqlite3")
+    const sqlite = new Database(":memory:")
+    sqlite.pragma("foreign_keys = ON")
+    migrate(sqlite, migrations.filter((m) => m.id < 10))
+    sqlite.prepare(`INSERT INTO projects (id,key,name,repo_path,default_branch,git_provider,default_harness,permission_mode,created_at,updated_at) VALUES ('p','P','P','/tmp','main','none','mock','ask','now','now')`).run()
+    sqlite.prepare(`INSERT INTO source_connections (id,provider,name,project_id,settings,credential_ref,poll_interval_sec,enabled,created_at) VALUES ('c1','jira','SEON','p','{"jql":"x"}','jira:c1',300,1,'now')`).run()
+    sqlite.prepare(`INSERT INTO source_sync_state (connection_id, high_watermark, consecutive_failures) VALUES ('c1','2026-01-02',1)`).run()
+
+    expect(migrate(sqlite, migrations.filter((m) => m.id <= 10))).toEqual([10])
+    expect(sqlite.prepare("SELECT id, project_id, project_routes, settings, credential_ref FROM source_connections").get()).toEqual({
+      id: "c1",
+      project_id: "p",
+      project_routes: "{}",
+      settings: '{"jql":"x"}',
+      credential_ref: "jira:c1"
+    })
+    expect(sqlite.prepare("SELECT high_watermark, consecutive_failures, unrouted FROM source_sync_state").get()).toEqual({
+      high_watermark: "2026-01-02",
+      consecutive_failures: 1,
+      unrouted: "{}"
+    })
+    // Connections no longer need a project, but references are still enforced.
+    sqlite.prepare(`INSERT INTO source_connections (id,provider,name,project_id,settings,credential_ref,poll_interval_sec,created_at) VALUES ('c2','jira','All',NULL,'{}','jira:c2',300,'now')`).run()
+    expect(() =>
+      sqlite.prepare(`INSERT INTO source_connections (id,provider,name,project_id,settings,credential_ref,poll_interval_sec,created_at) VALUES ('c3','jira','x','nope','{}','jira:c3',300,'now')`).run()
+    ).toThrow(/FOREIGN KEY/)
+    expect(() => sqlite.prepare(`INSERT INTO source_sync_state (connection_id) VALUES ('ghost')`).run()).toThrow(/FOREIGN KEY/)
+    expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([])
+    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE name = 'source_connections_provider_idx'").get()).toBeDefined()
+    sqlite.close()
+  })
+})

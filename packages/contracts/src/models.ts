@@ -284,7 +284,10 @@ export const SourceConnection = Schema.Struct({
   id: Schema.String,
   provider: Schema.String,
   name: Schema.String,
-  projectId: Schema.String,
+  /** Fallback project for tasks whose remote project/team has no route; null imports routed tasks only. */
+  projectId: NullableString,
+  /** Remote project/team key (e.g. Jira project "SEON") → local project id. */
+  projectRoutes: Schema.Record(Schema.String, Schema.String),
   settings: Schema.Unknown,
   pollIntervalSec: Schema.Number,
   enabled: Schema.Boolean,
@@ -292,6 +295,8 @@ export const SourceConnection = Schema.Struct({
   lastSyncAt: NullableString,
   lastFullSyncAt: NullableString,
   lastError: NullableString,
+  /** Remote keys seen in the last sync with no route and no default project (key → task count). */
+  unrouted: Schema.Record(Schema.String, Schema.Number),
   createdAt: Schema.String
 })
 export type SourceConnection = typeof SourceConnection.Type
@@ -314,7 +319,9 @@ export const SourceDescriptor = Schema.Struct({
   displayName: Schema.String,
   description: Schema.String,
   fields: Schema.Array(SourceField),
-  credential: Schema.Struct({ label: Schema.String, hint: Schema.String, required: Schema.Boolean })
+  credential: Schema.Struct({ label: Schema.String, hint: Schema.String, required: Schema.Boolean }),
+  /** What the routing key is called in this source ("Jira project", "Linear team"). */
+  scopeLabel: Schema.String
 })
 export type SourceDescriptor = typeof SourceDescriptor.Type
 
@@ -323,6 +330,8 @@ export interface SyncResult {
   readonly created: number
   readonly updated: number
   readonly missing: number
+  /** Tasks skipped because their remote project/team has no route and there is no default project. */
+  readonly unrouted: number
   readonly full: boolean
 }
 

@@ -130,7 +130,10 @@ export type ApprovalDecisionBody = typeof ApprovalDecisionBody.Type
 export const CreateSourceConnectionBody = Schema.Struct({
   provider: Schema.NonEmptyString,
   name: Schema.NonEmptyString,
-  projectId: Schema.String,
+  /** Optional fallback project for tasks whose remote project/team has no route. */
+  projectId: Schema.optional(Schema.NullOr(Schema.String)),
+  /** Remote project/team key → local project id (e.g. { SEON: "<project id>" }). */
+  projectRoutes: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   /** Provider settings; validated by the source adapter's schema. */
   settings: Schema.Unknown,
   /** API token / key. Stored in the OS credential store, never SQLite. */
@@ -141,6 +144,8 @@ export type CreateSourceConnectionBody = typeof CreateSourceConnectionBody.Type
 
 export const UpdateSourceConnectionBody = Schema.Struct({
   name: Schema.optional(Schema.NonEmptyString),
+  projectId: Schema.optional(Schema.NullOr(Schema.String)),
+  projectRoutes: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   settings: Schema.optional(Schema.Unknown),
   token: Schema.optional(Schema.String),
   pollIntervalSec: Schema.optional(Schema.Number),

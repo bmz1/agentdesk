@@ -188,3 +188,75 @@ describe("generic task sources API", () => {
     expect(legacy[0]).toMatchObject({ id: jc.id, jql: "project = SEON", deployment: "cloud" })
   })
 })
+
+describe("global task sources", () => {
+  it("routes one Jira connection's issues to several projects by Jira project key", async () => {
+    const fake = makeFakeJira({
+      deployment: "cloud",
+      issues: [
+        { id: "1", key: "SEON-1", summary: "Fraud rules" },
+        { id: "2", key: "PAY-7", summary: "Refunds" },
+        { id: "3", key: "OPS-3", summary: "On-call rota" },
+        { id: "4", key: "OPS-4", summary: "Pager" }
+      ]
+    })
+    const { daemon, api } = await startTestDaemon({ sources: { fetch: fake.fetch, retryBaseMs: 1 }, credentialStore: "memory" })
+    cleanups.push(daemon.stop)
+    const seon = await api.post("/projects", { name: "Seon", key: "SN", repoPath: makeRepo() })
+    const pay = await api.post("/projects", { name: "Payments", key: "PY", repoPath: makeRepo() })
+
+    // No project is needed to add a connection; unknown projects are rejected.
+    await expect(
+      api.post("/sources/connections", {
+        provider: "jira",
+        name: "bad",
+        token: "t",
+        projectRoutes: { SEON: "nope" },
+        settings: { deployment: "cloud", baseUrl: "https://acme.atlassian.net", principal: "me@acme.io", jql: "assignee = currentUser()" }
+      })
+    ).rejects.toMatchObject({ status: 404 })
+    const conn = await api.post("/sources/connections", {
+      provider: "jira",
+      name: "All my Jira",
+      token: "t",
+      projectRoutes: { seon: seon.id, " pay ": pay.id },
+      settings: { deployment: "cloud", baseUrl: "https://acme.atlassian.net", principal: "me@acme.io", jql: "assignee = currentUser()" }
+    })
+    expect(conn).toMatchObject({ projectId: null, projectRoutes: { SEON: seon.id, PAY: pay.id }, unrouted: {} })
+
+    // OPS has no route and there is no default project: skipped and reported, not imported.
+    expect(await api.post(`/sources/connections/${conn.id}/sync`)).toMatchObject({ fetched: 4, created: 2, unrouted: 2 })
+    expect((await api.get(`/tickets?projectId=${seon.id}`)).map((t: any) => t.identifier)).toEqual(["SEON-1"])
+    expect((await api.get(`/tickets?projectId=${pay.id}`)).map((t: any) => t.identifier)).toEqual(["PAY-7"])
+    expect((await api.get("/sources/connections"))[0].unrouted).toEqual({ OPS: 2 })
+
+    // Routing OPS forces a full sync that imports the skipped issues; existing tickets stay put.
+    await api.patch(`/sources/connections/${conn.id}`, { projectRoutes: { SEON: seon.id, PAY: pay.id, OPS: pay.id } })
+    expect(await api.post(`/sources/connections/${conn.id}/sync`)).toMatchObject({ full: true, created: 2, unrouted: 0 })
+    expect((await api.get(`/tickets?projectId=${pay.id}`)).map((t: any) => t.identifier).sort()).toEqual(["OPS-3", "OPS-4", "PAY-7"])
+    expect((await api.get("/sources/connections"))[0].unrouted).toEqual({})
+
+    // A default project catches every other Jira project.
+    fake.state.issues.push({ id: "5", key: "MISC-1", summary: "Misc" })
+    await api.patch(`/sources/connections/${conn.id}`, { projectId: seon.id })
+    expect(await api.post(`/sources/connections/${conn.id}/sync`)).toMatchObject({ created: 1, unrouted: 0 })
+    expect((await api.get(`/tickets?projectId=${seon.id}`)).map((t: any) => t.identifier).sort()).toEqual(["MISC-1", "SEON-1"])
+  })
+
+  it("drops a deleted project from connection routing", async () => {
+    const { daemon, api } = await startTestDaemon({ credentialStore: "memory" })
+    cleanups.push(daemon.stop)
+    const keep = await api.post("/projects", { name: "Keep", key: "KP", repoPath: makeRepo() })
+    const gone = await api.post("/projects", { name: "Gone", key: "GN", repoPath: makeRepo() })
+    const conn = await api.post("/sources/connections", {
+      provider: "jira",
+      name: "Jira",
+      projectId: gone.id,
+      projectRoutes: { A: keep.id, B: gone.id },
+      settings: { deployment: "cloud", baseUrl: "https://acme.atlassian.net", principal: "me@acme.io", jql: "x" }
+    })
+    await api.del(`/projects/${gone.id}`)
+    const [after] = await api.get("/sources/connections")
+    expect(after).toMatchObject({ id: conn.id, projectId: null, projectRoutes: { A: keep.id } })
+  })
+})

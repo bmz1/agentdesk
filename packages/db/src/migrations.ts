@@ -328,5 +328,49 @@ ALTER TABLE tickets DROP COLUMN workspace_mode;
     // Only daemon restarts set "interrupted". Conversations outside workflows now wait for a
     // follow-up across restarts instead, so earlier ones get the same state.
     sql: /* sql */ `UPDATE agent_sessions SET state = 'idle' WHERE state = 'interrupted' AND run_id IS NULL AND provider_session_id IS NOT NULL;`
+  },
+  {
+    id: 10,
+    name: "global_task_sources",
+    // Task source connections no longer belong to one project: each imported task is routed by
+    // its remote project/team key (project_routes), falling back to the optional default project.
+    // Existing connections keep their project as the default, so they import exactly as before.
+    // The table is rebuilt to drop NOT NULL. source_sync_state references it, so it is staged
+    // in a constraint-free copy and recreated (with the new unrouted column) once the parent exists.
+    sql: /* sql */ `
+CREATE TABLE source_sync_state_stage AS SELECT * FROM source_sync_state;
+DROP TABLE source_sync_state;
+
+CREATE TABLE source_connections_new (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  name TEXT NOT NULL,
+  project_id TEXT REFERENCES projects(id),
+  project_routes TEXT NOT NULL DEFAULT '{}',
+  settings TEXT NOT NULL,
+  credential_ref TEXT NOT NULL,
+  poll_interval_sec INTEGER NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
+INSERT INTO source_connections_new (id, provider, name, project_id, project_routes, settings, credential_ref, poll_interval_sec, enabled, created_at)
+  SELECT id, provider, name, project_id, '{}', settings, credential_ref, poll_interval_sec, enabled, created_at FROM source_connections;
+DROP TABLE source_connections;
+ALTER TABLE source_connections_new RENAME TO source_connections;
+CREATE INDEX source_connections_provider_idx ON source_connections(provider);
+
+CREATE TABLE source_sync_state (
+  connection_id TEXT PRIMARY KEY REFERENCES source_connections(id),
+  last_sync_at TEXT,
+  last_full_sync_at TEXT,
+  high_watermark TEXT,
+  last_error TEXT,
+  consecutive_failures INTEGER NOT NULL DEFAULT 0,
+  unrouted TEXT NOT NULL DEFAULT '{}'
+);
+INSERT INTO source_sync_state (connection_id, last_sync_at, last_full_sync_at, high_watermark, last_error, consecutive_failures)
+  SELECT connection_id, last_sync_at, last_full_sync_at, high_watermark, last_error, consecutive_failures FROM source_sync_state_stage;
+DROP TABLE source_sync_state_stage;
+`
   }
 ]

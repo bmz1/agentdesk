@@ -59,7 +59,7 @@ The URL contains your local daemon token. Electron connects automatically using 
 
 ### Bring your tickets
 
-Import selected **Jira Cloud**, **Jira Data Center**, or **Linear** issues alongside local tickets. Move cards through your local board while the source issues remain read-only. For exploratory work, open a **thread** and use **Track on board** when it becomes a task.
+Import selected **Jira Cloud**, **Jira Data Center**, or **Linear** issues alongside local tickets. Connections are global: one Jira connection can span many Jira projects, and each issue lands in the AgentDesk project mapped to its Jira project key (SEON-12 → SEON), with an optional fallback project. Move cards through your local board while the source issues remain read-only. For exploratory work, open a **thread** and use **Track on board** when it becomes a task.
 
 [![Demo service board with tickets across To do, In progress, In review, Blocked, and Done](docs/screenshots/ticket-board.png)](docs/screenshots/ticket-board.png)
 
