@@ -21,13 +21,14 @@ Use Node.js 22+ and pnpm 10.28.0.
 - `pnpm dev:desktop`: run Electron; it discovers or starts a daemon.
 - `pnpm dev:web`: run the browser renderer against a daemon.
 - `pnpm seed:demo`: populate demo work using the mock harness.
-- `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`: run oxlint, workspace typechecks, tests, and production builds; these are CI checks.
+- `pnpm format`: format the workspace with oxfmt (`pnpm format:check` verifies without writing).
+- `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`: check formatting, run oxlint, workspace typechecks, tests, and production builds; these are CI checks.
 - `pnpm e2e`: exercise the renderer with Playwright and an isolated daemon. First install Chromium with `pnpm --filter @agentdesk/desktop exec playwright install chromium`.
 - `pnpm --filter @agentdesk/desktop e2e:native`: verify the macOS Dock badge after building.
 
 ## Coding Style & Naming Conventions
 
-Use strict TypeScript, ES modules, two-space indentation, double quotes, and no semicolons, matching nearby code. Use kebab-case filenames, PascalCase React components, and camelCase functions. No formatter is configured; `oxlint` (`.oxlintrc.json`) lints the workspace and enforces React hook rules in the renderer.
+Use strict TypeScript, ES modules, two-space indentation, double quotes, and no semicolons; run `pnpm format` before committing. Use kebab-case filenames, PascalCase React components, and camelCase functions. `oxfmt` (`.oxfmtrc.json`, 140 columns) formats the code and `oxlint` (`.oxlintrc.json`) lints the workspace and enforces React hook rules in the renderer.
 
 In React, derive values during render and handle user actions in event handlers; reserve `useEffect` for syncing with systems outside React (subscriptions, timers, the DOM, IPC). Use `useEffectEvent` instead of "latest ref" patterns. `react/set-state-in-effect` is an error; suppress it only with a reason.
 

@@ -15,6 +15,8 @@
     "build": "pnpm --filter @agentdesk/daemon build && pnpm --filter @agentdesk/cli build && pnpm --filter @agentdesk/desktop build",
     "typecheck": "pnpm -r --no-bail typecheck",
     "lint": "oxlint",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:smoke": "AGENTDESK_SMOKE=${AGENTDESK_SMOKE:-claude} vitest run apps/daemon/test/smoke.real-cli.test.ts",
@@ -25,6 +27,7 @@
     "@effect/vitest": "4.1.4",
     "@types/node": "^22.20.5",
     "effect": "4.1.4",
+    "oxfmt": "0.79.0",
     "oxlint": "1.94.0",
     "typescript": "~5.9.3",
     "vitest": "^5.1.0"
