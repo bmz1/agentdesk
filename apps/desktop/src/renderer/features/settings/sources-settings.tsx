@@ -1,11 +1,13 @@
-import type { Project, SourceConnection, SourceDescriptor, SourceField } from "@agentdesk/contracts"
+import type { SourceConnection, SourceDescriptor, SourceField } from "@agentdesk/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { CheckCircle2, Plus, RefreshCw, Trash2, X, XCircle } from "lucide-react"
+import { CheckCircle2, Plus, RefreshCw, Trash2, XCircle } from "lucide-react"
+import { Link } from "@tanstack/react-router"
 import { useEffect, useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Field, Input, Select, Textarea } from "@/components/ui/input"
 import { Section, Spinner } from "@/components/ui/misc"
+import { UNASSIGNED } from "@/features/board/issues-view"
 import { api } from "@/lib/api"
 import { q, qk } from "@/lib/queries"
 import { relativeTime } from "@/lib/utils"
@@ -13,8 +15,8 @@ import { relativeTime } from "@/lib/utils"
 /**
  * Generic settings for every task source (Jira, Linear, …). Forms are rendered
  * from each source's descriptor, so adding a source needs no UI changes.
- * Connections are global: each imported task is routed to a project by its
- * remote project/team key, with an optional fallback project.
+ * Connections are global: imported tickets wait unassigned until someone puts
+ * them in a project.
  */
 export const SourcesSettings = () => {
   const sources = useQuery(q.sources())
@@ -31,11 +33,13 @@ export const SourcesSettings = () => {
       }
     >
       <p className="mb-3 text-[11px] text-fg-subtle">
-        AgentDesk imports tasks from {(sources.data ?? []).map((s) => s.displayName).join(", ") || "external trackers"} into
-        your boards. A connection is not tied to one project: map each remote project (e.g. the SEON in SEON-12) to an
-        AgentDesk project, or pick a fallback project for everything else. It never creates, edits, comments on or
-        transitions remote tasks; moving a card changes the local board only. Tokens are stored in the OS credential store,
-        never in the database.
+        AgentDesk imports tasks from {(sources.data ?? []).map((s) => s.displayName).join(", ") || "external trackers"}. A
+        connection is not tied to a project: imported tickets wait in{" "}
+        <Link to="/issues" search={{ project: UNASSIGNED }} className="text-accent hover:underline">
+          Unassigned
+        </Link>{" "}
+        until you assign each one to a project. It never creates, edits, comments on or transitions remote tasks; moving a card changes the local board
+        only. Tokens are stored in the OS credential store, never in the database.
       </p>
       {adding && sources.data && <NewConnection sources={sources.data} onDone={() => setAdding(false)} />}
       {connections.isLoading ? (
@@ -65,17 +69,6 @@ const ConnectionRow = ({ c, source }: { c: SourceConnection; source: SourceDescr
     onSuccess: () => setToken(""),
     onSettled: invalidate
   })
-  const projects = useQuery(q.projects())
-  const [editingRoutes, setEditingRoutes] = useState(false)
-  const saveRouting = useMutation({
-    mutationFn: (r: Routing) => api.updateSourceConnection(c.id, { projectId: r.projectId, projectRoutes: r.projectRoutes }),
-    onSuccess: () => setEditingRoutes(false),
-    onSettled: invalidate
-  })
-  const projectName = (id: string | null) => (id ? (projects.data?.find((p) => p.id === id)?.name ?? "deleted project") : null)
-  const scopeLabel = source?.scopeLabel ?? "Project"
-  const routes = Object.entries(c.projectRoutes).sort(([a], [b]) => a.localeCompare(b))
-  const unrouted = Object.entries(c.unrouted).sort(([a], [b]) => a.localeCompare(b))
   const settings = (c.settings ?? {}) as Record<string, unknown>
   return (
     <div className="rounded-md border bg-bg p-3 text-xs" data-testid="source-connection">
@@ -111,50 +104,6 @@ const ConnectionRow = ({ c, source }: { c: SourceConnection; source: SourceDescr
             </Row>
           ) : null
         )}
-        {!editingRoutes && (
-          <Row label="Routing">
-            <span className="flex flex-wrap items-center gap-x-3 gap-y-1" data-testid="source-routing">
-              {routes.map(([scope, projectId]) => (
-                <span key={scope}>
-                  <span className="font-mono">{scope}</span> → {projectName(projectId)}
-                </span>
-              ))}
-              <span>
-                {routes.length > 0 ? "everything else" : `every ${scopeLabel}`} →{" "}
-                {projectName(c.projectId) ?? <span className="text-fg-subtle">not imported</span>}
-              </span>
-              <Button size="sm" variant="ghost" onClick={() => setEditingRoutes(true)} data-testid="edit-routing">
-                Edit
-              </Button>
-            </span>
-          </Row>
-        )}
-        {unrouted.length > 0 && !editingRoutes && (
-          <Row label="Not imported">
-            <span className="flex flex-wrap items-center gap-2" data-testid="source-unrouted">
-              {unrouted.map(([scope, n]) => (
-                <span key={scope} className="flex items-center gap-1">
-                  <span className="font-mono text-warning">{scope}</span> ({n})
-                  <Select
-                    className="h-6 text-[11px]"
-                    value=""
-                    aria-label={`Route ${scope} to a project`}
-                    onChange={(e) =>
-                      e.target.value && saveRouting.mutate({ projectId: c.projectId, projectRoutes: { ...c.projectRoutes, [scope]: e.target.value } })
-                    }
-                  >
-                    <option value="">Route to…</option>
-                    {(projects.data ?? []).map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </Select>
-                </span>
-              ))}
-            </span>
-          </Row>
-        )}
         <Row label="Last sync">
           {relativeTime(c.lastSyncAt)} · polls every {Math.round(c.pollIntervalSec / 60)} min
         </Row>
@@ -164,18 +113,6 @@ const ConnectionRow = ({ c, source }: { c: SourceConnection; source: SourceDescr
           </Row>
         )}
       </div>
-      {editingRoutes && (
-        <RoutingEditor
-          className="mt-2"
-          scopeLabel={scopeLabel}
-          projects={projects.data ?? []}
-          initial={{ projectId: c.projectId, projectRoutes: c.projectRoutes }}
-          suggestions={unrouted.map(([scope]) => scope)}
-          saving={saveRouting.isPending}
-          onCancel={() => setEditingRoutes(false)}
-          onSave={(r) => saveRouting.mutate(r)}
-        />
-      )}
       {!c.hasCredential && (
         <div className="mt-2 flex gap-2">
           <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={source?.credential.label ?? "Token"} />
@@ -192,12 +129,9 @@ const ConnectionRow = ({ c, source }: { c: SourceConnection; source: SourceDescr
       {sync.data && (
         <p className="mt-2 text-fg-muted">
           Fetched {sync.data.fetched}: {sync.data.created} new, {sync.data.updated} updated, {sync.data.missing} out of scope
-          {sync.data.unrouted > 0 && `, ${sync.data.unrouted} not routed to a project`}
         </p>
       )}
-      {(sync.error || saveToken.error || saveRouting.error) && (
-        <p className="mt-2 text-danger">{((sync.error ?? saveToken.error ?? saveRouting.error) as Error).message}</p>
-      )}
+      {(sync.error || saveToken.error) && <p className="mt-2 text-danger">{((sync.error ?? saveToken.error) as Error).message}</p>}
     </div>
   )
 }
@@ -212,12 +146,10 @@ const Row = ({ label, children }: { label: string; children: React.ReactNode }) 
 const defaultsOf = (s: SourceDescriptor) => Object.fromEntries(s.fields.map((f) => [f.key, f.default ?? ""]))
 
 const NewConnection = ({ sources, onDone }: { sources: ReadonlyArray<SourceDescriptor>; onDone: () => void }) => {
-  const projects = useQuery(q.projects())
   const qc = useQueryClient()
   const [provider, setProvider] = useState(sources[0]?.id ?? "")
   const source = sources.find((s) => s.id === provider)
   const [name, setName] = useState("")
-  const [routing, setRouting] = useState<Routing>({ projectId: null, projectRoutes: {} })
   const [token, setToken] = useState("")
   const [pollMinutes, setPollMinutes] = useState(5)
   const [settings, setSettings] = useState<Record<string, string>>({})
@@ -230,8 +162,6 @@ const NewConnection = ({ sources, onDone }: { sources: ReadonlyArray<SourceDescr
       api.createSourceConnection({
         provider,
         name,
-        projectId: routing.projectId,
-        projectRoutes: cleanRoutes(routing.projectRoutes),
         token: token || undefined,
         pollIntervalSec: pollMinutes * 60,
         // Empty optional fields are omitted so the adapter's schema sees them as absent.
@@ -273,9 +203,6 @@ const NewConnection = ({ sources, onDone }: { sources: ReadonlyArray<SourceDescr
         <Field label={source.credential.label} hint={source.credential.hint}>
           <Input type="password" value={token} onChange={(e) => setToken(e.target.value)} data-testid="source-token" />
         </Field>
-      )}
-      {source && (
-        <RoutingFields scopeLabel={source.scopeLabel} projects={projects.data ?? []} value={routing} onChange={setRouting} />
       )}
       <div className="grid grid-cols-2 gap-2">
         <Field label="Poll interval (minutes)">
@@ -319,152 +246,3 @@ const SettingInput = ({ field, value, onChange }: { field: SourceField; value: s
     )}
   </Field>
 )
-
-// ---- routing -----------------------------------------------------------------------------
-
-interface Routing {
-  readonly projectId: string | null
-  readonly projectRoutes: Readonly<Record<string, string>>
-}
-
-/** Drops half-filled rows and normalizes keys the way the daemon does. */
-const cleanRoutes = (routes: Readonly<Record<string, string>>) =>
-  Object.fromEntries(
-    Object.entries(routes)
-      .map(([k, v]) => [k.trim().toUpperCase(), v] as const)
-      .filter(([k, v]) => k !== "" && v !== "")
-  )
-
-/**
- * Remote project/team → AgentDesk project rows plus the fallback project. Rows are kept as an
- * array while editing so a key can be renamed (or be briefly empty) without losing its row.
- */
-const RoutingFields = ({
-  scopeLabel,
-  projects,
-  value,
-  onChange,
-  suggestions = []
-}: {
-  scopeLabel: string
-  projects: ReadonlyArray<Project>
-  value: Routing
-  onChange: (r: Routing) => void
-  suggestions?: ReadonlyArray<string>
-}) => {
-  const [rows, setRows] = useState<Array<{ scope: string; projectId: string }>>(() =>
-    Object.entries(value.projectRoutes).map(([scope, projectId]) => ({ scope, projectId }))
-  )
-  const emit = (next: Array<{ scope: string; projectId: string }>) => {
-    setRows(next)
-    onChange({ ...value, projectRoutes: Object.fromEntries(next.map((r) => [r.scope, r.projectId])) })
-  }
-  const unused = suggestions.filter((s) => !rows.some((r) => r.scope.trim().toUpperCase() === s))
-  return (
-    <div className="space-y-2" data-testid="source-routing-editor">
-      <Field
-        label={`${scopeLabel} → AgentDesk project`}
-        hint={`Each task goes to the project mapped to its ${scopeLabel} key (SEON for SEON-12). Already imported tasks stay where they are.`}
-      >
-        <div className="space-y-1">
-          {rows.map((r, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <Input
-                className="w-32 font-mono uppercase"
-                value={r.scope}
-                placeholder="KEY"
-                aria-label={`${scopeLabel} key`}
-                onChange={(e) => emit(rows.map((x, j) => (j === i ? { ...x, scope: e.target.value } : x)))}
-                data-testid="route-scope"
-              />
-              <span className="text-fg-subtle">→</span>
-              <Select
-                className="flex-1"
-                value={r.projectId}
-                aria-label="AgentDesk project"
-                onChange={(e) => emit(rows.map((x, j) => (j === i ? { ...x, projectId: e.target.value } : x)))}
-                data-testid="route-project"
-              >
-                <option value="">Choose project…</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </Select>
-              <Button type="button" size="icon" variant="ghost" aria-label="Remove route" onClick={() => emit(rows.filter((_, j) => j !== i))}>
-                <X />
-              </Button>
-            </div>
-          ))}
-          <div className="flex flex-wrap items-center gap-1">
-            <Button type="button" size="sm" variant="ghost" onClick={() => emit([...rows, { scope: "", projectId: "" }])} data-testid="add-route">
-              <Plus /> Map a {scopeLabel}
-            </Button>
-            {unused.map((s) => (
-              <Button key={s} type="button" size="sm" variant="ghost" className="font-mono" onClick={() => emit([...rows, { scope: s, projectId: "" }])}>
-                <Plus /> {s}
-              </Button>
-            ))}
-          </div>
-        </div>
-      </Field>
-      <Field
-        label="Fallback project"
-        hint={
-          value.projectId
-            ? `Tasks from any unmapped ${scopeLabel} are imported here.`
-            : `Tasks from an unmapped ${scopeLabel} are skipped and listed on the connection so you can route them later.`
-        }
-      >
-        <Select value={value.projectId ?? ""} onChange={(e) => onChange({ ...value, projectId: e.target.value || null })} data-testid="source-default-project">
-          <option value="">None (mapped projects only)</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </Select>
-      </Field>
-    </div>
-  )
-}
-
-const RoutingEditor = ({
-  className,
-  initial,
-  saving,
-  onSave,
-  onCancel,
-  ...rest
-}: {
-  className?: string
-  scopeLabel: string
-  projects: ReadonlyArray<Project>
-  initial: Routing
-  suggestions: ReadonlyArray<string>
-  saving: boolean
-  onSave: (r: Routing) => void
-  onCancel: () => void
-}) => {
-  const [routing, setRouting] = useState<Routing>(initial)
-  return (
-    <form
-      className={`space-y-2 rounded-md border bg-bg-muted/40 p-2 ${className ?? ""}`}
-      onSubmit={(e) => {
-        e.preventDefault()
-        onSave({ projectId: routing.projectId, projectRoutes: cleanRoutes(routing.projectRoutes) })
-      }}
-    >
-      <RoutingFields {...rest} value={routing} onChange={setRouting} />
-      <div className="flex justify-end gap-2">
-        <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button type="submit" size="sm" disabled={saving} data-testid="save-routing">
-          {saving && <Spinner />} Save routing
-        </Button>
-      </div>
-    </form>
-  )
-}

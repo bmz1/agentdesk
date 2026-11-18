@@ -80,13 +80,11 @@ describe("time-dependent behaviour on the Effect Clock (TestClock)", () => {
     const fake = makeFakeJira({ deployment: "cloud", issues: [] })
     fake.state.failAuth = true
     return Effect.gen(function* () {
-      const p = yield* Projects.use((x) => x.create({ name: "Jira", repoPath: makeRepo() }))
       yield* TaskSync.use((t) =>
         t.create({
           provider: "jira",
           name: "c",
           token: "t",
-          projectId: p.id,
           pollIntervalSec: 60,
           settings: { deployment: "cloud", baseUrl: "https://x.atlassian.net", principal: "me@x", jql: "project = X" }
         })

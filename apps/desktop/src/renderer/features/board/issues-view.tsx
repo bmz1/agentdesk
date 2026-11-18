@@ -14,6 +14,12 @@ import { cn } from "@/lib/utils"
 import { Board } from "./board"
 import { TicketList } from "./ticket-list"
 
+/** `project` filter value for tickets imported from a task source and not assigned yet. */
+export const UNASSIGNED = "unassigned"
+
+export const projectFilter = (project: string | undefined): Pick<TicketQuery, "projectId" | "unassigned"> =>
+  project === UNASSIGNED ? { unassigned: true } : { projectId: project }
+
 export interface IssuesSearch {
   view?: "board" | "list"
   source?: TicketSource
@@ -63,9 +69,9 @@ export const IssuesView = ({
     }
     setView(scope, urlSearch)
   }, [scope, urlSearch])
-  const projectId = fixedProjectId ?? search.project
+  const projectId = fixedProjectId ?? (search.project === UNASSIGNED ? undefined : search.project)
   // Threads live in the sidebar and Agents; the board shows tracked work. Pinned items show either way.
-  const query: TicketQuery = { projectId, source: search.source, q: search.q, pinned: pinnedOnly, tracked: pinnedOnly ? undefined : true }
+  const query: TicketQuery = { ...projectFilter(fixedProjectId ?? search.project), source: search.source, q: search.q, pinned: pinnedOnly, tracked: pinnedOnly ? undefined : true }
   const tickets = useQuery(q.tickets(query))
   const sessions = useQuery(q.sessions(false))
   const projects = useQuery(q.projects())
@@ -109,6 +115,7 @@ export const IssuesView = ({
         {!fixedProjectId && (
           <Select aria-label="Filter tickets by project" value={search.project ?? ""} onChange={(e) => onSearch({ ...search, project: e.target.value || undefined })}>
             <option value="">All projects</option>
+            <option value={UNASSIGNED}>Unassigned</option>
             {(projects.data ?? []).map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}

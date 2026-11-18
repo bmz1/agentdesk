@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 import { resolve } from "node:path"
-import type { CreateProjectBody, Project, UpdateProjectBody } from "@agentdesk/contracts"
-import { projects, sourceConnections, tickets } from "@agentdesk/db"
+import type { CreateProjectBody, Project, Ticket, UpdateProjectBody } from "@agentdesk/contracts"
+import { projects, tickets } from "@agentdesk/db"
 import * as Git from "@agentdesk/git"
 import { asc, count, eq } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
@@ -35,6 +35,8 @@ export const toProject = (r: ProjectRow): Project => ({
 export interface ProjectsShape {
   readonly list: Effect.Effect<ReadonlyArray<Project>, DbError>
   readonly get: (id: string) => Effect.Effect<Project, NotFound | DbError>
+  /** The ticket's project; tickets imported from a task source must be assigned to one first. */
+  readonly forTicket: (ticket: Pick<Ticket, "projectId" | "identifier">) => Effect.Effect<Project, NotFound | BadRequest | DbError>
   readonly create: (body: CreateProjectBody) => Effect.Effect<Project, BadRequest | Conflict | DbError>
   readonly update: (id: string, body: UpdateProjectBody) => Effect.Effect<Project, NotFound | BadRequest | DbError>
   readonly remove: (id: string) => Effect.Effect<void, NotFound | Conflict | DbError>
@@ -51,7 +53,7 @@ export const deriveKey = (name: string) => {
 export const ProjectsLive = Layer.effect(
   Projects,
   Effect.gen(function* () {
-    const { use, tx } = yield* Database
+    const { use } = yield* Database
     const activity = yield* Activity
     const notices = yield* Notices
     const defaults = yield* HarnessSettings
@@ -136,25 +138,19 @@ export const ProjectsLive = Layer.effect(
         yield* get(id)
         const n = yield* use((db) => db.select({ n: count() }).from(tickets).where(eq(tickets.projectId, id)).get()?.n ?? 0)
         if (n > 0) return yield* new Conflict({ message: "Project still has tickets; move or delete them first" })
-        yield* tx((db) => {
-          // Task source connections are global: drop this project from their routing instead.
-          for (const c of db.select().from(sourceConnections).all()) {
-            const projectRoutes = Object.fromEntries(Object.entries(c.projectRoutes ?? {}).filter(([, p]) => p !== id))
-            if (c.projectId === id || Object.keys(projectRoutes).length !== Object.keys(c.projectRoutes ?? {}).length) {
-              db.update(sourceConnections)
-                .set({ projectId: c.projectId === id ? null : c.projectId, projectRoutes })
-                .where(eq(sourceConnections.id, c.id))
-                .run()
-            }
-          }
-          db.delete(projects).where(eq(projects.id, id)).run()
-        })
+        yield* use((db) => db.delete(projects).where(eq(projects.id, id)).run())
         yield* notices.publish({ topic: "projects" })
       })
+
+    const forTicket = (ticket: Pick<Ticket, "projectId" | "identifier">) =>
+      ticket.projectId
+        ? get(ticket.projectId)
+        : Effect.fail(new BadRequest({ message: `${ticket.identifier} is not assigned to a project yet. Assign it to a project first.` }))
 
     return Projects.of({
       list: use((db) => db.select().from(projects).orderBy(asc(projects.name)).all().map(toProject)),
       get,
+      forTicket,
       create,
       update,
       remove

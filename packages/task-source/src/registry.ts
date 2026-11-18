@@ -14,8 +14,7 @@ export const describe = (a: TaskSourceAdapter<any>): SourceDescriptor => ({
   displayName: a.displayName,
   description: a.description,
   fields: a.fields,
-  credential: a.credential,
-  scopeLabel: a.scopeLabel ?? "Project"
+  credential: a.credential
 })
 
 export const makeSourceRegistry = (adapters: ReadonlyArray<TaskSourceAdapter<any>>): SourceRegistry => {

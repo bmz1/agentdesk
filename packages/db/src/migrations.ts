@@ -7,6 +7,12 @@ export interface Migration {
   readonly id: number
   readonly name: string
   readonly sql: string
+  /**
+   * Run with foreign key enforcement off, as SQLite's table-rebuild procedure requires
+   * (a referenced table cannot be dropped and recreated otherwise). Integrity is checked
+   * with `PRAGMA foreign_key_check` before the migration commits.
+   */
+  readonly foreignKeysOff?: boolean
 }
 
 export const migrations: ReadonlyArray<Migration> = [
@@ -371,6 +377,82 @@ CREATE TABLE source_sync_state (
 INSERT INTO source_sync_state (connection_id, last_sync_at, last_full_sync_at, high_watermark, last_error, consecutive_failures)
   SELECT connection_id, last_sync_at, last_full_sync_at, high_watermark, last_error, consecutive_failures FROM source_sync_state_stage;
 DROP TABLE source_sync_state_stage;
+`
+  },
+  {
+    id: 11,
+    name: "global_external_tickets",
+    // Tickets from task sources are global: imported without a project and assigned to any
+    // project on demand (number 0 until then; NULL project ids never collide in the unique
+    // index). Connections lose their routing from migration 10. Tickets already imported keep
+    // their project. rowids are copied so the full-text index stays valid.
+    foreignKeysOff: true,
+    sql: /* sql */ `
+DROP TRIGGER tickets_ai;
+DROP TRIGGER tickets_ad;
+DROP TRIGGER tickets_au;
+CREATE TABLE tickets_new (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id),
+  number INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  acceptance_criteria TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL,
+  priority TEXT NOT NULL,
+  source_kind TEXT NOT NULL,
+  harness TEXT,
+  model TEXT,
+  effort TEXT,
+  permission_mode TEXT,
+  workflow_id TEXT,
+  labels TEXT NOT NULL DEFAULT '[]',
+  pinned INTEGER NOT NULL DEFAULT 0,
+  tracked INTEGER NOT NULL DEFAULT 1,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  last_activity_at TEXT NOT NULL
+);
+INSERT INTO tickets_new (rowid, id, project_id, number, title, description, acceptance_criteria, status, priority, source_kind,
+                         harness, model, effort, permission_mode, workflow_id, labels, pinned, tracked, sort_order,
+                         created_at, updated_at, last_activity_at)
+  SELECT rowid, id, project_id, number, title, description, acceptance_criteria, status, priority, source_kind,
+         harness, model, effort, permission_mode, workflow_id, labels, pinned, tracked, sort_order,
+         created_at, updated_at, last_activity_at
+  FROM tickets;
+DROP TABLE tickets;
+ALTER TABLE tickets_new RENAME TO tickets;
+CREATE INDEX tickets_project_idx ON tickets(project_id);
+CREATE UNIQUE INDEX tickets_project_number ON tickets(project_id, number);
+CREATE TRIGGER tickets_ai AFTER INSERT ON tickets BEGIN
+  INSERT INTO tickets_fts(rowid, title, description) VALUES (new.rowid, new.title, new.description);
+END;
+CREATE TRIGGER tickets_ad AFTER DELETE ON tickets BEGIN
+  INSERT INTO tickets_fts(tickets_fts, rowid, title, description) VALUES ('delete', old.rowid, old.title, old.description);
+END;
+CREATE TRIGGER tickets_au AFTER UPDATE OF title, description ON tickets BEGIN
+  INSERT INTO tickets_fts(tickets_fts, rowid, title, description) VALUES ('delete', old.rowid, old.title, old.description);
+  INSERT INTO tickets_fts(rowid, title, description) VALUES (new.rowid, new.title, new.description);
+END;
+INSERT INTO tickets_fts(tickets_fts) VALUES ('rebuild');
+
+CREATE TABLE source_connections_new (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  name TEXT NOT NULL,
+  settings TEXT NOT NULL,
+  credential_ref TEXT NOT NULL,
+  poll_interval_sec INTEGER NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
+INSERT INTO source_connections_new (id, provider, name, settings, credential_ref, poll_interval_sec, enabled, created_at)
+  SELECT id, provider, name, settings, credential_ref, poll_interval_sec, enabled, created_at FROM source_connections;
+DROP TABLE source_connections;
+ALTER TABLE source_connections_new RENAME TO source_connections;
+CREATE INDEX source_connections_provider_idx ON source_connections(provider);
+ALTER TABLE source_sync_state DROP COLUMN unrouted;
 `
   }
 ]

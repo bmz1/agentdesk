@@ -46,7 +46,8 @@ export const q = {
   /** Pushed with `limits` notices; fetched once. */
   limits: () => queryOptions({ queryKey: qk.limits, queryFn: api.limits, staleTime: Infinity }),
   projects: () => queryOptions({ queryKey: qk.projects, queryFn: api.projects }),
-  project: (id: string) => queryOptions({ queryKey: qk.project(id), queryFn: () => api.project(id) }),
+  /** Null for a ticket that is not assigned to a project: the query stays idle. */
+  project: (id: string | null) => queryOptions({ queryKey: qk.project(id ?? ""), queryFn: () => api.project(id!), enabled: !!id }),
   tickets: (query: TicketQuery = {}) => queryOptions({ queryKey: qk.tickets(query), queryFn: () => api.tickets(query) }),
   ticket: (id: string) => queryOptions({ queryKey: qk.ticket(id), queryFn: () => api.ticket(id) }),
   ticketActivity: (id: string) => queryOptions({ queryKey: qk.ticketActivity(id), queryFn: () => api.ticketActivity(id) }),

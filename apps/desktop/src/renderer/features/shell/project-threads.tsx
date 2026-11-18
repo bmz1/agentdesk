@@ -25,7 +25,8 @@ export const useProjectThreads = () => {
     const byProject = new Map<string, Array<Thread>>()
     for (const session of sessions.data ?? []) {
       const ticket = byTicket.get(session.ticketId)
-      if (!ticket) continue
+      // Threads are local tickets and always have a project; skip anything that does not.
+      if (!ticket?.projectId) continue
       const list = byProject.get(ticket.projectId) ?? []
       list.push({ session, ticket })
       byProject.set(ticket.projectId, list)

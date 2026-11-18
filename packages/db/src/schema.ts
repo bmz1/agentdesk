@@ -25,7 +25,9 @@ export const tickets = sqliteTable(
   "tickets",
   {
     id: text("id").primaryKey(),
-    projectId: text("project_id").notNull().references(() => projects.id),
+    /** Null for tickets imported from a task source and not yet assigned to a project. */
+    projectId: text("project_id").references(() => projects.id),
+    /** Per-project number; 0 while unassigned. */
     number: integer("number").notNull(),
     title: text("title").notNull(),
     description: text("description").notNull().default(""),
@@ -69,17 +71,13 @@ export const ticketExternalLinks = sqliteTable(
 )
 
 /**
- * One configured task source (Jira site + JQL, Linear team, …), global to the workspace.
- * Imported tasks are routed to projects by their remote project/team key. Secrets live in the OS credential store.
+ * One configured task source (Jira site + JQL, Linear team, …). Connections are global:
+ * imported tickets have no project until someone assigns them. Secrets live in the OS credential store.
  */
 export const sourceConnections = sqliteTable("source_connections", {
   id: text("id").primaryKey(),
   provider: text("provider").notNull(),
   name: text("name").notNull(),
-  /** Fallback project for tasks whose remote project has no route; null imports routed tasks only. */
-  projectId: text("project_id").references(() => projects.id),
-  /** Remote project/team key (upper-cased) → local project id. */
-  projectRoutes: json<Record<string, string>>("project_routes").notNull().default({}),
   /** Provider settings, validated by the adapter's schema. Never contains secrets. */
   settings: json<unknown>("settings").notNull(),
   credentialRef: text("credential_ref").notNull(),
@@ -95,9 +93,7 @@ export const sourceSyncState = sqliteTable("source_sync_state", {
   /** Highest remote `updated` timestamp observed; used for incremental fetches. */
   highWatermark: text("high_watermark"),
   lastError: text("last_error"),
-  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
-  /** Remote project/team key → number of tasks seen in the last sync that no route covered. */
-  unrouted: json<Record<string, number>>("unrouted").notNull().default({})
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0)
 })
 
 export const workflowDefinitions = sqliteTable(

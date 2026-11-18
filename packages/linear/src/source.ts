@@ -81,7 +81,6 @@ export const buildFilter = (settings: LinearSettings, since?: Date) => ({
 const toTask = (i: Issue): RemoteTask => ({
   remoteId: i.id,
   key: i.identifier,
-  scope: i.identifier.slice(0, i.identifier.lastIndexOf("-")) || i.identifier,
   url: i.url,
   title: i.title,
   description: i.description ?? "",
@@ -170,7 +169,6 @@ export const linearSource: TaskSourceAdapter<LinearSettings> = {
   id: "linear",
   displayName: "Linear",
   description: "Import issues from a Linear team (read-only).",
-  scopeLabel: "Linear team",
   settings: LinearSettings,
   fields: [
     { key: "teamKey", label: "Team key", type: "text", required: true, placeholder: "ENG" },

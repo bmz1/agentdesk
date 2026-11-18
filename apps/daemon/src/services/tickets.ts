@@ -9,7 +9,7 @@ import {
   UpdateTicketBody
 } from "@agentdesk/contracts"
 import { agentSessions, projects, ticketExternalLinks, tickets, workflowRuns } from "@agentdesk/db"
-import { and, desc, eq, inArray, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm"
 import { Context, Effect, Layer } from "effect"
 import { BadRequest, type DbError, NotFound } from "../errors"
 import { newId, nowIso } from "../util"
@@ -19,6 +19,8 @@ import { Notices } from "./notices"
 
 export interface TicketFilter {
   readonly projectId?: string
+  /** true: only tickets not assigned to a project (imported from a task source). */
+  readonly unassigned?: boolean
   readonly source?: TicketSource
   readonly status?: BoardStatus
   readonly q?: string
@@ -64,7 +66,7 @@ export const loadTickets = (database: DatabaseShape, filter: TicketFilter = {}) 
         : []
       const keyIds = database.sqlite
         .prepare(
-          `SELECT t.id FROM tickets t JOIN projects p ON p.id = t.project_id
+          `SELECT t.id FROM tickets t LEFT JOIN projects p ON p.id = t.project_id
            LEFT JOIN ticket_external_links l ON l.ticket_id = t.id
            WHERE upper(l.display_key) LIKE ? OR upper(p.key || '-' || t.number) LIKE ? LIMIT 500`
         )
@@ -75,6 +77,7 @@ export const loadTickets = (database: DatabaseShape, filter: TicketFilter = {}) 
     }
     const where = and(
       filter.projectId ? eq(tickets.projectId, filter.projectId) : undefined,
+      filter.unassigned ? isNull(tickets.projectId) : undefined,
       filter.source ? eq(tickets.sourceKind, filter.source) : undefined,
       filter.status ? eq(tickets.status, filter.status) : undefined,
       filter.pinned !== undefined ? eq(tickets.pinned, filter.pinned) : undefined,
@@ -84,7 +87,7 @@ export const loadTickets = (database: DatabaseShape, filter: TicketFilter = {}) 
     const rows = db
       .select({ t: tickets, projectKey: projects.key, link: ticketExternalLinks })
       .from(tickets)
-      .innerJoin(projects, eq(projects.id, tickets.projectId))
+      .leftJoin(projects, eq(projects.id, tickets.projectId))
       .leftJoin(ticketExternalLinks, eq(ticketExternalLinks.ticketId, tickets.id))
       .where(where)
       .orderBy(tickets.sortOrder, desc(tickets.updatedAt))
@@ -189,6 +192,26 @@ export const TicketsLive = Layer.effect(
         Effect.flatMap((p) => (p ? Effect.void : Effect.fail(new NotFound({ entity: "project", id: projectId }))))
       )
 
+    /**
+     * A ticket can change project only while nothing is working on it: a live agent or run
+     * holds a worktree of the old project's repository. Local tickets always need a project.
+     */
+    const checkMovable = (t: Ticket, to: string | null) =>
+      Effect.gen(function* () {
+        if (to === null && t.source === LOCAL_SOURCE) {
+          return yield* new BadRequest({ message: "Local tickets always belong to a project" })
+        }
+        if (t.activeSessionId) return yield* new BadRequest({ message: "Stop the active agent before changing the ticket's project" })
+        const active = yield* use((db) =>
+          db
+            .select({ id: workflowRuns.id })
+            .from(workflowRuns)
+            .where(and(eq(workflowRuns.ticketId, t.id), notInArray(workflowRuns.status, ["completed", "failed", "cancelled"])))
+            .get()
+        )
+        if (active) return yield* new BadRequest({ message: "Cancel the running workflow before changing the ticket's project" })
+      })
+
     const create = Effect.fn("Tickets.create")(function* (body: CreateTicketBody, actor = "user") {
         yield* ensureProject(body.projectId)
         const id = newId()
@@ -243,7 +266,9 @@ export const TicketsLive = Layer.effect(
           })
         }
         if (body.projectId) yield* ensureProject(body.projectId)
-        yield* use((db) =>
+        const move = body.projectId !== undefined && body.projectId !== before.projectId
+        if (move) yield* checkMovable(before, body.projectId ?? null)
+        yield* tx((db) =>
           db
             .update(tickets)
             .set({
@@ -267,12 +292,26 @@ export const TicketsLive = Layer.effect(
               ...(body.pinned !== undefined && { pinned: body.pinned }),
               ...(body.tracked !== undefined && { tracked: body.tracked }),
               ...(body.sortOrder !== undefined && { sortOrder: body.sortOrder }),
-              ...(body.projectId !== undefined && { projectId: body.projectId }),
+              // A ticket takes the next number of the project it joins; 0 while unassigned.
+              ...(move && { projectId: body.projectId ?? null, number: body.projectId ? nextTicketNumber(database, body.projectId) : 0 }),
               updatedAt
             })
             .where(eq(tickets.id, id))
             .run()
         )
+        if (move) {
+          const name = (projectId: string | null) =>
+            projectId ? use((db) => db.select({ name: projects.name }).from(projects).where(eq(projects.id, projectId)).get()?.name ?? "a deleted project") : Effect.succeed(null)
+          const from = yield* name(before.projectId)
+          const to = yield* name(body.projectId ?? null)
+          yield* activity.record({
+            kind: "ticket.project",
+            message: to ? (from ? `Moved from ${from} to ${to}` : `Assigned to ${to}`) : `Unassigned from ${from}`,
+            ticketId: id,
+            actor,
+            data: { from: before.projectId, to: body.projectId ?? null }
+          })
+        }
         if (body.status !== undefined && body.status !== before.status) {
           yield* activity.record({
             kind: "ticket.status",

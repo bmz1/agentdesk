@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd, Tooltip } from "@/components/ui/misc"
+import { UNASSIGNED } from "@/features/board/issues-view"
 import { notificationCount } from "@/lib/agent-state"
 import { bridge } from "@/lib/connection"
 import { q } from "@/lib/queries"
@@ -37,6 +38,8 @@ export const Sidebar = () => {
   const openCreate = useUi((s) => s.openCreateTicket)
   const setCommandOpen = useUi((s) => s.setCommandOpen)
   const projects = useQuery(q.projects())
+  // Tickets imported from task sources wait here until someone assigns them to a project.
+  const unassigned = useQuery(q.tickets({ unassigned: true, tracked: true }))
   const pending = useQuery(q.approvals(true))
   const activeSessions = useQuery(q.sessions(true))
   const connected = useUi((s) => s.daemonConnected)
@@ -103,6 +106,19 @@ export const Sidebar = () => {
         <Link to="/issues" className={navItem} activeProps={active} activeOptions={{ includeSearch: false }}>
           <LayoutGrid /> All issues
         </Link>
+        {(unassigned.data?.length ?? 0) > 0 && (
+          <Link
+            to="/issues"
+            search={{ project: UNASSIGNED }}
+            className={cn(navItem, "pl-8")}
+            activeProps={active}
+            activeOptions={{ includeSearch: true }}
+            data-testid="nav-unassigned"
+          >
+            Unassigned
+            <span className="ml-auto rounded bg-bg-muted px-1.5 text-[11px] font-medium text-fg-muted">{unassigned.data!.length}</span>
+          </Link>
+        )}
 
         <div className="mt-4 flex items-center justify-between px-2 pb-1">
           <span className="text-[11px] font-medium text-fg-subtle">Projects</span>

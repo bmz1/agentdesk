@@ -6,20 +6,19 @@ import type {
   SyncResult,
   UpdateSourceConnectionBody
 } from "@agentdesk/contracts"
-import { projects, sourceConnections, sourceSyncState, ticketExternalLinks, tickets } from "@agentdesk/db"
+import { sourceConnections, sourceSyncState, ticketExternalLinks, tickets } from "@agentdesk/db"
 import { jiraSource } from "@agentdesk/jira"
 import { linearSource } from "@agentdesk/linear"
 import {
   type ConnectOptions,
   makeSourceRegistry,
   type RemoteTask,
-  scopeOf,
   type SourceRegistry,
   type TaskSourceAdapter,
   type TaskSourceClient,
   type TaskSourceError
 } from "@agentdesk/task-source"
-import { and, eq, inArray, notInArray } from "drizzle-orm"
+import { and, eq, notInArray } from "drizzle-orm"
 import { Clock, Context, Duration, Effect, FiberMap, Layer, Redacted, Schedule, type Schema, Semaphore } from "effect"
 import { DaemonConfig } from "../config"
 import { type BadRequest, type DbError, NotFound } from "../errors"
@@ -28,7 +27,6 @@ import { Activity } from "./activity"
 import { CredentialStore } from "./credentials"
 import { Database, type DatabaseShape } from "./database"
 import { Notices } from "./notices"
-import { nextTicketNumber } from "./tickets"
 
 // ---------------------------------------------------------------------------------------------
 // Registry of available sources (adapters), as an Effect service.
@@ -72,46 +70,23 @@ const WATERMARK_OVERLAP = Duration.toMillis(Duration.hours(26))
 const initialStatus = (cat: RemoteTask["statusCategory"]): BoardStatus =>
   cat === "done" ? "done" : cat === "in_progress" ? "in_progress" : "todo"
 
-/** Upper-cases route keys and drops blank ones, so "seon " and "SEON" are the same route. */
-export const normalizeRoutes = (routes: Readonly<Record<string, string>>): Record<string, string> =>
-  Object.fromEntries(
-    Object.entries(routes)
-      .map(([k, v]) => [k.trim().toUpperCase(), v.trim()] as const)
-      .filter(([k, v]) => k !== "" && v !== "")
-  )
-
 export interface UpsertConnection {
   readonly id: string
   readonly provider: string
   readonly providerName: string
-  /** Fallback project for tasks without a route; null skips them. */
-  readonly projectId: string | null
-  /** Normalized remote scope → local project id. */
-  readonly projectRoutes: Readonly<Record<string, string>>
 }
-
-const mergeUnrouted = (a: Readonly<Record<string, number>>, b: Readonly<Record<string, number>>) => {
-  const out: Record<string, number> = { ...a }
-  for (const [k, n] of Object.entries(b)) out[k] = Math.max(out[k] ?? 0, n)
-  return out
-}
-
-/** The local project a new task is imported into, or null when no route or default covers it. */
-export const routeTask = (conn: Pick<UpsertConnection, "projectId" | "projectRoutes">, task: RemoteTask): string | null =>
-  conn.projectRoutes[scopeOf(task)] ?? conn.projectId
 
 /**
  * Upsert one page of remote tasks inside a single transaction, keyed by the
- * stable remote id per (provider, connection). New tasks are routed to a
- * project by their remote scope; already-imported tasks stay in their project.
- * Remote status/assignee update the link only; the local board status is never
- * overwritten after creation.
+ * stable remote id per (provider, connection). Connections are global: new
+ * tickets are imported without a project and assigned on demand. Remote
+ * status/assignee update the link only; the local board status, project and
+ * other local fields are never overwritten.
  */
 export const upsertTasks = (database: DatabaseShape, conn: UpsertConnection, tasks: ReadonlyArray<RemoteTask>, now: string) =>
   database.tx((db) => {
     let created = 0
     let updated = 0
-    const unrouted: Record<string, number> = {}
     const changes: Array<{ ticketId: string; message: string; data: unknown }> = []
     for (const task of tasks) {
       const link = db
@@ -127,18 +102,12 @@ export const upsertTasks = (database: DatabaseShape, conn: UpsertConnection, tas
         .get()
       const raw = { key: task.key, ...task.raw }
       if (!link) {
-        const projectId = routeTask(conn, task)
-        if (!projectId) {
-          const scope = scopeOf(task)
-          unrouted[scope] = (unrouted[scope] ?? 0) + 1
-          continue
-        }
         const id = newId()
         db.insert(tickets)
           .values({
             id,
-            projectId,
-            number: nextTicketNumber(database, projectId),
+            projectId: null,
+            number: 0,
             title: task.title,
             description: task.description,
             acceptanceCriteria: "",
@@ -214,7 +183,7 @@ export const upsertTasks = (database: DatabaseShape, conn: UpsertConnection, tas
         changes.push({ ticketId: link.ticketId, message: `${task.key} is back in the sync scope`, data: null })
       }
     }
-    return { created, updated, unrouted, changes }
+    return { created, updated, changes }
   })
 
 export const TaskSyncLive = (options: TaskSyncOptions = {}) =>
@@ -248,8 +217,6 @@ export const TaskSyncLive = (options: TaskSyncOptions = {}) =>
             id: row.id,
             provider: row.provider,
             name: row.name,
-            projectId: row.projectId,
-            projectRoutes: row.projectRoutes ?? {},
             settings: row.settings,
             pollIntervalSec: row.pollIntervalSec,
             enabled: row.enabled,
@@ -257,7 +224,6 @@ export const TaskSyncLive = (options: TaskSyncOptions = {}) =>
             lastSyncAt: s?.lastSyncAt ?? null,
             lastFullSyncAt: s?.lastFullSyncAt ?? null,
             lastError: s?.lastError ?? null,
-            unrouted: s?.unrouted ?? {},
             createdAt: row.createdAt
           } satisfies SourceConnection
         })
@@ -305,26 +271,11 @@ export const TaskSyncLive = (options: TaskSyncOptions = {}) =>
           const since = full ? undefined : new Date(Date.parse(state!.highWatermark!) - WATERMARK_OVERLAP)
           const startedAt = new Date(nowMs).toISOString()
           yield* Effect.annotateCurrentSpan({ provider: row.provider, full })
-          // Routes to projects that were deleted since are ignored rather than failing the sync.
-          const routes = normalizeRoutes(row.projectRoutes ?? {})
-          const wanted = [...new Set([...Object.values(routes), ...(row.projectId ? [row.projectId] : [])])]
-          const existing = new Set(
-            wanted.length === 0
-              ? []
-              : yield* use((db) => db.select({ id: projects.id }).from(projects).where(inArray(projects.id, wanted)).all().map((p) => p.id))
-          )
-          const conn: UpsertConnection = {
-            id: row.id,
-            provider: row.provider,
-            providerName: adapter.displayName,
-            projectId: row.projectId && existing.has(row.projectId) ? row.projectId : null,
-            projectRoutes: Object.fromEntries(Object.entries(routes).filter(([, p]) => existing.has(p)))
-          }
+          const conn: UpsertConnection = { id: row.id, provider: row.provider, providerName: adapter.displayName }
 
           let fetched = 0
           let created = 0
           let updated = 0
-          const unrouted: Record<string, number> = {}
           let watermark = state?.highWatermark ?? null
           const seen: Array<string> = []
           const changes: Array<{ ticketId: string; message: string; data: unknown }> = []
@@ -335,7 +286,6 @@ export const TaskSyncLive = (options: TaskSyncOptions = {}) =>
             fetched += page.tasks.length
             created += r.created
             updated += r.updated
-            for (const [k, n] of Object.entries(r.unrouted)) unrouted[k] = (unrouted[k] ?? 0) + n
             changes.push(...r.changes)
             for (const t of page.tasks) {
               seen.push(t.remoteId)
@@ -370,27 +320,24 @@ export const TaskSyncLive = (options: TaskSyncOptions = {}) =>
                 ...(full && { lastFullSyncAt: startedAt }),
                 highWatermark: watermark,
                 lastError: null,
-                consecutiveFailures: 0,
-                // A full sync sees the whole scope; an incremental one only recent changes, so merge.
-                unrouted: full ? unrouted : mergeUnrouted(state?.unrouted ?? {}, unrouted)
+                consecutiveFailures: 0
               })
               .where(eq(sourceSyncState.connectionId, row.id))
               .run()
           )
-          const skipped = Object.values(unrouted).reduce((a, b) => a + b, 0)
           for (const c of changes) {
             yield* activity.record({ kind: "source.updated", message: c.message, ticketId: c.ticketId, data: c.data })
           }
-          if (created || updated || missing || skipped) {
+          if (created || updated || missing) {
             yield* activity.record({
               kind: "source.sync",
-              message: `${adapter.displayName} sync (${row.name}): ${created} new, ${updated} updated, ${missing} missing${skipped ? `, ${skipped} not routed to a project` : ""}`,
+              message: `${adapter.displayName} sync (${row.name}): ${created} new, ${updated} updated, ${missing} missing`,
               data: { connectionId: row.id, provider: row.provider, full }
             })
           }
           yield* notices.publish({ topic: "sources" })
           yield* notices.publish({ topic: "tickets" })
-          const result: SyncResult = { fetched, created, updated, missing, unrouted: skipped, full }
+          const result: SyncResult = { fetched, created, updated, missing, full }
           yield* Effect.annotateCurrentSpan({ ...result })
           return result
         }).pipe(
@@ -452,28 +399,13 @@ export const TaskSyncLive = (options: TaskSyncOptions = {}) =>
       const stopPoller = (id: string) => FiberMap.remove(pollers, id)
 
       // ---- CRUD ------------------------------------------------------------------------
-      /** Every project a connection points at must exist. */
-      const checkProjects = (projectId: string | null, routes: Readonly<Record<string, string>>) =>
-        Effect.gen(function* () {
-          const ids = [...new Set([...Object.values(routes), ...(projectId ? [projectId] : [])])]
-          if (ids.length === 0) return
-          const found = new Set(
-            yield* use((db) => db.select({ id: projects.id }).from(projects).where(inArray(projects.id, ids)).all().map((p) => p.id))
-          )
-          const missing = ids.find((p) => !found.has(p))
-          if (missing) return yield* new NotFound({ entity: "project", id: missing })
-        })
-
       const create = Effect.fn("TaskSync.create")(function* (body: CreateSourceConnectionBody) {
         const adapter = yield* registry.get(body.provider)
         const settings = yield* registry.decodeSettings(body.provider, body.settings)
-        const projectId = body.projectId || null
-        const projectRoutes = normalizeRoutes(body.projectRoutes ?? {})
-        yield* checkProjects(projectId, projectRoutes)
         const id = newId()
         const createdAt = yield* nowIso
         const credentialRef = `${body.provider}:${id}`
-        yield* Effect.annotateCurrentSpan({ connectionId: id, provider: body.provider, routes: Object.keys(projectRoutes).length })
+        yield* Effect.annotateCurrentSpan({ connectionId: id, provider: body.provider })
         if (body.token) yield* credentials.set(credentialRef, Redacted.make(body.token))
         yield* use((db) => {
           db.insert(sourceConnections)
@@ -481,8 +413,6 @@ export const TaskSyncLive = (options: TaskSyncOptions = {}) =>
               id,
               provider: body.provider,
               name: body.name,
-              projectId,
-              projectRoutes,
               settings,
               credentialRef,
               pollIntervalSec: Math.max(60, body.pollIntervalSec ?? 300),
@@ -505,9 +435,6 @@ export const TaskSyncLive = (options: TaskSyncOptions = {}) =>
       const update = Effect.fn("TaskSync.update")(function* (id: string, body: UpdateSourceConnectionBody) {
         const row = yield* getRow(id)
         const settings = body.settings !== undefined ? yield* registry.decodeSettings(row.provider, body.settings) : undefined
-        const projectId = body.projectId !== undefined ? body.projectId || null : undefined
-        const projectRoutes = body.projectRoutes !== undefined ? normalizeRoutes(body.projectRoutes) : undefined
-        yield* checkProjects(projectId ?? null, projectRoutes ?? {})
         if (body.token) yield* credentials.set(row.credentialRef, Redacted.make(body.token))
         yield* use((db) =>
           db
@@ -515,17 +442,14 @@ export const TaskSyncLive = (options: TaskSyncOptions = {}) =>
             .set({
               ...(body.name !== undefined && { name: body.name }),
               ...(settings !== undefined && { settings }),
-              ...(projectId !== undefined && { projectId }),
-              ...(projectRoutes !== undefined && { projectRoutes }),
               ...(body.pollIntervalSec !== undefined && { pollIntervalSec: Math.max(60, body.pollIntervalSec) }),
               ...(body.enabled !== undefined && { enabled: body.enabled })
             })
             .where(eq(sourceConnections.id, id))
             .run()
         )
-        if (settings !== undefined || projectId !== undefined || projectRoutes !== undefined) {
-          // Scope or routing may have changed: force the next sync to be full so out-of-scope tasks
-          // are detected and tasks that were skipped for lack of a route get imported.
+        if (settings !== undefined) {
+          // Scope may have changed: force the next sync to be full so out-of-scope tasks are detected.
           yield* use((db) => db.update(sourceSyncState).set({ highWatermark: null }).where(eq(sourceSyncState.connectionId, id)).run())
         }
         const after = yield* getRow(id)

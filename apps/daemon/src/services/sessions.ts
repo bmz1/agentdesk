@@ -676,7 +676,7 @@ export const SessionsLive = Layer.effect(
         if (ticket.activeSessionId && live.has(ticket.activeSessionId)) {
           return yield* new BadRequest({ message: "This ticket already has an active agent session" })
         }
-        const project = yield* projects.get(ticket.projectId)
+        const project = yield* projects.forTicket(ticket)
         const harness = input.harness ?? ticket.harness ?? project.defaultHarness
         const policy = yield* projectPolicy(project, config.sandboxPrefix, ticketModel(ticket, project, harness), (yield* defaults.get).harnesses[harness], ticketEffort(ticket, project, harness), ticket.permissionMode)
         // Every agent works in its own worktree, never in the project's main checkout.
@@ -707,7 +707,7 @@ export const SessionsLive = Layer.effect(
     const applySwitches = (row: Row, switches: PromptSwitches) =>
       Effect.gen(function* () {
         const ticket = yield* tickets.get(row.ticketId)
-        const project = yield* projects.get(ticket.projectId)
+        const project = yield* projects.forTicket(ticket)
         const own = row.harness === (ticket.harness ?? project.defaultHarness)
         const update = {
           ...(switches.model !== undefined && switches.model !== ticket.model && { model: switches.model }),
@@ -759,7 +759,7 @@ export const SessionsLive = Layer.effect(
         if (switches.permissionMode !== undefined) {
           // Refuse before anything changes: a relaunch that then fails would leave the agent stopped.
           const ticket = yield* tickets.get(sessionRow.ticketId)
-          const project = yield* projects.get(ticket.projectId)
+          const project = yield* projects.forTicket(ticket)
           const harnessDefaults = (yield* defaults.get).harnesses[sessionRow.harness as HarnessId]
           if (effectivePermissionMode(project, harnessDefaults, switches.permissionMode) === "unrestricted" && !config.sandboxPrefix?.length) {
             return yield* unrestrictedWithoutSandbox()
@@ -809,7 +809,7 @@ export const SessionsLive = Layer.effect(
         }
         if (row.workspaceId && !row.runId) yield* workspaces.lock(row.workspaceId, id)
         const ticket = yield* tickets.get(row.ticketId)
-        const project = yield* projects.get(ticket.projectId)
+        const project = yield* projects.forTicket(ticket)
         yield* record(id, promptEvent)
         yield* record(id, { type: "session.status", state: "resuming", detail: "Resuming provider conversation in a new process" })
         const harness = row.harness as HarnessId

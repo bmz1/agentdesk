@@ -18,11 +18,6 @@ export interface RemoteTask {
   readonly remoteId: string
   /** Human key shown on cards (SEON-12, ENG-42). */
   readonly key: string
-  /**
-   * Remote container the task lives in (Jira project key, Linear team key). Connections are
-   * global, so this routes the task to a local project. Defaults to the key's prefix.
-   */
-  readonly scope?: string
   readonly url: string
   readonly title: string
   /** Plain text / Markdown-ish. Rendered as text, never HTML. */
@@ -91,8 +86,6 @@ export interface TaskSourceAdapter<Settings = unknown> {
   readonly settings: Schema.Codec<Settings, unknown>
   readonly fields: ReadonlyArray<SourceField>
   readonly credential: { readonly label: string; readonly hint: string; readonly required: boolean }
-  /** What a task's `scope` is called in this source ("Jira project", "Linear team"). */
-  readonly scopeLabel?: string
   readonly connect: (settings: Settings, credential: Redacted.Redacted<string> | undefined, options?: ConnectOptions) => TaskSourceClient
 }
 
@@ -103,9 +96,4 @@ export interface SourceDescriptor {
   readonly description: string
   readonly fields: ReadonlyArray<SourceField>
   readonly credential: TaskSourceAdapter["credential"]
-  readonly scopeLabel: string
 }
-
-/** The routing key of a task: its explicit scope, else the prefix of its key (SEON-12 → SEON). */
-export const scopeOf = (task: Pick<RemoteTask, "key" | "scope">): string =>
-  (task.scope ?? task.key.replace(/-[^-]*$/, "")).trim().toUpperCase()
