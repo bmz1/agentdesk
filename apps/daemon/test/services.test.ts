@@ -42,7 +42,9 @@ describe("typed errors", () => {
       expect(prompt._tag).toBe("NotFound")
 
       // Unrestricted mode without a sandbox is a typed BadRequest, not a thrown exception.
-      const p = yield* Projects.use((x) => x.create({ name: "Yolo", repoPath: makeRepo(), defaultHarness: "mock", permissionMode: "unrestricted" }))
+      const p = yield* Projects.use((x) =>
+        x.create({ name: "Yolo", repoPath: makeRepo(), defaultHarness: "mock", permissionMode: "unrestricted" })
+      )
       const t = yield* Tickets.use((x) => x.create({ projectId: p.id, title: "t" }))
       const yolo = yield* Effect.flip(Sessions.use((s) => s.startForTicket(t.id, {})))
       expect(yolo).toMatchObject({ _tag: "BadRequest" })
@@ -109,71 +111,77 @@ describe("time-dependent behaviour on the Effect Clock (TestClock)", () => {
 })
 
 describe("workflow scheduling (FiberMap + Semaphores)", () => {
-  it.live("admits runs FIFO and never exceeds the per-project cap", () =>
-    Effect.gen(function* () {
-      const p = yield* Projects.use((x) =>
-        x.create({ name: "Cap", repoPath: makeRepo(), defaultHarness: "mock", permissionMode: "accept_edits", testCommand: "sleep 0.3" })
-      )
-      const runs: Array<string> = []
-      for (const title of ["a", "b", "c"]) {
-        const t = yield* Tickets.use((x) => x.create({ projectId: p.id, title }))
-        runs.push((yield* Workflows.use((w) => w.start(t.id, { workflowId: "quick-fix" }))).id)
-      }
-      let maxActive = 0
-      const sampler = yield* Workflows.use((w) =>
-        Effect.sync(() => {
-          maxActive = Math.max(maxActive, w.activeCount())
-        })
-      ).pipe(Effect.repeat(Schedule.spaced("10 millis")), Effect.forkChild)
-      const details = yield* Effect.forEach(runs, (id) => awaitRun(id))
-      yield* Fiber.interrupt(sampler)
-      expect(details.map((r) => r.status)).toEqual(["completed", "completed", "completed"])
-      expect(maxActive).toBe(1)
-      // FIFO: each run started after the previous one finished.
-      for (let i = 1; i < details.length; i++) {
-        expect(details[i]!.startedAt! >= details[i - 1]!.finishedAt!).toBe(true)
-      }
-    }).pipe(Effect.provide(TestApp({ maxRunsPerProject: 1, maxConcurrentRuns: 3 }))),
+  it.live(
+    "admits runs FIFO and never exceeds the per-project cap",
+    () =>
+      Effect.gen(function* () {
+        const p = yield* Projects.use((x) =>
+          x.create({ name: "Cap", repoPath: makeRepo(), defaultHarness: "mock", permissionMode: "accept_edits", testCommand: "sleep 0.3" })
+        )
+        const runs: Array<string> = []
+        for (const title of ["a", "b", "c"]) {
+          const t = yield* Tickets.use((x) => x.create({ projectId: p.id, title }))
+          runs.push((yield* Workflows.use((w) => w.start(t.id, { workflowId: "quick-fix" }))).id)
+        }
+        let maxActive = 0
+        const sampler = yield* Workflows.use((w) =>
+          Effect.sync(() => {
+            maxActive = Math.max(maxActive, w.activeCount())
+          })
+        ).pipe(Effect.repeat(Schedule.spaced("10 millis")), Effect.forkChild)
+        const details = yield* Effect.forEach(runs, (id) => awaitRun(id))
+        yield* Fiber.interrupt(sampler)
+        expect(details.map((r) => r.status)).toEqual(["completed", "completed", "completed"])
+        expect(maxActive).toBe(1)
+        // FIFO: each run started after the previous one finished.
+        for (let i = 1; i < details.length; i++) {
+          expect(details[i]!.startedAt! >= details[i - 1]!.finishedAt!).toBe(true)
+        }
+      }).pipe(Effect.provide(TestApp({ maxRunsPerProject: 1, maxConcurrentRuns: 3 }))),
     30_000
   )
 })
 
 describe("tracing", () => {
-  it.live("a workflow run produces a meaningful span tree", () => {
-    const { tracer, recorded } = makeRecordingTracer()
-    return Effect.gen(function* () {
-      const p = yield* Projects.use((x) =>
-        x.create({ name: "Trace", repoPath: makeRepo(), defaultHarness: "mock", permissionMode: "accept_edits", testCommand: "true" })
-      )
-      const t = yield* Tickets.use((x) => x.create({ projectId: p.id, title: "Traced" }))
-      const run = yield* Workflows.use((w) => w.start(t.id, { workflowId: "quick-fix" }))
-      yield* awaitRun(run.id)
+  it.live(
+    "a workflow run produces a meaningful span tree",
+    () => {
+      const { tracer, recorded } = makeRecordingTracer()
+      return Effect.gen(function* () {
+        const p = yield* Projects.use((x) =>
+          x.create({ name: "Trace", repoPath: makeRepo(), defaultHarness: "mock", permissionMode: "accept_edits", testCommand: "true" })
+        )
+        const t = yield* Tickets.use((x) => x.create({ projectId: p.id, title: "Traced" }))
+        const run = yield* Workflows.use((w) => w.start(t.id, { workflowId: "quick-fix" }))
+        yield* awaitRun(run.id)
 
-      const spans = recorded()
-      const names = new Set(spans.map((s) => s.name))
-      for (const name of [
-        "Workflows.start",
-        "Workflow.schedule",
-        "Workflow.run",
-        "Workflow.step",
-        "Workflow.agentStep",
-        "Workflow.commandStep",
-        "Sessions.start",
-        "Sessions.launch",
-        "Harness.start",
-        "AgentSession",
-        "Sessions.awaitTurn",
-        "Workspaces.allocate"
-      ]) {
-        expect(names, `missing span ${name}`).toContain(name)
-      }
-      const steps = spans.filter((s) => s.name === "Workflow.step")
-      expect(steps.map((s) => s.attributes.stepId)).toEqual(["implement", "test"])
-      expect(steps.every((s) => s.parent === "Workflow.run" && s.attributes.runId === run.id)).toBe(true)
-      expect(steps.map((s) => s.attributes.outcome)).toEqual(["completed", "completed"])
-      const command = spans.find((s) => s.name === "Workflow.commandStep")!
-      expect(command).toMatchObject({ parent: "Workflow.step", attributes: { command: "true", exitCode: 0 } })
-      expect(spans.find((s) => s.name === "Sessions.launch")!.attributes).toMatchObject({ harness: "mock", ticketId: t.id })
-    }).pipe(Effect.provide(TestApp()), Effect.withTracer(tracer))
-  }, 30_000)
+        const spans = recorded()
+        const names = new Set(spans.map((s) => s.name))
+        for (const name of [
+          "Workflows.start",
+          "Workflow.schedule",
+          "Workflow.run",
+          "Workflow.step",
+          "Workflow.agentStep",
+          "Workflow.commandStep",
+          "Sessions.start",
+          "Sessions.launch",
+          "Harness.start",
+          "AgentSession",
+          "Sessions.awaitTurn",
+          "Workspaces.allocate"
+        ]) {
+          expect(names, `missing span ${name}`).toContain(name)
+        }
+        const steps = spans.filter((s) => s.name === "Workflow.step")
+        expect(steps.map((s) => s.attributes.stepId)).toEqual(["implement", "test"])
+        expect(steps.every((s) => s.parent === "Workflow.run" && s.attributes.runId === run.id)).toBe(true)
+        expect(steps.map((s) => s.attributes.outcome)).toEqual(["completed", "completed"])
+        const command = spans.find((s) => s.name === "Workflow.commandStep")!
+        expect(command).toMatchObject({ parent: "Workflow.step", attributes: { command: "true", exitCode: 0 } })
+        expect(spans.find((s) => s.name === "Sessions.launch")!.attributes).toMatchObject({ harness: "mock", ticketId: t.id })
+      }).pipe(Effect.provide(TestApp()), Effect.withTracer(tracer))
+    },
+    30_000
+  )
 })

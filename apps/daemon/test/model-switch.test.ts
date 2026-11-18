@@ -18,7 +18,13 @@ describe("switching model and effort from the composer", () => {
   it("applies to the live session, sticks on the ticket, and relaunches when effort is launch-only", async () => {
     const { daemon, api } = await startTestDaemon({ adapters: [makeMockAdapter({ delayMs: 1, effortAtLaunchOnly: true })] })
     cleanups.push(daemon.stop)
-    const p = await api.post("/projects", { name: "Switch", key: "SW", repoPath: makeRepo(), defaultHarness: "mock", permissionMode: "accept_edits" })
+    const p = await api.post("/projects", {
+      name: "Switch",
+      key: "SW",
+      repoPath: makeRepo(),
+      defaultHarness: "mock",
+      permissionMode: "accept_edits"
+    })
     const t = await api.post("/tickets", { projectId: p.id, title: "Switch things" })
     const s = await api.post(`/tickets/${t.id}/sessions`, { prompt: "First [noop]" })
     await turns(api, s.id, 1)
@@ -49,7 +55,8 @@ describe("switching model and effort from the composer", () => {
 })
 
 describe("per-ticket permission mode", () => {
-  const permissions = (h: Array<any>) => h.filter((e) => e.event.type === "session.status" && e.event.state === "permissions").map((e) => e.event.detail)
+  const permissions = (h: Array<any>) =>
+    h.filter((e) => e.event.type === "session.status" && e.event.state === "permissions").map((e) => e.event.detail)
 
   it("overrides the project at start and switches from the composer by relaunching the conversation", async () => {
     const { daemon, api } = await startTestDaemon({ adapters: [makeMockAdapter({ delayMs: 1 })] })
@@ -79,7 +86,13 @@ describe("per-ticket permission mode", () => {
   it("refuses unrestricted without a sandbox before touching the running agent", async () => {
     const { daemon, api } = await startTestDaemon({ adapters: [makeMockAdapter({ delayMs: 1 })] })
     cleanups.push(daemon.stop)
-    const p = await api.post("/projects", { name: "Perm2", key: "PN", repoPath: makeRepo(), defaultHarness: "mock", permissionMode: "accept_edits" })
+    const p = await api.post("/projects", {
+      name: "Perm2",
+      key: "PN",
+      repoPath: makeRepo(),
+      defaultHarness: "mock",
+      permissionMode: "accept_edits"
+    })
     const t = await api.post("/tickets", { projectId: p.id, title: "Stay safe" })
     const s = await api.post(`/tickets/${t.id}/sessions`, { prompt: "First [noop]" })
     await turns(api, s.id, 1)

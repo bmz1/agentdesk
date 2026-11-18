@@ -38,8 +38,7 @@ const waitStatus = (api: any, id: string, statuses: Array<string>) =>
     const r = await runOf(api, id)
     return statuses.includes(r.status) ? r : undefined
   }, 20_000)
-const pendingFor = async (api: any, runId: string) =>
-  (await api.get("/approvals?pending=1")).filter((a: any) => a.runId === runId)
+const pendingFor = async (api: any, runId: string) => (await api.get("/approvals?pending=1")).filter((a: any) => a.runId === runId)
 
 describe("workflow engine", () => {
   it("plan → approve → implement → test → review → approved draft PR", async () => {
@@ -144,7 +143,12 @@ describe("workflow engine", () => {
   it("keeps approval gates durable across daemon restarts and supports cancel", async () => {
     const { repo } = setup()
     const first = await startTestDaemon()
-    const project = await first.api.post("/projects", { name: "Durable", repoPath: repo, defaultHarness: "mock", permissionMode: "accept_edits" })
+    const project = await first.api.post("/projects", {
+      name: "Durable",
+      repoPath: repo,
+      defaultHarness: "mock",
+      permissionMode: "accept_edits"
+    })
     const ticket = await first.api.post("/tickets", { projectId: project.id, title: "Gate" })
     const run = await first.api.post(`/tickets/${ticket.id}/start-run`, { harness: "mock" })
     await waitStatus(first.api, run.id, ["waiting_for_approval"])

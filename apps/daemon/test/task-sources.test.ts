@@ -18,7 +18,12 @@ describe("Jira via the deprecated /jira/* aliases (read-only sync)", () => {
       deployment: "cloud",
       issues: [
         { id: "10001", key: "SEON-1", summary: "Fraud rule editor", category: "indeterminate", status: "In Progress", labels: ["fraud"] },
-        { id: "10002", key: "SEON-2", summary: "Export CSV", description: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "<img src=x onerror=alert(1)>" }] }] } },
+        {
+          id: "10002",
+          key: "SEON-2",
+          summary: "Export CSV",
+          description: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "<img src=x onerror=alert(1)>" }] }] }
+        },
         { id: "10003", key: "SEON-3", summary: "Done thing", category: "done", status: "Done" }
       ],
       pageSize: 2
@@ -49,7 +54,11 @@ describe("Jira via the deprecated /jira/* aliases (read-only sync)", () => {
     expect(tickets.filter((t: any) => t.projectId === null)).toHaveLength(3)
     const seon1 = tickets.find((t: any) => t.identifier === "SEON-1")
     expect(seon1).toMatchObject({ source: "jira", status: "in_progress", labels: ["fraud"] })
-    expect(seon1.external).toMatchObject({ remoteStatus: "In Progress", url: "https://seon.atlassian.net/browse/SEON-1", remoteState: "active" })
+    expect(seon1.external).toMatchObject({
+      remoteStatus: "In Progress",
+      url: "https://seon.atlassian.net/browse/SEON-1",
+      remoteState: "active"
+    })
     expect(tickets.find((t: any) => t.identifier === "SEON-3").status).toBe("done")
     // Untrusted HTML stays inert text.
     expect(tickets.find((t: any) => t.identifier === "SEON-2").description).toBe("<img src=x onerror=alert(1)>")
@@ -60,7 +69,12 @@ describe("Jira via the deprecated /jira/* aliases (read-only sync)", () => {
     await expect(api.patch(`/tickets/${seon1.id}`, { title: "hacked" })).rejects.toMatchObject({ status: 400 })
 
     // Remote update + removal from scope.
-    fake.state.issues[0] = { ...fake.state.issues[0]!, summary: "Fraud rule editor v2", status: "In Review", updated: "2026-11-02T10:00:00.000+0000" }
+    fake.state.issues[0] = {
+      ...fake.state.issues[0]!,
+      summary: "Fraud rule editor v2",
+      status: "In Review",
+      updated: "2026-11-02T10:00:00.000+0000"
+    }
     fake.state.issues.splice(1, 1)
     const second = await api.post(`/jira/connections/${conn.id}/sync?full=1`)
     expect(second).toMatchObject({ created: 0, updated: 1, missing: 1 })
@@ -102,7 +116,14 @@ describe("Jira via the deprecated /jira/* aliases (read-only sync)", () => {
     expect(c.lastError).toContain("rejected credentials")
     expect((await api.post(`/jira/connections/${conn.id}/test`)).ok).toBe(false)
     await expect(
-      api.post("/jira/connections", { name: "x", deployment: "cloud", baseUrl: "http://evil.example", principal: "a", jql: "x", projectId: project.id })
+      api.post("/jira/connections", {
+        name: "x",
+        deployment: "cloud",
+        baseUrl: "http://evil.example",
+        principal: "a",
+        jql: "x",
+        projectId: project.id
+      })
     ).rejects.toMatchObject({ status: 400 })
   })
 })
@@ -166,7 +187,11 @@ describe("generic task sources API", () => {
     expect(Object.keys(byKey).sort()).toEqual(["ENG-1", "ENG-2", "SEON-1"])
     expect(byKey["ENG-1"]).toMatchObject({ source: "linear", status: "in_progress" })
     expect(byKey["ENG-2"]).toMatchObject({ source: "linear", status: "todo" })
-    expect(byKey["ENG-1"].external).toMatchObject({ provider: "linear", url: "https://linear.app/acme/issue/ENG-1", remoteStatus: "In Progress" })
+    expect(byKey["ENG-1"].external).toMatchObject({
+      provider: "linear",
+      url: "https://linear.app/acme/issue/ENG-1",
+      remoteStatus: "In Progress"
+    })
     expect(byKey["SEON-1"]).toMatchObject({ source: "jira" })
     expect((await api.get("/tickets?source=linear")).length).toBe(2)
     // Remote-owned fields are read-only for every source.
@@ -239,7 +264,9 @@ describe("global task-source tickets", () => {
     await expect(api.patch(`/tickets/${local.id}`, { projectId: null })).rejects.toMatchObject({ status: 400 })
     await expect(api.patch(`/tickets/${t["PAY-7"].id}`, { projectId: "nope" })).rejects.toMatchObject({ status: 404 })
     const history = await api.get(`/tickets/${t["SEON-1"].id}/activity`)
-    expect(history.map((h: any) => h.message)).toEqual(expect.arrayContaining(["Assigned to Alpha", "Moved from Alpha to Beta", "Unassigned from Beta"]))
+    expect(history.map((h: any) => h.message)).toEqual(
+      expect.arrayContaining(["Assigned to Alpha", "Moved from Alpha to Beta", "Unassigned from Beta"])
+    )
 
     // Syncing again never touches the local assignment.
     await api.patch(`/tickets/${t["PAY-7"].id}`, { projectId: a.id })
@@ -252,12 +279,18 @@ describe("global task-source tickets", () => {
   it("refuses agents and workflows until a ticket has a project, and moves while an agent works", async () => {
     const { api, a, b, byKey } = await setup()
     const t = (await byKey())["SEON-1"]
-    await expect(api.post(`/tickets/${t.id}/sessions`, { prompt: "go" })).rejects.toMatchObject({ status: 400, body: { message: expect.stringContaining("not assigned to a project") } })
+    await expect(api.post(`/tickets/${t.id}/sessions`, { prompt: "go" })).rejects.toMatchObject({
+      status: 400,
+      body: { message: expect.stringContaining("not assigned to a project") }
+    })
     await expect(api.post(`/tickets/${t.id}/start-run`, {})).rejects.toMatchObject({ status: 400 })
 
     await api.patch(`/tickets/${t.id}`, { projectId: a.id })
     const s = await api.post(`/tickets/${t.id}/sessions`, { prompt: "go" })
-    await expect(api.patch(`/tickets/${t.id}`, { projectId: b.id })).rejects.toMatchObject({ status: 400, body: { message: expect.stringContaining("Stop the active agent") } })
+    await expect(api.patch(`/tickets/${t.id}`, { projectId: b.id })).rejects.toMatchObject({
+      status: 400,
+      body: { message: expect.stringContaining("Stop the active agent") }
+    })
     await api.post(`/sessions/${s.id}/stop`)
     expect(await api.patch(`/tickets/${t.id}`, { projectId: b.id })).toMatchObject({ projectId: b.id })
   })

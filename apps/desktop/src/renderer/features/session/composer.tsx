@@ -1,6 +1,6 @@
 import type { ImageRef } from "@agentdesk/contracts"
 import { ArrowUp, ImagePlus, LoaderCircle, Square, TriangleAlert, X } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useEffectEvent, useRef, useState } from "react"
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupText, InputGroupTextarea } from "@/components/ui/input-group"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -41,9 +41,8 @@ export const Composer = ({
   const fileInput = useRef<HTMLInputElement>(null)
 
   // Revoke previews on unmount.
-  const latest = useRef(images)
-  latest.current = images
-  useEffect(() => () => latest.current.forEach((i) => URL.revokeObjectURL(i.preview)), [])
+  const revokePreviews = useEffectEvent(() => images.forEach((i) => URL.revokeObjectURL(i.preview)))
+  useEffect(() => () => revokePreviews(), [])
 
   const addFiles = (files: Iterable<File>) => {
     for (const file of files) {
@@ -186,11 +185,25 @@ export const Composer = ({
           <InputGroupText className="min-w-0 truncate text-xs font-normal text-fg-subtle">{meta}</InputGroupText>
           <div className="ml-auto flex items-center gap-1.5">
             {running && onInterrupt && (
-              <InputGroupButton type="button" size="icon-sm" variant="outline" aria-label="Interrupt the agent" title={`Interrupt (${shortcutHint("interrupt")})`} onClick={onInterrupt}>
+              <InputGroupButton
+                type="button"
+                size="icon-sm"
+                variant="outline"
+                aria-label="Interrupt the agent"
+                title={`Interrupt (${shortcutHint("interrupt")})`}
+                onClick={onInterrupt}
+              >
                 <Square />
               </InputGroupButton>
             )}
-            <InputGroupButton type="submit" size="icon-sm" variant="default" aria-label="Send message" disabled={!canSend} data-testid="composer-send">
+            <InputGroupButton
+              type="submit"
+              size="icon-sm"
+              variant="default"
+              aria-label="Send message"
+              disabled={!canSend}
+              data-testid="composer-send"
+            >
               {sending || uploading ? <LoaderCircle className="animate-spin" /> : <ArrowUp />}
             </InputGroupButton>
           </div>

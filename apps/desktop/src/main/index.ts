@@ -63,14 +63,20 @@ const createWindow = () => {
 
 app.whenReady().then(() => {
   if (process.platform === "darwin") app.dock?.setIcon(appIcon)
-  const badge = createNotificationBadge({ connection: readConnectionFile, setBadge: (count) => {
-    if (process.platform === "darwin") app.dock?.setBadge(count ? String(count) : "")
-    else app.setBadgeCount(count)
-  } })
+  const badge = createNotificationBadge({
+    connection: readConnectionFile,
+    setBadge: (count) => {
+      if (process.platform === "darwin") app.dock?.setBadge(count ? String(count) : "")
+      else app.setBadgeCount(count)
+    }
+  })
   const badgeTimer = setInterval(() => void badge.refresh(), 5000)
   badgeTimer.unref()
   void badge.refresh()
-  app.once("before-quit", () => { clearInterval(badgeTimer); badge.stop() })
+  app.once("before-quit", () => {
+    clearInterval(badgeTimer)
+    badge.stop()
+  })
   ipcMain.handle("agentdesk:notification-state", (_e, count: unknown, seen: unknown) => badge.update(count, seen))
 
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {

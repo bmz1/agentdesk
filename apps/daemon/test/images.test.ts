@@ -25,7 +25,13 @@ describe("images in agent sessions", () => {
     expect(Buffer.from(await res.arrayBuffer()).toString("base64")).toBe(PNG)
     expect((await raw("/attachments/../../etc")).status).toBe(404)
 
-    const p = await api.post("/projects", { name: "Img", key: "IMG", repoPath: makeRepo(), defaultHarness: "mock", permissionMode: "accept_edits" })
+    const p = await api.post("/projects", {
+      name: "Img",
+      key: "IMG",
+      repoPath: makeRepo(),
+      defaultHarness: "mock",
+      permissionMode: "accept_edits"
+    })
     const t = await api.post("/tickets", { projectId: p.id, title: "Look at this" })
     const s = await api.post(`/tickets/${t.id}/sessions`, { prompt: "What is in the screenshot? [noop]", images: [ref.id] })
     const history = await waitFor(async () => {

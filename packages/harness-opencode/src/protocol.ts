@@ -81,7 +81,9 @@ export const formQuestions = (form: unknown): Array<AgentQuestion> => {
       str(o.label) ? [{ label: str(o.label)!, ...(str(o.description) && { description: str(o.description) }) }] : []
     )
     if (field.type === "boolean") {
-      return [{ id: key, ...(header && { header }), question, options: [{ label: YES }, { label: NO }], multiSelect: false, allowOther: false }]
+      return [
+        { id: key, ...(header && { header }), question, options: [{ label: YES }, { label: NO }], multiSelect: false, allowOther: false }
+      ]
     }
     return [
       {
@@ -98,7 +100,10 @@ export const formQuestions = (form: unknown): Array<AgentQuestion> => {
 }
 
 /** The user's answers (option labels or free text, by field key) → an OpenCode form answer. */
-export const formAnswer = (form: unknown, answers: QuestionAnswers | undefined): Record<string, string | number | boolean | ReadonlyArray<string>> => {
+export const formAnswer = (
+  form: unknown,
+  answers: QuestionAnswers | undefined
+): Record<string, string | number | boolean | ReadonlyArray<string>> => {
   const f = isRecord(form) ? form : {}
   const fields = Array.isArray(f.fields) ? f.fields.filter(isRecord) : []
   const out: Record<string, string | number | boolean | ReadonlyArray<string>> = {}

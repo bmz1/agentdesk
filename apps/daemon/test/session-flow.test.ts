@@ -78,8 +78,7 @@ describe("first milestone: ticket → headless agent in a worktree → live tran
     cleanups.push(daemon.stop)
     expect((await fetch(daemon.url + "/projects")).status).toBe(401)
     expect(
-      (await fetch(daemon.url + "/projects", { headers: { authorization: "Bearer test-token", origin: "https://evil.example" } }))
-        .status
+      (await fetch(daemon.url + "/projects", { headers: { authorization: "Bearer test-token", origin: "https://evil.example" } })).status
     ).toBe(403)
     expect((await fetch(daemon.url + "/health")).status).toBe(200)
     const ok = await fetch(daemon.url + "/projects", {
@@ -92,7 +91,12 @@ describe("first milestone: ticket → headless agent in a worktree → live tran
   it("keeps a conversation waiting for a follow-up across a daemon restart, without error states", async () => {
     const first = await startTestDaemon()
     const repo = makeRepo()
-    const project = await first.api.post("/projects", { name: "Restart", repoPath: repo, defaultHarness: "mock", permissionMode: "accept_edits" })
+    const project = await first.api.post("/projects", {
+      name: "Restart",
+      repoPath: repo,
+      defaultHarness: "mock",
+      permissionMode: "accept_edits"
+    })
     const ticket = await first.api.post("/tickets", { projectId: project.id, title: "Survive restarts" })
     const session = await first.api.post(`/tickets/${ticket.id}/sessions`, { prompt: "[noop] hi" })
     await first.api.sse(`/sessions/${session.id}/events`, (evs) => evs.some((e) => e.event.type === "turn.completed"))
@@ -105,8 +109,9 @@ describe("first milestone: ticket → headless agent in a worktree → live tran
     const before = await second.api.get(`/sessions/${session.id}/history`)
     expect(before.some((e: any) => e.event.type === "session.status" && ["interrupted", "restarted"].includes(e.event.state))).toBe(false)
     await second.api.post(`/sessions/${session.id}/prompt`, { text: "continue [noop]" })
-    const evs = await second.api.sse(`/sessions/${session.id}/events`, (e) =>
-      e.filter((x) => x.event.type === "turn.completed").length >= 2
+    const evs = await second.api.sse(
+      `/sessions/${session.id}/events`,
+      (e) => e.filter((x) => x.event.type === "turn.completed").length >= 2
     )
     expect(evs.some((e) => e.event.type === "session.status" && e.event.state === "resuming")).toBe(true)
   })

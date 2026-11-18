@@ -16,7 +16,13 @@ describe("board status follows ad-hoc agent work", () => {
   it("moves to In review when a turn leaves changes, and back on follow-up", async () => {
     const { daemon, api } = await startTestDaemon()
     cleanups.push(daemon.stop)
-    const p = await api.post("/projects", { name: "Rev", key: "REV", repoPath: makeRepo(), defaultHarness: "mock", permissionMode: "accept_edits" })
+    const p = await api.post("/projects", {
+      name: "Rev",
+      key: "REV",
+      repoPath: makeRepo(),
+      defaultHarness: "mock",
+      permissionMode: "accept_edits"
+    })
 
     // A turn that only answers leaves the ticket in progress.
     const q = await api.post("/tickets", { projectId: p.id, title: "Question" })

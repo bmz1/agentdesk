@@ -136,7 +136,14 @@ export const Board = ({
         ))}
       </div>
       <DragOverlay>
-        {active ? <TicketCard ticket={active} session={ticketSession(active, sessions)} dragging projectName={projectLabel(projectNames, active.projectId)} /> : null}
+        {active ? (
+          <TicketCard
+            ticket={active}
+            session={ticketSession(active, sessions)}
+            dragging
+            projectName={projectLabel(projectNames, active.projectId)}
+          />
+        ) : null}
       </DragOverlay>
     </DndContext>
   )
@@ -186,7 +193,12 @@ const Column = ({
       >
         <SortableContext items={tickets.map((t) => t.id)} strategy={verticalListSortingStrategy}>
           {tickets.map((t) => (
-            <SortableCard key={t.id} ticket={t} session={ticketSession(t, sessions)} projectName={projectLabel(projectNames, t.projectId)} />
+            <SortableCard
+              key={t.id}
+              ticket={t}
+              session={ticketSession(t, sessions)}
+              projectName={projectLabel(projectNames, t.projectId)}
+            />
           ))}
         </SortableContext>
       </div>

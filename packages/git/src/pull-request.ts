@@ -37,15 +37,19 @@ export interface PullRequestProvider {
 }
 
 /** Tokens are stripped from agent processes; provider CLIs get them back explicitly. */
-const providerEnv = (keys: ReadonlyArray<string>) =>
-  Object.fromEntries(keys.flatMap((k) => (process.env[k] ? [[k, process.env[k]!]] : [])))
+const providerEnv = (keys: ReadonlyArray<string>) => Object.fromEntries(keys.flatMap((k) => (process.env[k] ? [[k, process.env[k]!]] : [])))
 
 const cli = (name: string, args: ReadonlyArray<string>, cwd: string, envKeys: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const bin = findExecutable(name)
     if (!bin) return yield* new PullRequestError({ message: `${name} CLI not found; install and log in to create pull requests` })
-    const r = yield* runCommand(bin, args, { cwd, timeoutMs: 120_000, env: { ...providerEnv(envKeys), GH_PROMPT_DISABLED: "1", NO_COLOR: "1" } })
-    if (r.code !== 0) return yield* new PullRequestError({ message: `${name} ${args[0]} ${args[1]} failed: ${(r.stderr || r.stdout).trim()}` })
+    const r = yield* runCommand(bin, args, {
+      cwd,
+      timeoutMs: 120_000,
+      env: { ...providerEnv(envKeys), GH_PROMPT_DISABLED: "1", NO_COLOR: "1" }
+    })
+    if (r.code !== 0)
+      return yield* new PullRequestError({ message: `${name} ${args[0]} ${args[1]} failed: ${(r.stderr || r.stdout).trim()}` })
     return r.stdout
   })
 

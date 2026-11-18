@@ -14,8 +14,14 @@ export const agentGroup = (state: AgentSession["state"]): AgentGroup => {
   return "recent"
 }
 export const SESSION_LABELS: Record<AgentSession["state"], string> = {
-  starting: "Starting", running: "Running", waiting_for_approval: "Needs approval",
-  idle: "Awaiting follow-up", completed: "Turn finished", failed: "Failed", interrupted: "Interrupted", closed: "Stopped"
+  starting: "Starting",
+  running: "Running",
+  waiting_for_approval: "Needs approval",
+  idle: "Awaiting follow-up",
+  completed: "Turn finished",
+  failed: "Failed",
+  interrupted: "Interrupted",
+  closed: "Stopped"
 }
 /** Key in the read map holding the epoch ms before which sessions never seen count as read. */
 export const READ_BASELINE_KEY = "*"
@@ -57,8 +63,7 @@ export const nextAttention = (
     .filter((s) => s.state === "waiting_for_approval" || isSessionUnread(s, seen))
     .sort(
       (a, b) =>
-        Number(b.state === "waiting_for_approval") - Number(a.state === "waiting_for_approval") ||
-        b.updatedAt.localeCompare(a.updatedAt)
+        Number(b.state === "waiting_for_approval") - Number(a.state === "waiting_for_approval") || b.updatedAt.localeCompare(a.updatedAt)
     )
   if (queue.length === 0) return undefined
   const i = queue.findIndex((s) => s.id === currentId)

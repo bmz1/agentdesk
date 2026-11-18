@@ -127,7 +127,9 @@ export const FileBrowser = ({ ticketId, onShowChanges }: { ticketId: string; onS
       <aside className="flex w-72 shrink-0 flex-col border-r">
         <div className="space-y-2 border-b p-2">
           <div className="flex items-center gap-1.5 text-[11px] text-fg-muted">
-            <span className="rounded bg-bg-muted px-1.5 py-0.5 font-medium">{tree.data?.origin === "worktree" ? "Worktree" : "Repository"}</span>
+            <span className="rounded bg-bg-muted px-1.5 py-0.5 font-medium">
+              {tree.data?.origin === "worktree" ? "Worktree" : "Repository"}
+            </span>
             <span className="truncate font-mono" title={tree.data?.root}>
               {tree.data?.root.split("/").at(-1)}
             </span>
@@ -197,14 +199,18 @@ export const FileBrowser = ({ ticketId, onShowChanges }: { ticketId: string; onS
                   >
                     <File className="size-3.5 shrink-0 opacity-70" />
                     <span className={cn("truncate", statusClass(f.status))}>{f.name}</span>
-                    {f.status && <span className={cn("ml-auto shrink-0 font-mono text-[10px]", statusClass(f.status))}>{statusLabel(f.status)}</span>}
+                    {f.status && (
+                      <span className={cn("ml-auto shrink-0 font-mono text-[10px]", statusClass(f.status))}>{statusLabel(f.status)}</span>
+                    )}
                   </button>
                 )
               })}
             </div>
           )}
         </div>
-        {tree.data?.truncated && <p className="border-t px-3 py-1.5 text-[11px] text-warning">Showing the first {files.length.toLocaleString()} files.</p>}
+        {tree.data?.truncated && (
+          <p className="border-t px-3 py-1.5 text-[11px] text-warning">Showing the first {files.length.toLocaleString()} files.</p>
+        )}
       </aside>
       <section className="flex min-w-0 flex-1 flex-col">
         {selected ? (
@@ -219,12 +225,17 @@ export const FileBrowser = ({ ticketId, onShowChanges }: { ticketId: string; onS
           />
         ) : (
           <EmptyState icon={<FolderSearch />} title="Select a file">
-            Browse the {tree.data?.origin === "worktree" ? "ticket's worktree" : "project repository"}. Files the agent changed are highlighted.
+            Browse the {tree.data?.origin === "worktree" ? "ticket's worktree" : "project repository"}. Files the agent changed are
+            highlighted.
           </EmptyState>
         )}
       </section>
       <Dialog open={pendingSelect !== undefined} onOpenChange={(open) => !open && setPendingSelect(undefined)}>
-        <DialogContent title="Discard unsaved changes?" description={`Your edits to ${selected} have not been saved.`} className="w-[420px]">
+        <DialogContent
+          title="Discard unsaved changes?"
+          description={`Your edits to ${selected} have not been saved.`}
+          className="w-[420px]"
+        >
           <div className="flex justify-end gap-2 p-4">
             <Button variant="ghost" onClick={() => setPendingSelect(undefined)}>
               Keep editing
@@ -317,14 +328,13 @@ const FileView = ({
   return (
     <>
       {header(
-        file.data &&
-          !file.data.binary && (
-            <Tooltip content={file.data.readonlyReason ?? "This file can't be edited here"}>
-              <span className="flex items-center gap-1 text-fg-subtle" data-testid="file-readonly">
-                <Lock className="size-3" /> Read-only
-              </span>
-            </Tooltip>
-          )
+        file.data && !file.data.binary && (
+          <Tooltip content={file.data.readonlyReason ?? "This file can't be edited here"}>
+            <span className="flex items-center gap-1 text-fg-subtle" data-testid="file-readonly">
+              <Lock className="size-3" /> Read-only
+            </span>
+          </Tooltip>
+        )
       )}
       {isImage ? (
         <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-bg p-6" data-testid="file-image">
@@ -355,4 +365,5 @@ const FileView = ({
   )
 }
 
-const formatBytes = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`)
+const formatBytes = (n: number) =>
+  n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`

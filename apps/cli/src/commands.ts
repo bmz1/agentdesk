@@ -25,10 +25,20 @@ export const resolveOne = <T extends { id: string }>(
   if (exact) return exact
   const keyed = key ? items.filter((i) => key(i)?.toLowerCase() === query.toLowerCase()) : []
   if (keyed.length === 1) return keyed[0]!
-  if (keyed.length > 1) throw ambiguous(kind, query, keyed.map((i) => i.id))
+  if (keyed.length > 1)
+    throw ambiguous(
+      kind,
+      query,
+      keyed.map((i) => i.id)
+    )
   const prefixed = query.length >= 4 ? items.filter((i) => i.id.startsWith(query)) : []
   if (prefixed.length === 1) return prefixed[0]!
-  if (prefixed.length > 1) throw ambiguous(kind, query, prefixed.map((i) => i.id))
+  if (prefixed.length > 1)
+    throw ambiguous(
+      kind,
+      query,
+      prefixed.map((i) => i.id)
+    )
   throw new CliError(`No ${kind} matches "${query}"`, Exit.target)
 }
 
@@ -188,7 +198,8 @@ export const waitForTurn = async (client: Client, out: Output, sessionId: string
         code = event.status === "error" ? Exit.failed : event.status === "interrupted" ? Exit.interrupted : Exit.ok
       else if (event.type === "session.exited") code = Exit.ok
       // A failed start (setup script, missing harness) ends the session without a turn.
-      else if (event.type === "session.error" && (await client.get<AgentSession>(`/sessions/${sessionId}`)).state === "failed") code = Exit.failed
+      else if (event.type === "session.error" && (await client.get<AgentSession>(`/sessions/${sessionId}`)).state === "failed")
+        code = Exit.failed
       if (code !== undefined) break
     }
   } finally {
@@ -251,13 +262,27 @@ const refuseInsideAgent = (env: NodeJS.ProcessEnv) => {
 }
 
 /** Answer an agent's question(s): one answer per question, in order. An answer matching an option uses that option. */
-export const answer = async (client: Client, out: Output, query: string, given: ReadonlyArray<string>, env: NodeJS.ProcessEnv = process.env) => {
+export const answer = async (
+  client: Client,
+  out: Output,
+  query: string,
+  given: ReadonlyArray<string>,
+  env: NodeJS.ProcessEnv = process.env
+) => {
   refuseInsideAgent(env)
   const pending = await client.get<ReadonlyArray<Approval>>("/approvals?pending=1")
-  const approval = resolveOne("pending question", query, pending.filter((a) => a.kind === "question"))
-  const questions = ((approval.details ?? {}) as { questions?: ReadonlyArray<{ id: string; question: string; options: ReadonlyArray<{ label: string }> }> }).questions ?? []
+  const approval = resolveOne(
+    "pending question",
+    query,
+    pending.filter((a) => a.kind === "question")
+  )
+  const questions =
+    ((approval.details ?? {}) as { questions?: ReadonlyArray<{ id: string; question: string; options: ReadonlyArray<{ label: string }> }> })
+      .questions ?? []
   if (given.length !== questions.length) {
-    const list = questions.map((q, i) => `  ${i + 1}. ${q.question}${q.options.length ? ` [${q.options.map((o) => o.label).join(" | ")}]` : ""}`).join("\n")
+    const list = questions
+      .map((q, i) => `  ${i + 1}. ${q.question}${q.options.length ? ` [${q.options.map((o) => o.label).join(" | ")}]` : ""}`)
+      .join("\n")
     throw new CliError(`Give ${questions.length} answer(s), one per question:\n${list}`, Exit.usage)
   }
   const answers = Object.fromEntries(

@@ -34,8 +34,7 @@ export const useProjectThreads = () => {
     for (const list of byProject.values()) {
       list.sort(
         (a, b) =>
-          Number(LIVE.has(b.session.state)) - Number(LIVE.has(a.session.state)) ||
-          b.session.updatedAt.localeCompare(a.session.updatedAt)
+          Number(LIVE.has(b.session.state)) - Number(LIVE.has(a.session.state)) || b.session.updatedAt.localeCompare(a.session.updatedAt)
       )
     }
     return byProject
@@ -57,7 +56,9 @@ export const ProjectThreads = ({ threads }: { threads: ReadonlyArray<Thread> }) 
         // Without ?session the Agent tab shows the ticket's active session.
         const active =
           location.pathname === `/issues/${ticket.id}` &&
-          (currentSession ? currentSession === session.id : ticket.activeSessionId === session.id && (location.search as { tab?: string }).tab === "agent")
+          (currentSession
+            ? currentSession === session.id
+            : ticket.activeSessionId === session.id && (location.search as { tab?: string }).tab === "agent")
         return (
           <Link
             key={session.id}

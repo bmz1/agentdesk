@@ -32,7 +32,11 @@ describe("agent questions", () => {
     expect(question).toMatchObject({
       kind: "question",
       title: "Which database should I use?",
-      details: { questions: [{ id: "db", question: "Which database should I use?", allowOther: true, options: [{ label: "SQLite" }, { label: "Postgres" }] }] }
+      details: {
+        questions: [
+          { id: "db", question: "Which database should I use?", allowOther: true, options: [{ label: "SQLite" }, { label: "Postgres" }] }
+        ]
+      }
     })
     expect((await api.get(`/sessions/${session.id}`)).statusDetail).toBe("Asks: Which database should I use?")
 
@@ -68,7 +72,9 @@ describe("allow for this session", () => {
     expect(first.details.canAllowForSession).toBe(true)
     await api.post(`/approvals/${first.id}/decision`, { decision: "allow", scope: "session" })
     await idle(session.id)
-    const resolved = (await api.get(`/sessions/${session.id}/history`)).map((e: any) => e.event).find((e: any) => e.type === "approval.resolved")
+    const resolved = (await api.get(`/sessions/${session.id}/history`))
+      .map((e: any) => e.event)
+      .find((e: any) => e.type === "approval.resolved")
     expect(resolved).toMatchObject({ decision: "allow", scope: "session" })
 
     await api.post(`/sessions/${session.id}/prompt`, { text: "write more notes" })

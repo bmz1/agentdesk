@@ -5,17 +5,35 @@ import { agentGroup, isSessionUnread } from "@/lib/agent-state"
 import { useUi } from "@/lib/store"
 import { cn, relativeTime } from "@/lib/utils"
 
-export const AgentCard = ({ session, ticket, projectName, list = false }: {
-  session: AgentSession; ticket?: Ticket; projectName?: string; list?: boolean
+export const AgentCard = ({
+  session,
+  ticket,
+  projectName,
+  list = false
+}: {
+  session: AgentSession
+  ticket?: Ticket
+  projectName?: string
+  list?: boolean
 }) => {
   const seen = useUi((s) => s.sessionSeen)
   const markRead = useUi((s) => s.markSessionRead)
   const markUnread = useUi((s) => s.markSessionUnread)
   const unread = isSessionUnread(session, seen)
   return (
-    <article className={cn("rounded-md border bg-bg-elevated", agentGroup(session.state) === "attention" && "border-warning/50")} data-testid="agent-session-row">
-      <Link to="/issues/$ticketId" params={{ ticketId: session.ticketId }} search={{ tab: "agent", session: session.id }}
-        className={cn("block space-y-2 p-3 hover:bg-bg-muted/50", list && "sm:grid sm:grid-cols-[minmax(180px,1fr)_2fr] sm:gap-4 sm:space-y-0")}>
+    <article
+      className={cn("rounded-md border bg-bg-elevated", agentGroup(session.state) === "attention" && "border-warning/50")}
+      data-testid="agent-session-row"
+    >
+      <Link
+        to="/issues/$ticketId"
+        params={{ ticketId: session.ticketId }}
+        search={{ tab: "agent", session: session.id }}
+        className={cn(
+          "block space-y-2 p-3 hover:bg-bg-muted/50",
+          list && "sm:grid sm:grid-cols-[minmax(180px,1fr)_2fr] sm:gap-4 sm:space-y-0"
+        )}
+      >
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <HarnessIcon harness={session.harness} />
@@ -28,7 +46,11 @@ export const AgentCard = ({ session, ticket, projectName, list = false }: {
             {session.usage?.costUsd ? <span title="Cost so far">${session.usage.costUsd.toFixed(2)}</span> : null}
           </div>
           {session.plan && (
-            <div className="flex items-center gap-2 text-[11px] text-fg-muted" title={session.plan.current ?? "Plan done"} data-testid="agent-plan">
+            <div
+              className="flex items-center gap-2 text-[11px] text-fg-muted"
+              title={session.plan.current ?? "Plan done"}
+              data-testid="agent-plan"
+            >
               <span className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-bg-muted">
                 <span className="block h-full bg-success" style={{ width: `${(session.plan.done / session.plan.total) * 100}%` }} />
               </span>
@@ -44,12 +66,20 @@ export const AgentCard = ({ session, ticket, projectName, list = false }: {
             </p>
           )}
         </div>
-        <p className="line-clamp-3 text-xs whitespace-pre-wrap text-fg-muted" data-testid="agent-preview">{session.preview || ticket?.description || "No message yet."}</p>
+        <p className="line-clamp-3 text-xs whitespace-pre-wrap text-fg-muted" data-testid="agent-preview">
+          {session.preview || ticket?.description || "No message yet."}
+        </p>
       </Link>
       <div className="flex items-center gap-2 border-t px-3 py-1.5 text-[11px] text-fg-subtle">
-        <span className="min-w-0 flex-1 truncate">{projectName} {ticket?.identifier && `· ${ticket.identifier}`}</span>
+        <span className="min-w-0 flex-1 truncate">
+          {projectName} {ticket?.identifier && `· ${ticket.identifier}`}
+        </span>
         <time title={session.updatedAt}>{relativeTime(session.updatedAt)}</time>
-        <button type="button" className="shrink-0 hover:text-fg" onClick={() => unread ? markRead(session.id, session.lastEventId) : markUnread(session.id)}>
+        <button
+          type="button"
+          className="shrink-0 hover:text-fg"
+          onClick={() => (unread ? markRead(session.id, session.lastEventId) : markUnread(session.id))}
+        >
           {unread ? "Mark read" : "Mark unread"}
         </button>
       </div>

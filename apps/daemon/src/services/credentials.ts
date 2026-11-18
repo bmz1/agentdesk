@@ -45,7 +45,9 @@ const makeKeychainStore = (bin: string, run: RunNoDeps): CredentialStoreShape =>
       input: `add-generic-password -U -s ${SERVICE} -a ${quote(ref)} -l ${quote(`AgentDesk ${ref}`)} -w ${quote(Redacted.value(secret))}\n`
     }).pipe(
       Effect.flatMap((r) =>
-        r.code === 0 && !/error/i.test(r.stderr) ? Effect.void : Effect.fail(new BadRequest({ message: `Keychain write failed: ${r.stderr.trim()}` }))
+        r.code === 0 && !/error/i.test(r.stderr)
+          ? Effect.void
+          : Effect.fail(new BadRequest({ message: `Keychain write failed: ${r.stderr.trim()}` }))
       )
     ),
   get: (ref) =>

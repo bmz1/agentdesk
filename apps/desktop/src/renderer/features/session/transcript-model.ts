@@ -120,7 +120,16 @@ export class TranscriptBuilder {
         if (i !== undefined && item?.kind === "tool") {
           this.replace(i, { ...item, result: e.result, isError: e.isError, done: true })
         } else {
-          this.items.push({ kind: "tool", key, toolCallId: e.toolCallId, name: "tool", input: undefined, result: e.result, isError: e.isError, done: true })
+          this.items.push({
+            kind: "tool",
+            key,
+            toolCallId: e.toolCallId,
+            name: "tool",
+            input: undefined,
+            result: e.result,
+            isError: e.isError,
+            done: true
+          })
         }
         break
       }
@@ -159,11 +168,21 @@ export class TranscriptBuilder {
         // Daemon restarts are not errors: a conversation picks up again with the next follow-up.
         if (e.state === "interrupted" && e.detail === "Daemon shutting down") break
         if (e.state === "restarted" || (e.state === "interrupted" && e.detail?.startsWith("The daemon restarted."))) {
-          this.items.push({ kind: "status", key, text: e.state === "restarted" ? e.detail ?? "AgentDesk restarted" : "AgentDesk restarted. Send a follow-up to continue.", tone: "neutral" })
+          this.items.push({
+            kind: "status",
+            key,
+            text: e.state === "restarted" ? (e.detail ?? "AgentDesk restarted") : "AgentDesk restarted. Send a follow-up to continue.",
+            tone: "neutral"
+          })
           break
         }
         if (e.state === "permissions") {
-          this.items.push({ kind: "status", key, text: `Permissions · ${(e.detail && PERMISSION_LABELS[e.detail]) ?? e.detail ?? "unknown"}`, tone: "neutral" })
+          this.items.push({
+            kind: "status",
+            key,
+            text: `Permissions · ${(e.detail && PERMISSION_LABELS[e.detail]) ?? e.detail ?? "unknown"}`,
+            tone: "neutral"
+          })
           break
         }
         this.items.push({
@@ -171,8 +190,10 @@ export class TranscriptBuilder {
           key,
           text:
             e.state === "edit_blocked" || e.state === "worktree_adopted"
-              ? e.detail ?? e.state.replace(/_/g, " ")
-              : e.detail ? `${e.state.replace(/_/g, " ")} — ${e.detail}` : e.state.replace(/_/g, " "),
+              ? (e.detail ?? e.state.replace(/_/g, " "))
+              : e.detail
+                ? `${e.state.replace(/_/g, " ")} — ${e.detail}`
+                : e.state.replace(/_/g, " "),
           tone: e.state === "interrupted" || e.state === "edit_blocked" ? "warning" : e.state === "worktree_adopted" ? "success" : "neutral"
         })
         break

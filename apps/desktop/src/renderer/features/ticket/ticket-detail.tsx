@@ -1,7 +1,23 @@
 import type { BoardStatus, Ticket } from "@agentdesk/contracts"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { Bot, CheckSquare, ChevronLeft, FileDiff, FolderGit2, FolderTree, GitBranch, GitBranchPlus, History, Info, KanbanSquare, MessagesSquare, Pin, PinOff, Columns2 } from "lucide-react"
+import {
+  Bot,
+  CheckSquare,
+  ChevronLeft,
+  FileDiff,
+  FolderGit2,
+  FolderTree,
+  GitBranch,
+  GitBranchPlus,
+  History,
+  Info,
+  KanbanSquare,
+  MessagesSquare,
+  Pin,
+  PinOff,
+  Columns2
+} from "lucide-react"
 import { BOARD_COLUMNS, RunStatusBadge, SourceBadge } from "@/components/status"
 import { Button } from "@/components/ui/button"
 import { Select } from "@/components/ui/input"
@@ -19,7 +35,6 @@ import { Overview } from "./overview"
 import { toast } from "sonner"
 
 export type TicketTab = "overview" | "agent" | "workflow" | "changes" | "files" | "checks" | "history"
-
 
 export const TicketDetail = ({
   ticketId,
@@ -77,10 +92,18 @@ export const TicketDetail = ({
         <h1 className="min-w-0 flex-1 truncate text-sm font-semibold" data-testid="ticket-heading">
           {t.title}
         </h1>
-        <Button size="sm" variant={split ? "secondary" : "ghost"} aria-pressed={split} onClick={() => {
-          setLayout(ticketId, { split: !split, width: layout?.width ?? 50 })
-          if (tab !== "agent" && tab !== "changes") onTab("agent")
-        }} data-testid="toggle-agent-split"><Columns2 /> Chat + changes</Button>
+        <Button
+          size="sm"
+          variant={split ? "secondary" : "ghost"}
+          aria-pressed={split}
+          onClick={() => {
+            setLayout(ticketId, { split: !split, width: layout?.width ?? 50 })
+            if (tab !== "agent" && tab !== "changes") onTab("agent")
+          }}
+          data-testid="toggle-agent-split"
+        >
+          <Columns2 /> Chat + changes
+        </Button>
         {workspace.data?.cleanupState === "active" && <WorkspaceIndicator branch={workspace.data.branch} />}
         {t.tracked ? (
           <Select
@@ -97,15 +120,29 @@ export const TicketDetail = ({
           </Select>
         ) : (
           <>
-            <span className="inline-flex items-center gap-1 rounded bg-bg-muted px-1.5 py-0.5 text-[11px] text-fg-muted" title="Threads stay off the board">
+            <span
+              className="inline-flex items-center gap-1 rounded bg-bg-muted px-1.5 py-0.5 text-[11px] text-fg-muted"
+              title="Threads stay off the board"
+            >
               <MessagesSquare className="size-3" /> Thread
             </span>
-            <Button size="sm" variant="ghost" onClick={() => update.mutate({ tracked: true })} title="Put this thread on the board as a ticket" data-testid="track-thread">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => update.mutate({ tracked: true })}
+              title="Put this thread on the board as a ticket"
+              data-testid="track-thread"
+            >
               <KanbanSquare /> Track on board
             </Button>
           </>
         )}
-        <Button variant="ghost" size="icon" onClick={() => update.mutate({ pinned: !t.pinned })} title={t.pinned ? "Unpin" : "Pin to My issues"}>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => update.mutate({ pinned: !t.pinned })}
+          title={t.pinned ? "Unpin" : "Pin to My issues"}
+        >
           {t.pinned ? <PinOff /> : <Pin />}
         </Button>
       </header>
@@ -138,8 +175,11 @@ export const TicketDetail = ({
           <Overview ticket={t} onUpdate={(b) => update.mutate(b)} onTab={onTab} />
         </TabsContent>
         <TabsContent value="agent" className="min-h-0 flex-1">
-          {split ? <AgentWorkspace key={t.id} ticket={t} sessionId={sessionId} onSelectSession={onSession} /> :
-            <AgentPanel key={t.id} ticket={t} sessionId={sessionId} onSelectSession={onSession} />}
+          {split ? (
+            <AgentWorkspace key={t.id} ticket={t} sessionId={sessionId} onSelectSession={onSession} />
+          ) : (
+            <AgentPanel key={t.id} ticket={t} sessionId={sessionId} onSelectSession={onSession} />
+          )}
         </TabsContent>
         <TabsContent value="workflow" className="min-h-0 flex-1 overflow-y-auto">
           <WorkflowTab ticket={t} />
@@ -148,8 +188,11 @@ export const TicketDetail = ({
           <ChecksTab ticket={t} />
         </TabsContent>
         <TabsContent value="changes" className="min-h-0 flex-1 overflow-y-auto">
-          {split ? <AgentWorkspace key={t.id} ticket={t} sessionId={sessionId} onSelectSession={onSession} /> :
-            <Changes ticket={t} onSelectSession={onSession} />}
+          {split ? (
+            <AgentWorkspace key={t.id} ticket={t} sessionId={sessionId} onSelectSession={onSession} />
+          ) : (
+            <Changes ticket={t} onSelectSession={onSession} />
+          )}
         </TabsContent>
         <TabsContent value="files" className="min-h-0 flex-1">
           <FileBrowser ticketId={t.id} onShowChanges={() => onTab("changes")} />
@@ -185,7 +228,11 @@ const Changes = ({ ticket, onSelectSession }: { ticket: Ticket; onSelectSession:
       {cleanup.error && (
         <div className="flex items-center gap-2 text-xs text-warning">
           {(cleanup.error as Error).message}
-          <Button size="sm" variant="danger" onClick={() => confirm("Discard uncommitted changes and remove the worktree?") && cleanup.mutate(true)}>
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={() => confirm("Discard uncommitted changes and remove the worktree?") && cleanup.mutate(true)}
+          >
             Force remove
           </Button>
         </div>
@@ -206,7 +253,11 @@ const HistoryTab = ({ ticketId }: { ticketId: string }) => {
 
 /** The branch of the agent's worktree. */
 const WorkspaceIndicator = ({ branch }: { branch: string }) => (
-  <span className="inline-flex max-w-48 items-center gap-1 rounded bg-bg-muted px-1.5 py-0.5 text-[11px] text-fg-muted" title={`Agent's worktree: ${branch}`} data-testid="worktree-branch">
+  <span
+    className="inline-flex max-w-48 items-center gap-1 rounded bg-bg-muted px-1.5 py-0.5 text-[11px] text-fg-muted"
+    title={`Agent's worktree: ${branch}`}
+    data-testid="worktree-branch"
+  >
     <GitBranch className="size-3 shrink-0" /> <span className="truncate font-mono">{branch}</span>
   </span>
 )

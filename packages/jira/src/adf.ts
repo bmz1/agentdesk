@@ -3,12 +3,20 @@
  * desktop renders it like the issue looks in Jira and agents read familiar syntax.
  * The renderer never allows raw HTML, so markup in issue text stays inert.
  */
-type Node = { type?: string; text?: string; content?: Array<Node>; attrs?: Record<string, unknown>; marks?: Array<{ type: string; attrs?: Record<string, unknown> }> }
+type Node = {
+  type?: string
+  text?: string
+  content?: Array<Node>
+  attrs?: Record<string, unknown>
+  marks?: Array<{ type: string; attrs?: Record<string, unknown> }>
+}
 
 export const adfToText = (doc: unknown): string => {
   if (doc === null || doc === undefined) return ""
   if (typeof doc === "string") return doc
-  return render(doc as Node, { listDepth: 0, ordered: false, index: 0 }).replace(/\n{3,}/g, "\n\n").trim()
+  return render(doc as Node, { listDepth: 0, ordered: false, index: 0 })
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
 }
 
 interface Ctx {
@@ -70,9 +78,8 @@ const render = (n: Node, ctx: Ctx): string => {
     case "orderedList": {
       const ordered = n.type === "orderedList"
       return (
-        (n.content ?? [])
-          .map((item, i) => render(item, { listDepth: ctx.listDepth + 1, ordered, index: i + 1 }))
-          .join("") + (ctx.listDepth === 0 ? "\n" : "")
+        (n.content ?? []).map((item, i) => render(item, { listDepth: ctx.listDepth + 1, ordered, index: i + 1 })).join("") +
+        (ctx.listDepth === 0 ? "\n" : "")
       )
     }
     case "listItem": {

@@ -49,19 +49,30 @@ const preview = spawn("npx", ["vite", "preview", "--config", "vite.renderer.conf
   stdio: "ignore"
 })
 procs.push(preview)
-await waitFor(async () => fetch("http://localhost:5173").then((r) => r.ok).catch(() => false))
+await waitFor(async () =>
+  fetch("http://localhost:5173")
+    .then((r) => r.ok)
+    .catch(() => false)
+)
 
 // AGENTDESK_E2E_CHROMIUM points at an already installed Chromium when the pinned build is missing.
 const browser = await chromium.launch(process.env.AGENTDESK_E2E_CHROMIUM ? { executablePath: process.env.AGENTDESK_E2E_CHROMIUM } : {})
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
 const assertDropdowns = async () => {
-  const problems = await page.locator("select:visible").evaluateAll((selects) => selects.flatMap((select) => {
-    const style = getComputedStyle(select)
-    const rect = select.getBoundingClientRect()
-    const parent = select.parentElement.getBoundingClientRect()
-    const broken = style.appearance !== "none" || parseFloat(style.paddingRight) < 24 || style.backgroundSize !== "12px 12px" || rect.right > parent.right + 1 || rect.left < parent.left - 1
-    return broken ? [select.getAttribute("aria-label") || select.dataset.testid || select.value] : []
-  }))
+  const problems = await page.locator("select:visible").evaluateAll((selects) =>
+    selects.flatMap((select) => {
+      const style = getComputedStyle(select)
+      const rect = select.getBoundingClientRect()
+      const parent = select.parentElement.getBoundingClientRect()
+      const broken =
+        style.appearance !== "none" ||
+        parseFloat(style.paddingRight) < 24 ||
+        style.backgroundSize !== "12px 12px" ||
+        rect.right > parent.right + 1 ||
+        rect.left < parent.left - 1
+      return broken ? [select.getAttribute("aria-label") || select.dataset.testid || select.value] : []
+    })
+  )
   if (problems.length) fail(`dropdown overflow or arrow spacing: ${problems.join(", ")}`)
 }
 const errors = []
@@ -81,7 +92,8 @@ const budget = async (name, ms, act, until) => {
 let sessionListFetches = []
 page.on("request", (r) => {
   const url = new URL(r.url())
-  if (r.method() === "GET" && /^\/(sessions|tickets\/[^/]+\/sessions)$/.test(url.pathname)) sessionListFetches.push(url.pathname + url.search)
+  if (r.method() === "GET" && /^\/(sessions|tickets\/[^/]+\/sessions)$/.test(url.pathname))
+    sessionListFetches.push(url.pathname + url.search)
 })
 try {
   await page.goto(`http://localhost:5173/?daemon=${encodeURIComponent(conn.url)}&token=${conn.token}#/projects`)
@@ -96,7 +108,7 @@ try {
   await page.getByRole("status").filter({ hasText: "Defaults saved." }).waitFor()
   await page.reload()
   // The harness tab is kept in the URL.
-  if (await page.inputValue('[data-testid="harness-model-mock"]') !== "mock-default-model") fail("harness defaults did not persist")
+  if ((await page.inputValue('[data-testid="harness-model-mock"]')) !== "mock-default-model") fail("harness defaults did not persist")
   await page.click('[data-testid="harness-tab-claude"]')
   await page.click('[data-testid="settings-nav-appearance"]')
   await page.locator('[data-testid="theme-dark"]').waitFor()
@@ -128,11 +140,16 @@ try {
   await page.keyboard.press("Escape")
   await page.click('[data-testid="project-new-thread"]')
   await page.click('[data-testid="create-kind-ticket"]')
-  if (await page.inputValue('[data-testid="ticket-title"]') !== "Write release notes") fail("creation draft lost on close")
+  if ((await page.inputValue('[data-testid="ticket-title"]')) !== "Write release notes") fail("creation draft lost on close")
   await page.selectOption('[data-testid="ticket-harness"]', "mock")
   await assertDropdowns()
   // A failed launch keeps the created ticket for retry instead of duplicating it.
-  await page.route("**/tickets/*/sessions", (route) => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Temporary start failure" }) }), { times: 1 })
+  await page.route(
+    "**/tickets/*/sessions",
+    (route) =>
+      route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Temporary start failure" }) }),
+    { times: 1 }
+  )
   await page.click('[data-testid="ticket-create-start"]')
   await page.getByRole("alert").filter({ hasText: "Ticket created; agent could not start" }).waitFor()
   const get = (path) => fetch(conn.url + path, { headers: { Authorization: `Bearer ${conn.token}` } }).then((r) => r.json())
@@ -149,19 +166,33 @@ try {
   await page.locator('[data-testid="agents-attention"] [data-testid="agent-session-row"]').waitFor()
   await page.locator('[data-testid="agent-preview"]').filter({ hasText: "AGENTDESK_NOTES" }).waitFor()
   await page.screenshot({ path: join(home, "agents-board.png") })
-  await budget("open session with pending approval", 1500,
-    () => page.getByRole("link", { name: /Write release notes/ }).last().click(),
-    () => page.locator('[data-testid="approval-card"]').waitFor())
+  await budget(
+    "open session with pending approval",
+    1500,
+    () =>
+      page
+        .getByRole("link", { name: /Write release notes/ })
+        .last()
+        .click(),
+    () => page.locator('[data-testid="approval-card"]').waitFor()
+  )
   sessionListFetches = []
-  await budget("allow → approval card gone", 1000,
+  await budget(
+    "allow → approval card gone",
+    1000,
     () => page.click('[data-testid="approval-card"] button:has-text("Allow")'),
-    () => page.locator('[data-testid="approval-card"]').waitFor({ state: "detached" }))
+    () => page.locator('[data-testid="approval-card"]').waitFor({ state: "detached" })
+  )
   await page.waitForSelector("text=Done with turn 1", { timeout: 20_000 })
   if (sessionListFetches.length) fail(`session state changes refetched session lists: ${sessionListFetches.join(", ")}`)
-  await budget("command palette open", 400,
+  await budget(
+    "command palette open",
+    400,
     () => page.keyboard.press("ControlOrMeta+k"),
-    () => page.getByPlaceholder("Search tickets or type a command…").waitFor())
-  if (!(await page.locator("[cmdk-item]").filter({ hasText: "Next agent that needs you" }).innerText()).match(/(⌘|Ctrl\+)J/)) fail("palette does not show shortcut hints")
+    () => page.getByPlaceholder("Search tickets or type a command…").waitFor()
+  )
+  if (!(await page.locator("[cmdk-item]").filter({ hasText: "Next agent that needs you" }).innerText()).match(/(⌘|Ctrl\+)J/))
+    fail("palette does not show shortcut hints")
   await page.keyboard.press("Escape")
   await page.fill('[data-testid="composer-input"]', "Also mention breaking changes [noop]")
   await page.click('[data-testid="composer-send"]')
@@ -175,14 +206,18 @@ try {
   const separator = page.getByRole("separator", { name: "Resize conversation and changes" })
   await separator.focus()
   await page.keyboard.press("ArrowRight")
-  if (await separator.getAttribute("aria-valuenow") !== "55") fail("split did not resize")
+  if ((await separator.getAttribute("aria-valuenow")) !== "55") fail("split did not resize")
   await page.locator('[data-testid="diff-comment-line"]').first().click()
   await page.fill('[data-testid="review-comment-input"]', "Clarify the release notes [noop]")
   await page.click('[data-testid="review-comment-save"]')
   await page.reload()
   await page.getByText("Clarify the release notes [noop]", { exact: true }).waitFor()
-  if (await separator.getAttribute("aria-valuenow") !== "55") fail("split layout did not persist")
-  await page.waitForFunction(() => document.querySelector('[data-testid="review-target"]')?.value && !document.querySelector('[data-testid="review-target"]').value.startsWith("new:"))
+  if ((await separator.getAttribute("aria-valuenow")) !== "55") fail("split layout did not persist")
+  await page.waitForFunction(
+    () =>
+      document.querySelector('[data-testid="review-target"]')?.value &&
+      !document.querySelector('[data-testid="review-target"]').value.startsWith("new:")
+  )
   await assertDropdowns()
   await page.setViewportSize({ width: 960, height: 900 })
   await assertDropdowns()
@@ -201,8 +236,10 @@ try {
   await page.getByRole("combobox", { name: "Filter agents by harness" }).selectOption("mock")
   await page.getByRole("button", { name: "Mark unread", exact: true }).click()
   await page.reload()
-  if (await page.getByRole("button", { name: "Agents list view", exact: true }).getAttribute("aria-pressed") !== "true") fail("agent layout was not remembered")
-  if (await page.getByRole("combobox", { name: "Filter agents by harness" }).inputValue() !== "mock") fail("agent filter was not remembered")
+  if ((await page.getByRole("button", { name: "Agents list view", exact: true }).getAttribute("aria-pressed")) !== "true")
+    fail("agent layout was not remembered")
+  if ((await page.getByRole("combobox", { name: "Filter agents by harness" }).inputValue()) !== "mock")
+    fail("agent filter was not remembered")
   await page.locator('[data-testid="agent-session-row"] [aria-label="Unread"]').waitFor()
   await page.getByRole("link", { name: /^Inbox/ }).click()
   await page.locator('[data-testid="inbox-agent-updates"] [data-testid="agent-session-row"]').waitFor()
@@ -212,9 +249,12 @@ try {
   // ⌘J jumps to the agent that needs attention.
   await page.getByRole("link", { name: /^Agents/ }).click()
   await page.getByRole("button", { name: "Mark unread", exact: true }).first().click()
-  await budget("⌘J to the agent that needs you", 1000,
+  await budget(
+    "⌘J to the agent that needs you",
+    1000,
     () => page.keyboard.press("ControlOrMeta+j"),
-    () => page.waitForURL((u) => u.hash.includes(`session=${started.id}`)))
+    () => page.waitForURL((u) => u.hash.includes(`session=${started.id}`))
+  )
 
   // Project list and filters are restored when returning through the sidebar.
   await page.locator('[data-testid="sidebar-project"]').click()
@@ -223,7 +263,8 @@ try {
   await page.getByRole("link", { name: /^Agents/ }).click()
   await page.locator('[data-testid="sidebar-project"]').click()
   await page.waitForFunction(() => document.querySelector('[aria-label="List view"]')?.getAttribute("aria-pressed") === "true")
-  if (await page.getByRole("combobox", { name: "Filter tickets by harness" }).inputValue() !== "mock") fail("project filter was not remembered")
+  if ((await page.getByRole("combobox", { name: "Filter tickets by harness" }).inputValue()) !== "mock")
+    fail("project filter was not remembered")
   await page.goto(ticketUrl)
   await page.getByRole("button", { name: "Stop agent", exact: true }).click()
 
@@ -234,7 +275,10 @@ try {
   await page.waitForSelector('[data-testid="start-run"]:not([disabled])', { timeout: 20_000 })
   await page.click('[data-testid="start-run"]')
   for (let i = 0; i < 60; i++) {
-    const st = await page.locator('[data-testid="run-status"]').getAttribute("data-status").catch(() => null)
+    const st = await page
+      .locator('[data-testid="run-status"]')
+      .getAttribute("data-status")
+      .catch(() => null)
     if (st === "completed" || st === "failed") break
     const gate = page.locator('[data-testid="approve-gate"]')
     if (await gate.count()) await gate.first().click()
@@ -261,7 +305,8 @@ try {
   if (thread.permissionMode !== "plan") fail(`thread permission mode not kept: ${thread.permissionMode}`)
   const [threadSession] = await get(`/tickets/${thread.id}/sessions`)
   if (!threadSession || threadSession.cwd === repo) fail("thread agent ran in the main checkout")
-  if (!readFileSync(join(threadSession.cwd, ".agentdesk-setup-ran"), "utf8").startsWith("set up from /")) fail("setup script did not run in the thread's worktree")
+  if (!readFileSync(join(threadSession.cwd, ".agentdesk-setup-ran"), "utf8").startsWith("set up from /"))
+    fail("setup script did not run in the thread's worktree")
   if ((await get("/tickets?tracked=1")).some((t) => t.id === thread.id)) fail("thread appeared on the board")
   await page.click('[data-testid="track-thread"]')
   await page.waitForSelector('[data-testid="ticket-status"]')

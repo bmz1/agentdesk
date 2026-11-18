@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { Bot, CheckCircle2, ChevronLeft, GitPullRequest, Hand, Save, Terminal, XCircle } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/input"
@@ -24,15 +24,18 @@ const ICONS: Record<string, React.ReactNode> = {
 function WorkflowDetail() {
   const { workflowId } = Route.useParams()
   const wf = useQuery(q.workflow(workflowId))
-  const [yaml, setYaml] = useState("")
+  // Unsaved edits, tagged with their workflow so navigating to another one shows its own YAML.
+  const [edit, setEdit] = useState<{ workflowId: string; yaml: string } | null>(null)
+  const yaml = edit?.workflowId === workflowId ? edit.yaml : (wf.data?.yaml ?? "")
+  const setYaml = (value: string) => setEdit({ workflowId, yaml: value })
   const qc = useQueryClient()
-  useEffect(() => {
-    if (wf.data) setYaml(wf.data.yaml)
-  }, [wf.data])
   const validate = useMutation({ mutationFn: () => api.validateWorkflow(yaml) })
   const save = useMutation({
     mutationFn: () => api.saveWorkflow(yaml),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["workflows"] })
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["workflows"] })
+      setEdit(null)
+    }
   })
   if (!wf.data) return <Spinner />
   return (
@@ -80,7 +83,8 @@ function WorkflowDetail() {
               className="font-mono text-[12px] leading-5"
             />
             <p className="mt-2 text-[11px] text-fg-subtle">
-              Versions are immutable: bump <code className="font-mono">version</code> to save changes. Running workflows keep the version they started with.
+              Versions are immutable: bump <code className="font-mono">version</code> to save changes. Running workflows keep the version
+              they started with.
             </p>
             {validate.data && (
               <div className={`mt-2 text-xs ${validate.data.ok ? "text-success" : "text-danger"}`}>
@@ -98,7 +102,11 @@ function WorkflowDetail() {
               </div>
             )}
             {save.error && <p className="mt-2 text-xs text-danger">{(save.error as Error).message}</p>}
-            {save.data && <p className="mt-2 text-xs text-success">Saved {save.data.id} v{save.data.version}</p>}
+            {save.data && (
+              <p className="mt-2 text-xs text-success">
+                Saved {save.data.id} v{save.data.version}
+              </p>
+            )}
           </Section>
         </div>
       </div>

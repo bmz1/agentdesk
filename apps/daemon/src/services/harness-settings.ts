@@ -19,46 +19,57 @@ export const initialHarnessSettings = (): Settings => ({
   }
 })
 
-export class HarnessSettings extends Context.Service<HarnessSettings, {
-  readonly get: Effect.Effect<Settings, DbError>
-  readonly update: (body: UpdateHarnessSettingsBody) => Effect.Effect<Settings, DbError | BadRequest>
-}>()("agentdesk/HarnessSettings") {
-  static readonly layer = Layer.effect(HarnessSettings, Effect.gen(function* () {
-    const { use } = yield* Database
-    const notices = yield* Notices
-    const config = yield* DaemonConfig
-    const decode = Schema.decodeUnknownSync(SettingsSchema)
-    const get = use((db) => {
-      const stored = db.select().from(settings).where(eq(settings.key, key)).get()
-      return stored ? decode(stored.value) : initialHarnessSettings()
-    })
-    const update = Effect.fn("HarnessSettings.update")(function* (body: UpdateHarnessSettingsBody) {
-      const updates = body.harnesses ?? {}
-      for (const [id, profile] of Object.entries(updates)) {
-        if (!profile) continue
-        if (profile.permissionMode === "unrestricted" && !config.sandboxPrefix?.length) {
-          return yield* new BadRequest({ message: "Unrestricted permissions require AGENTDESK_SANDBOX_CMD. Configure a sandbox or choose another permission mode." })
-        }
-        if (id === "opencode" && profile.model?.trim() && !/^[^/\s]+\/.+/.test(profile.model.trim())) {
-          return yield* new BadRequest({ message: "OpenCode models must use provider/model, for example provider/model-name." })
-        }
-      }
-      // Merge and write in one SQLite callback so separate profile saves cannot clobber each other.
-      const result = yield* use((db) => {
-        const row = db.select().from(settings).where(eq(settings.key, key)).get()
-        const current = row ? decode(row.value) : initialHarnessSettings()
-        const harnesses = { ...current.harnesses }
-        for (const id of Object.keys(updates) as Array<HarnessId>) {
-          const value = updates[id]
-          if (value) harnesses[id] = { ...value, model: value.model?.trim() || null, instructions: value.instructions.trim() }
-        }
-        const next: Settings = { defaultHarness: body.defaultHarness ?? current.defaultHarness, harnesses }
-        db.insert(settings).values({ key, value: next }).onConflictDoUpdate({ target: settings.key, set: { value: next } }).run()
-        return next
+export class HarnessSettings extends Context.Service<
+  HarnessSettings,
+  {
+    readonly get: Effect.Effect<Settings, DbError>
+    readonly update: (body: UpdateHarnessSettingsBody) => Effect.Effect<Settings, DbError | BadRequest>
+  }
+>()("agentdesk/HarnessSettings") {
+  static readonly layer = Layer.effect(
+    HarnessSettings,
+    Effect.gen(function* () {
+      const { use } = yield* Database
+      const notices = yield* Notices
+      const config = yield* DaemonConfig
+      const decode = Schema.decodeUnknownSync(SettingsSchema)
+      const get = use((db) => {
+        const stored = db.select().from(settings).where(eq(settings.key, key)).get()
+        return stored ? decode(stored.value) : initialHarnessSettings()
       })
-      yield* notices.publish({ topic: "settings" })
-      return result
+      const update = Effect.fn("HarnessSettings.update")(function* (body: UpdateHarnessSettingsBody) {
+        const updates = body.harnesses ?? {}
+        for (const [id, profile] of Object.entries(updates)) {
+          if (!profile) continue
+          if (profile.permissionMode === "unrestricted" && !config.sandboxPrefix?.length) {
+            return yield* new BadRequest({
+              message: "Unrestricted permissions require AGENTDESK_SANDBOX_CMD. Configure a sandbox or choose another permission mode."
+            })
+          }
+          if (id === "opencode" && profile.model?.trim() && !/^[^/\s]+\/.+/.test(profile.model.trim())) {
+            return yield* new BadRequest({ message: "OpenCode models must use provider/model, for example provider/model-name." })
+          }
+        }
+        // Merge and write in one SQLite callback so separate profile saves cannot clobber each other.
+        const result = yield* use((db) => {
+          const row = db.select().from(settings).where(eq(settings.key, key)).get()
+          const current = row ? decode(row.value) : initialHarnessSettings()
+          const harnesses = { ...current.harnesses }
+          for (const id of Object.keys(updates) as Array<HarnessId>) {
+            const value = updates[id]
+            if (value) harnesses[id] = { ...value, model: value.model?.trim() || null, instructions: value.instructions.trim() }
+          }
+          const next: Settings = { defaultHarness: body.defaultHarness ?? current.defaultHarness, harnesses }
+          db.insert(settings)
+            .values({ key, value: next })
+            .onConflictDoUpdate({ target: settings.key, set: { value: next } })
+            .run()
+          return next
+        })
+        yield* notices.publish({ topic: "settings" })
+        return result
+      })
+      return HarnessSettings.of({ get, update })
     })
-    return HarnessSettings.of({ get, update })
-  }))
+  )
 }

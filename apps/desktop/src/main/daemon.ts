@@ -36,9 +36,7 @@ const healthy = async (url: string) => {
 
 /** Locate the daemon entrypoint: bundled build in production, TS sources in development. */
 const daemonCommand = (): { command: string; args: Array<string>; env: NodeJS.ProcessEnv } | undefined => {
-  const bundled = app.isPackaged
-    ? join(process.resourcesPath, "daemon", "main.js")
-    : resolve(__dirname, "../../../daemon/dist/main.js")
+  const bundled = app.isPackaged ? join(process.resourcesPath, "daemon", "main.js") : resolve(__dirname, "../../../daemon/dist/main.js")
   if (existsSync(bundled)) {
     // Prefer the system Node: better-sqlite3 is built for Node's ABI, not Electron's.
     const node = findNode()

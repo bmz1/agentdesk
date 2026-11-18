@@ -94,12 +94,30 @@ layer(NodeProcessLayer, { excludeTestServices: true })("Codex adapter (fake app-
     Effect.gen(function* () {
       const log = join(mkdtempSync(join(tmpdir(), "codex-defaults-")), "rpc.jsonl")
       const session = yield* adapter.resume!({
-        cwd: tmpdir(), providerSessionId: "thr_existing", prompt: "continue",
-        policy: { permissionMode: "plan", model: "chosen-model", appendSystemPrompt: "Follow the defaults.", env: { AGENTDESK_TEST_CODEX_LOG: log } }
+        cwd: tmpdir(),
+        providerSessionId: "thr_existing",
+        prompt: "continue",
+        policy: {
+          permissionMode: "plan",
+          model: "chosen-model",
+          appendSystemPrompt: "Follow the defaults.",
+          env: { AGENTDESK_TEST_CODEX_LOG: log }
+        }
       })
-      yield* session.events.pipe(Stream.takeUntil((e) => e.type === "turn.completed"), Stream.runDrain)
-      const request = readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line)).find((m) => m.method === "thread/resume")
-      expect(request.params).toMatchObject({ threadId: "thr_existing", model: "chosen-model", developerInstructions: "Follow the defaults." })
+      yield* session.events.pipe(
+        Stream.takeUntil((e) => e.type === "turn.completed"),
+        Stream.runDrain
+      )
+      const request = readFileSync(log, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line))
+        .find((m) => m.method === "thread/resume")
+      expect(request.params).toMatchObject({
+        threadId: "thr_existing",
+        model: "chosen-model",
+        developerInstructions: "Follow the defaults."
+      })
     })
   )
 
@@ -107,16 +125,33 @@ layer(NodeProcessLayer, { excludeTestServices: true })("Codex adapter (fake app-
     Effect.gen(function* () {
       const { seen } = yield* collect(
         "plan then ask",
-        (e, s) => (e.type === "approval.requested" ? s.respondToApproval(e.providerRequestId!, { decision: "allow", answers: { db: ["Postgres"] } }) : Effect.void),
+        (e, s) =>
+          e.type === "approval.requested"
+            ? s.respondToApproval(e.providerRequestId!, { decision: "allow", answers: { db: ["Postgres"] } })
+            : Effect.void,
         1
       )
       expect(seen.find((e) => e.type === "approval.requested")).toMatchObject({
         kind: "question",
         summary: "Which database?",
-        questions: [{ id: "db", header: "Database", question: "Which database?", allowOther: true, options: [{ label: "SQLite", description: "Embedded" }] }]
+        questions: [
+          {
+            id: "db",
+            header: "Database",
+            question: "Which database?",
+            allowOther: true,
+            options: [{ label: "SQLite", description: "Embedded" }]
+          }
+        ]
       })
       expect(seen.find((e) => e.type === "message.completed" && e.text.startsWith("answer"))).toMatchObject({ text: "answer: Postgres" })
-      expect(seen.find((e) => e.type === "plan.updated")).toEqual({ type: "plan.updated", items: [{ text: "Read", status: "completed" }, { text: "Write", status: "in_progress" }] })
+      expect(seen.find((e) => e.type === "plan.updated")).toEqual({
+        type: "plan.updated",
+        items: [
+          { text: "Read", status: "completed" },
+          { text: "Write", status: "in_progress" }
+        ]
+      })
       expect(seen.find((e) => e.type === "rate_limit")).toMatchObject({
         windows: [
           { id: "primary", label: "5-hour", usedPercent: 40, resetsAt: new Date(1800000000 * 1000).toISOString() },
@@ -124,7 +159,9 @@ layer(NodeProcessLayer, { excludeTestServices: true })("Codex adapter (fake app-
         ],
         limited: false
       })
-      expect(seen.find((e) => e.type === "turn.completed")).toMatchObject({ usage: { inputTokens: 500, cacheReadTokens: 1000, outputTokens: 70 } })
+      expect(seen.find((e) => e.type === "turn.completed")).toMatchObject({
+        usage: { inputTokens: 500, cacheReadTokens: 1000, outputTokens: 70 }
+      })
     })
   )
 
@@ -137,7 +174,9 @@ layer(NodeProcessLayer, { excludeTestServices: true })("Codex adapter (fake app-
           yield* session.events.pipe(
             Stream.tap((e) => {
               seen.push(e)
-              return e.type === "approval.requested" ? session.respondToApproval(e.providerRequestId!, { decision: "allow", scope: "session" }) : Effect.void
+              return e.type === "approval.requested"
+                ? session.respondToApproval(e.providerRequestId!, { decision: "allow", scope: "session" })
+                : Effect.void
             }),
             Stream.takeUntil((e) => e.type === "turn.completed"),
             Stream.runDrain
@@ -149,7 +188,9 @@ layer(NodeProcessLayer, { excludeTestServices: true })("Codex adapter (fake app-
       expect(auto.find((e) => e.type === "message.completed" && e.text.startsWith("edit"))).toMatchObject({ text: "edit: accept" })
       const asked = yield* run("ask")
       expect(asked.find((e) => e.type === "approval.requested")).toMatchObject({ toolName: "Edit", canAllowForSession: true })
-      expect(asked.find((e) => e.type === "message.completed" && e.text.startsWith("edit"))).toMatchObject({ text: "edit: acceptForSession" })
+      expect(asked.find((e) => e.type === "message.completed" && e.text.startsWith("edit"))).toMatchObject({
+        text: "edit: acceptForSession"
+      })
       // `untrusted` is retired upstream: asking modes escalate out of a read-only sandbox instead.
       expect(codexPolicy("ask")).toEqual({ approvalPolicy: "on-request", sandbox: "read-only" })
       expect(codexPolicy("accept_edits")).toEqual({ approvalPolicy: "on-request", sandbox: "read-only" })
@@ -163,7 +204,10 @@ layer(NodeProcessLayer, { excludeTestServices: true })("Codex adapter (fake app-
       yield* session.prompt("slowstart hang")
       yield* Effect.sleep("50 millis")
       yield* session.interrupt
-      const turn = yield* session.events.pipe(Stream.filter((e) => e.type === "turn.completed"), Stream.runHead)
+      const turn = yield* session.events.pipe(
+        Stream.filter((e) => e.type === "turn.completed"),
+        Stream.runHead
+      )
       expect(turn._tag === "Some" && turn.value).toMatchObject({ status: "interrupted" })
     })
   )

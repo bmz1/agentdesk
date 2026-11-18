@@ -11,9 +11,11 @@ const presentation = (e: ActivityEvent): { icon: React.ReactNode; tone: Tone } =
     const denied = /^(Denied|Rejected)\b/.test(e.message)
     return { icon: denied ? <X /> : <Check />, tone: denied ? "danger" : "success" }
   }
-  if (k.endsWith(".failed") || k.endsWith(".interrupted")) return { icon: k.startsWith("step") || k.startsWith("run") ? <Workflow /> : <Bot />, tone: "danger" }
+  if (k.endsWith(".failed") || k.endsWith(".interrupted"))
+    return { icon: k.startsWith("step") || k.startsWith("run") ? <Workflow /> : <Bot />, tone: "danger" }
   if (k.startsWith("session")) return { icon: <Bot />, tone: k === "session.started" ? "accent" : "neutral" }
-  if (k.startsWith("run") || k.startsWith("step")) return { icon: k.endsWith("started") ? <Play /> : <Workflow />, tone: k.endsWith("completed") ? "success" : "neutral" }
+  if (k.startsWith("run") || k.startsWith("step"))
+    return { icon: k.endsWith("started") ? <Play /> : <Workflow />, tone: k.endsWith("completed") ? "success" : "neutral" }
   if (k.startsWith("approval")) return { icon: <Hand />, tone: "neutral" }
   if (k.startsWith("pr")) return { icon: <GitPullRequest />, tone: "accent" }
   if (k.startsWith("workspace")) return { icon: <GitBranch />, tone: "neutral" }
@@ -50,7 +52,12 @@ const dayLabel = (iso: string) => {
   yesterday.setDate(today.getDate() - 1)
   if (d.toDateString() === today.toDateString()) return "Today"
   if (d.toDateString() === yesterday.toDateString()) return "Yesterday"
-  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: d.getFullYear() === today.getFullYear() ? undefined : "numeric" })
+  return d.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: d.getFullYear() === today.getFullYear() ? undefined : "numeric"
+  })
 }
 
 export const ActivityTimeline = ({ events, groupByDay = false }: { events: ReadonlyArray<ActivityEvent>; groupByDay?: boolean }) => {
@@ -87,7 +94,9 @@ const Entry = ({ event, last }: { event: ActivityEvent; last: boolean }) => {
   return (
     <li className="grid grid-cols-[24px_1fr] gap-x-3">
       <div className="flex flex-col items-center">
-        <span className={cn("flex size-6 shrink-0 items-center justify-center rounded-full [&_svg]:size-3.5", toneClass[tone])}>{icon}</span>
+        <span className={cn("flex size-6 shrink-0 items-center justify-center rounded-full [&_svg]:size-3.5", toneClass[tone])}>
+          {icon}
+        </span>
         {!last && <span className="my-1 w-px flex-1 bg-border" />}
       </div>
       <div className={cn("min-w-0", last ? "pb-1" : "pb-5")}>

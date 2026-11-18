@@ -14,7 +14,9 @@ describe("source registry", () => {
 
   it.effect("decodes settings per source and fails with typed errors", () =>
     Effect.gen(function* () {
-      expect(yield* registry.decodeSettings("linear", { teamKey: "ENG", assignee: "mine", states: "open" })).toMatchObject({ teamKey: "ENG" })
+      expect(yield* registry.decodeSettings("linear", { teamKey: "ENG", assignee: "mine", states: "open" })).toMatchObject({
+        teamKey: "ENG"
+      })
       expect((yield* Effect.flip(registry.decodeSettings("linear", { teamKey: "ENG" })))._tag).toBe("SchemaError")
       expect(yield* Effect.flip(registry.get("trello"))).toMatchObject({ _tag: "TaskSourceError", kind: "config" })
     })

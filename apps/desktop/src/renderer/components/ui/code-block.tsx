@@ -11,15 +11,13 @@ const codeBlockVariants = cva(
   {
     variants: {
       variant: {
-        default:
-          "bg-muted text-foreground ring-1 ring-foreground/5 dark:ring-foreground/10",
-        destructive:
-          "bg-destructive/5 text-destructive ring-1 ring-destructive/15 dark:bg-destructive/10 dark:ring-destructive/20",
-      },
+        default: "bg-muted text-foreground ring-1 ring-foreground/5 dark:ring-foreground/10",
+        destructive: "bg-destructive/5 text-destructive ring-1 ring-destructive/15 dark:bg-destructive/10 dark:ring-destructive/20"
+      }
     },
     defaultVariants: {
-      variant: "default",
-    },
+      variant: "default"
+    }
   }
 )
 
@@ -28,8 +26,7 @@ function CodeBlock({
   variant = "default",
   size = "default",
   ...props
-}: React.ComponentProps<"div"> &
-  VariantProps<typeof codeBlockVariants> & { size?: "default" | "sm" }) {
+}: React.ComponentProps<"div"> & VariantProps<typeof codeBlockVariants> & { size?: "default" | "sm" }) {
   return (
     <div
       data-slot="code-block"
@@ -67,10 +64,7 @@ function CodeBlockTitle({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-function CodeBlockActions({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
+function CodeBlockActions({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="code-block-actions"
@@ -92,15 +86,7 @@ function CodeBlockCopyButton({
   ...props
 }: React.ComponentProps<typeof Button> & { value: string }) {
   const [copied, setCopied] = React.useState(false)
-
-  React.useEffect(() => {
-    if (!copied) {
-      return
-    }
-
-    const timeout = setTimeout(() => setCopied(false), 2000)
-    return () => clearTimeout(timeout)
-  }, [copied])
+  const reset = React.useRef<ReturnType<typeof setTimeout>>(undefined)
 
   return (
     <>
@@ -110,15 +96,16 @@ function CodeBlockCopyButton({
         variant={variant}
         size={size}
         aria-label={copied ? "Copied" : "Copy"}
-        className={cn(
-          "hover:bg-foreground/5 dark:hover:bg-foreground/10",
-          className
-        )}
+        className={cn("hover:bg-foreground/5 dark:hover:bg-foreground/10", className)}
         onClick={(event) => {
           onClick?.(event)
           navigator.clipboard
             .writeText(value)
-            .then(() => setCopied(true))
+            .then(() => {
+              setCopied(true)
+              clearTimeout(reset.current)
+              reset.current = setTimeout(() => setCopied(false), 2000)
+            })
             .catch(() => {})
         }}
         {...props}
@@ -167,9 +154,7 @@ function CodeBlockContent({
           ? children
               .replace(/\n$/, "")
               .split("\n")
-              .map((line, index) => (
-                <CodeBlockLine key={index}>{line}</CodeBlockLine>
-              ))
+              .map((line, index) => <CodeBlockLine key={index}>{line}</CodeBlockLine>)
           : children}
       </code>
     </pre>
@@ -184,12 +169,12 @@ const codeBlockLineVariants = cva(
         default: "",
         added: "bg-foreground/5 after:content-['+']",
         removed: "bg-destructive/10 after:text-destructive after:content-['−']",
-        highlighted: "bg-foreground/5",
-      },
+        highlighted: "bg-foreground/5"
+      }
     },
     defaultVariants: {
-      variant: "default",
-    },
+      variant: "default"
+    }
   }
 )
 
@@ -200,19 +185,10 @@ function CodeBlockLine({
   ...props
 }: React.ComponentProps<"span"> & VariantProps<typeof codeBlockLineVariants>) {
   // An empty line holds a newline so copying a selection keeps blank lines.
-  const empty =
-    children === undefined ||
-    children === null ||
-    children === "" ||
-    (Array.isArray(children) && children.length === 0)
+  const empty = children === undefined || children === null || children === "" || (Array.isArray(children) && children.length === 0)
 
   return (
-    <span
-      data-slot="code-block-line"
-      data-variant={variant}
-      className={cn(codeBlockLineVariants({ variant }), className)}
-      {...props}
-    >
+    <span data-slot="code-block-line" data-variant={variant} className={cn(codeBlockLineVariants({ variant }), className)} {...props}>
       <span data-slot="code-block-line-content" className="min-w-0">
         {empty ? "\n" : children}
       </span>
@@ -241,5 +217,5 @@ export {
   CodeBlockCopyButton,
   CodeBlockContent,
   CodeBlockLine,
-  CodeBlockFooter,
+  CodeBlockFooter
 }

@@ -90,7 +90,10 @@ const HARNESS_GLYPH: Record<HarnessId, { icon: typeof Bot; className: string }> 
 export const HarnessIcon = ({ harness, className }: { harness: HarnessId; className?: string }) => {
   const g = HARNESS_GLYPH[harness] ?? HARNESS_GLYPH.mock
   return (
-    <span className={cn("flex size-4 shrink-0 items-center justify-center rounded-[4px] [&_svg]:!size-2.5", g.className, className)} title={HARNESS_LABELS[harness]}>
+    <span
+      className={cn("flex size-4 shrink-0 items-center justify-center rounded-[4px] [&_svg]:!size-2.5", g.className, className)}
+      title={HARNESS_LABELS[harness]}
+    >
       <g.icon />
     </span>
   )
@@ -150,21 +153,36 @@ const sessionTone: Record<SessionState, "neutral" | "accent" | "success" | "warn
   closed: "neutral"
 }
 
-export const SessionStateBadge = ({ state, compact = false }: { state: SessionState; compact?: boolean }) => compact ? (
-  <span title={SESSION_LABELS[state]} aria-label={SESSION_LABELS[state]} className={cn("flex size-4 shrink-0 items-center justify-center", state === "waiting_for_approval" ? "text-warning" : state === "failed" || state === "interrupted" ? "text-danger" : "text-fg-subtle")}>
-    {state === "starting" || state === "running" ? <Loader2 className="size-3 animate-spin text-accent" /> :
-      state === "waiting_for_approval" ? <Hand className="size-3" /> :
-      state === "failed" || state === "interrupted" ? <XCircle className="size-3" /> :
-      state === "idle" ? <CircleDot className="size-3" /> : <CheckCircle2 className="size-3" />}
-  </span>
-) : (
-  <Badge tone={sessionTone[state]}>
-    {state === "running" || state === "starting" ? <Loader2 className="animate-spin" /> : null}
-    {state === "waiting_for_approval" ? <Hand /> : null}
-    {state === "interrupted" ? <PauseCircle /> : null}
-    {SESSION_LABELS[state]}
-  </Badge>
-)
+export const SessionStateBadge = ({ state, compact = false }: { state: SessionState; compact?: boolean }) =>
+  compact ? (
+    <span
+      title={SESSION_LABELS[state]}
+      aria-label={SESSION_LABELS[state]}
+      className={cn(
+        "flex size-4 shrink-0 items-center justify-center",
+        state === "waiting_for_approval" ? "text-warning" : state === "failed" || state === "interrupted" ? "text-danger" : "text-fg-subtle"
+      )}
+    >
+      {state === "starting" || state === "running" ? (
+        <Loader2 className="size-3 animate-spin text-accent" />
+      ) : state === "waiting_for_approval" ? (
+        <Hand className="size-3" />
+      ) : state === "failed" || state === "interrupted" ? (
+        <XCircle className="size-3" />
+      ) : state === "idle" ? (
+        <CircleDot className="size-3" />
+      ) : (
+        <CheckCircle2 className="size-3" />
+      )}
+    </span>
+  ) : (
+    <Badge tone={sessionTone[state]}>
+      {state === "running" || state === "starting" ? <Loader2 className="animate-spin" /> : null}
+      {state === "waiting_for_approval" ? <Hand /> : null}
+      {state === "interrupted" ? <PauseCircle /> : null}
+      {SESSION_LABELS[state]}
+    </Badge>
+  )
 
 export const NeedsInputDot = () => (
   <span className="relative flex size-2" title="Agent needs your input">

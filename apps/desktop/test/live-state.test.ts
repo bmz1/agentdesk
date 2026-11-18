@@ -104,9 +104,7 @@ describe("pushed session notices", () => {
 
     // A late, older snapshot does not roll the session back.
     applyNotice({ topic: "sessions", sessionId: "a", ticketId: "t", session: a })
-    expect(queryClient.getQueryData<Array<AgentSession>>(qk.sessions(false))?.find((s) => s.id === "a")?.state).toBe(
-      "waiting_for_approval"
-    )
+    expect(queryClient.getQueryData<Array<AgentSession>>(qk.sessions(false))?.find((s) => s.id === "a")?.state).toBe("waiting_for_approval")
 
     applyNotice({ topic: "sessions", sessionId: "a", ticketId: "t", session: { ...blocked, state: "closed", lastEventId: 12 } })
     expect(queryClient.getQueryData<Array<AgentSession>>(qk.sessions(true))?.map((s) => s.id)).toEqual(["b"])
@@ -120,7 +118,14 @@ describe("ticket notices", () => {
   afterEach(() => queryClient.clear())
 
   it("leave a ticket's session, approval and activity queries alone", () => {
-    for (const key of [qk.ticket("t"), qk.ticketDiff("t"), qk.ticketSessions("t"), qk.ticketActivity("t"), qk.ticketApprovals("t"), qk.tickets({})]) {
+    for (const key of [
+      qk.ticket("t"),
+      qk.ticketDiff("t"),
+      qk.ticketSessions("t"),
+      qk.ticketActivity("t"),
+      qk.ticketApprovals("t"),
+      qk.tickets({})
+    ]) {
       queryClient.setQueryData(key, [])
     }
     applyNotice({ topic: "tickets", ticketId: "t" })
@@ -143,6 +148,9 @@ describe("limits notices", () => {
     queryClient.setQueryData(qk.limits, [limits("claude", 10), limits("codex", 50)])
     applyNotice({ topic: "limits", limits: limits("claude", 42) })
     const now = queryClient.getQueryData<ReadonlyArray<{ harness: string; windows: ReadonlyArray<{ usedPercent: number }> }>>(qk.limits)
-    expect(now?.map((l) => [l.harness, l.windows[0]!.usedPercent])).toEqual([["codex", 50], ["claude", 42]])
+    expect(now?.map((l) => [l.harness, l.windows[0]!.usedPercent])).toEqual([
+      ["codex", 50],
+      ["claude", 42]
+    ])
   })
 })

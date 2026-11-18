@@ -83,21 +83,39 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
     }))
   )
 
-  app.get("/settings/harnesses", (c) => respond(c, HarnessSettings.use((s) => s.get)))
-  app.patch("/settings/harnesses", (c) => respond(c,
-    body(c, UpdateHarnessSettingsBody).pipe(Effect.flatMap((b) => HarnessSettings.use((s) => s.update(b))))
-  ))
+  app.get("/settings/harnesses", (c) =>
+    respond(
+      c,
+      HarnessSettings.use((s) => s.get)
+    )
+  )
+  app.patch("/settings/harnesses", (c) =>
+    respond(c, body(c, UpdateHarnessSettingsBody).pipe(Effect.flatMap((b) => HarnessSettings.use((s) => s.update(b)))))
+  )
 
   // ---- projects --------------------------------------------------------------------
-  app.get("/projects", (c) => respond(c, Projects.use((p) => p.list)))
-  app.post("/projects", (c) =>
-    respond(c, body(c, CreateProjectBody).pipe(Effect.flatMap((b) => Projects.use((p) => p.create(b)))), 201)
+  app.get("/projects", (c) =>
+    respond(
+      c,
+      Projects.use((p) => p.list)
+    )
   )
-  app.get("/projects/:id", (c) => respond(c, Projects.use((p) => p.get(id(c)))))
+  app.post("/projects", (c) => respond(c, body(c, CreateProjectBody).pipe(Effect.flatMap((b) => Projects.use((p) => p.create(b)))), 201))
+  app.get("/projects/:id", (c) =>
+    respond(
+      c,
+      Projects.use((p) => p.get(id(c)))
+    )
+  )
   app.patch("/projects/:id", (c) =>
     respond(c, body(c, UpdateProjectBody).pipe(Effect.flatMap((b) => Projects.use((p) => p.update(id(c), b)))))
   )
-  app.delete("/projects/:id", (c) => respond(c, Projects.use((p) => p.remove(id(c)))))
+  app.delete("/projects/:id", (c) =>
+    respond(
+      c,
+      Projects.use((p) => p.remove(id(c)))
+    )
+  )
 
   // ---- tickets ---------------------------------------------------------------------
   app.get("/tickets", (c) => {
@@ -118,17 +136,42 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
     )
   })
   app.post("/tickets", (c) => respond(c, body(c, CreateTicketBody).pipe(Effect.flatMap((b) => Tickets.use((t) => t.create(b)))), 201))
-  app.get("/tickets/:id", (c) => respond(c, Tickets.use((t) => t.get(id(c)))))
+  app.get("/tickets/:id", (c) =>
+    respond(
+      c,
+      Tickets.use((t) => t.get(id(c)))
+    )
+  )
   app.patch("/tickets/:id", (c) =>
     respond(c, body(c, UpdateTicketBody).pipe(Effect.flatMap((b) => Tickets.use((t) => t.update(id(c), b)))))
   )
-  app.delete("/tickets/:id", (c) => respond(c, Tickets.use((t) => t.remove(id(c)))))
-  app.get("/tickets/:id/activity", (c) => respond(c, Activity.use((a) => a.list({ ticketId: id(c), limit: 300 }))))
-  app.get("/tickets/:id/sessions", (c) => respond(c, Sessions.use((s) => s.list({ ticketId: id(c) }))))
+  app.delete("/tickets/:id", (c) =>
+    respond(
+      c,
+      Tickets.use((t) => t.remove(id(c)))
+    )
+  )
+  app.get("/tickets/:id/activity", (c) =>
+    respond(
+      c,
+      Activity.use((a) => a.list({ ticketId: id(c), limit: 300 }))
+    )
+  )
+  app.get("/tickets/:id/sessions", (c) =>
+    respond(
+      c,
+      Sessions.use((s) => s.list({ ticketId: id(c) }))
+    )
+  )
   app.post("/tickets/:id/sessions", (c) =>
     respond(c, body(c, StartSessionBody).pipe(Effect.flatMap((b) => Sessions.use((s) => s.startForTicket(id(c), b)))), 201)
   )
-  app.get("/tickets/:id/approvals", (c) => respond(c, Approvals.use((a) => a.list({ ticketId: id(c) }))))
+  app.get("/tickets/:id/approvals", (c) =>
+    respond(
+      c,
+      Approvals.use((a) => a.list({ ticketId: id(c) }))
+    )
+  )
   app.get("/tickets/:id/diff", (c) =>
     respond(
       c,
@@ -161,16 +204,37 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
   app.get("/tickets/:id/file", (c) => respond(c, readTicketFile(id(c), c.req.query("path") ?? "")))
   app.put("/tickets/:id/file", (c) => respond(c, body(c, WriteFileBody).pipe(Effect.flatMap((b) => writeTicketFile(id(c), b)))))
   app.get("/tickets/:id/workspace", (c) =>
-    respond(c, Workspaces.use((w) => w.latestForTicket(id(c)).pipe(Effect.map((ws) => ws ?? null))))
+    respond(
+      c,
+      Workspaces.use((w) => w.latestForTicket(id(c)).pipe(Effect.map((ws) => ws ?? null)))
+    )
   )
   app.post("/workspaces/:id/cleanup", (c) =>
-    respond(c, Workspaces.use((w) => w.cleanup(id(c), c.req.query("force") === "1")))
+    respond(
+      c,
+      Workspaces.use((w) => w.cleanup(id(c), c.req.query("force") === "1"))
+    )
   )
 
   // ---- sessions --------------------------------------------------------------------
-  app.get("/sessions", (c) => respond(c, Sessions.use((s) => s.list({ active: c.req.query("active") === "1", limit: 100 }))))
-  app.get("/sessions/:id", (c) => respond(c, Sessions.use((s) => s.get(id(c)))))
-  app.get("/sessions/:id/preview", (c) => respond(c, EventLog.use((e) => e.preview(id(c)))))
+  app.get("/sessions", (c) =>
+    respond(
+      c,
+      Sessions.use((s) => s.list({ active: c.req.query("active") === "1", limit: 100 }))
+    )
+  )
+  app.get("/sessions/:id", (c) =>
+    respond(
+      c,
+      Sessions.use((s) => s.get(id(c)))
+    )
+  )
+  app.get("/sessions/:id/preview", (c) =>
+    respond(
+      c,
+      EventLog.use((e) => e.preview(id(c)))
+    )
+  )
   // `?tail=N` returns the newest N events (ascending); `?before=<id>` pages further back.
   app.get("/sessions/:id/history", (c) => {
     const tail = Number(c.req.query("tail") ?? 0) || 0
@@ -189,35 +253,58 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
   app.get("/sessions/:id/events", (c) => {
     const after = Number(c.req.query("after") ?? c.req.header("last-event-id") ?? 0) || 0
     const sessionId = id(c)
-    return sseFromStream(
-      c,
-      runtime,
-      Stream.unwrap(EventLog.use((e) => Effect.succeed(e.subscribe(sessionId, after)))),
-      (e) => ({ id: String(e.id), event: "agent", data: JSON.stringify(e) })
-    )
+    return sseFromStream(c, runtime, Stream.unwrap(EventLog.use((e) => Effect.succeed(e.subscribe(sessionId, after)))), (e) => ({
+      id: String(e.id),
+      event: "agent",
+      data: JSON.stringify(e)
+    }))
   })
   app.post("/sessions/:id/prompt", (c) =>
     respond(
       c,
       body(c, PromptBody).pipe(
-        Effect.flatMap((b) => Sessions.use((s) => s.prompt(id(c), b.text, "user", b.images, {
-          ...(b.model !== undefined && { model: b.model }),
-          ...(b.effort !== undefined && { effort: b.effort }),
-          ...(b.permissionMode !== undefined && { permissionMode: b.permissionMode })
-        }))),
+        Effect.flatMap((b) =>
+          Sessions.use((s) =>
+            s.prompt(id(c), b.text, "user", b.images, {
+              ...(b.model !== undefined && { model: b.model }),
+              ...(b.effort !== undefined && { effort: b.effort }),
+              ...(b.permissionMode !== undefined && { permissionMode: b.permissionMode })
+            })
+          )
+        ),
         // Continuing an interrupted workflow step by hand resumes its run around that conversation.
         Effect.tap(() => Workflows.use((w) => w.continueFromSession(id(c))))
       )
     )
   )
-  app.post("/sessions/:id/interrupt", (c) => respond(c, Sessions.use((s) => s.interrupt(id(c)))))
-  app.post("/sessions/:id/stop", (c) => respond(c, Sessions.use((s) => s.stop(id(c)))))
+  app.post("/sessions/:id/interrupt", (c) =>
+    respond(
+      c,
+      Sessions.use((s) => s.interrupt(id(c)))
+    )
+  )
+  app.post("/sessions/:id/stop", (c) =>
+    respond(
+      c,
+      Sessions.use((s) => s.stop(id(c)))
+    )
+  )
 
   // ---- account limits ---------------------------------------------------------------
-  app.get("/limits", (c) => respond(c, Limits.use((l) => l.list)))
+  app.get("/limits", (c) =>
+    respond(
+      c,
+      Limits.use((l) => l.list)
+    )
+  )
 
   // ---- approvals -------------------------------------------------------------------
-  app.get("/approvals", (c) => respond(c, Approvals.use((a) => a.list({ pending: c.req.query("pending") === "1" }))))
+  app.get("/approvals", (c) =>
+    respond(
+      c,
+      Approvals.use((a) => a.list({ pending: c.req.query("pending") === "1" }))
+    )
+  )
   app.post("/approvals/:id/decision", (c) =>
     respond(
       c,
@@ -239,20 +326,48 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
   )
 
   // ---- task sources (read-only sync: Jira, Linear, …) ------------------------------------
-  app.get("/sources", (c) => respond(c, TaskSync.use((t) => Effect.succeed(t.sources))))
-  app.get("/sources/connections", (c) => respond(c, TaskSync.use((t) => t.list)))
+  app.get("/sources", (c) =>
+    respond(
+      c,
+      TaskSync.use((t) => Effect.succeed(t.sources))
+    )
+  )
+  app.get("/sources/connections", (c) =>
+    respond(
+      c,
+      TaskSync.use((t) => t.list)
+    )
+  )
   app.post("/sources/connections", (c) =>
     respond(c, body(c, CreateSourceConnectionBody).pipe(Effect.flatMap((b) => TaskSync.use((t) => t.create(b)))), 201)
   )
-  app.get("/sources/connections/:id", (c) => respond(c, TaskSync.use((t) => t.get(id(c)))))
+  app.get("/sources/connections/:id", (c) =>
+    respond(
+      c,
+      TaskSync.use((t) => t.get(id(c)))
+    )
+  )
   app.patch("/sources/connections/:id", (c) =>
     respond(c, body(c, UpdateSourceConnectionBody).pipe(Effect.flatMap((b) => TaskSync.use((t) => t.update(id(c), b)))))
   )
-  app.delete("/sources/connections/:id", (c) => respond(c, TaskSync.use((t) => t.remove(id(c)))))
-  app.post("/sources/connections/:id/sync", (c) =>
-    respond(c, TaskSync.use((t) => t.sync(id(c), { full: c.req.query("full") === "1" })))
+  app.delete("/sources/connections/:id", (c) =>
+    respond(
+      c,
+      TaskSync.use((t) => t.remove(id(c)))
+    )
   )
-  app.post("/sources/connections/:id/test", (c) => respond(c, TaskSync.use((t) => t.test(id(c)))))
+  app.post("/sources/connections/:id/sync", (c) =>
+    respond(
+      c,
+      TaskSync.use((t) => t.sync(id(c), { full: c.req.query("full") === "1" }))
+    )
+  )
+  app.post("/sources/connections/:id/test", (c) =>
+    respond(
+      c,
+      TaskSync.use((t) => t.test(id(c)))
+    )
+  )
 
   // ---- deprecated /jira/* aliases (one release), translated to the generic API --------------
   const asLegacyJira = (s: SourceConnection) => {
@@ -261,7 +376,10 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
     return { ...rest, ...settings }
   }
   app.get("/jira/connections", (c) =>
-    respond(c, TaskSync.use((t) => t.list.pipe(Effect.map((all) => all.filter((x) => x.provider === "jira").map(asLegacyJira)))))
+    respond(
+      c,
+      TaskSync.use((t) => t.list.pipe(Effect.map((all) => all.filter((x) => x.provider === "jira").map(asLegacyJira))))
+    )
   )
   app.post("/jira/connections", (c) =>
     respond(
@@ -290,31 +408,103 @@ export const makeApp = (runtime: AppRuntime, config: DaemonConfigShape) => {
       })
     )
   )
-  app.delete("/jira/connections/:id", (c) => respond(c, TaskSync.use((t) => t.remove(id(c)))))
-  app.post("/jira/connections/:id/sync", (c) => respond(c, TaskSync.use((t) => t.sync(id(c), { full: c.req.query("full") === "1" }))))
-  app.post("/jira/connections/:id/test", (c) => respond(c, TaskSync.use((t) => t.test(id(c)))))
+  app.delete("/jira/connections/:id", (c) =>
+    respond(
+      c,
+      TaskSync.use((t) => t.remove(id(c)))
+    )
+  )
+  app.post("/jira/connections/:id/sync", (c) =>
+    respond(
+      c,
+      TaskSync.use((t) => t.sync(id(c), { full: c.req.query("full") === "1" }))
+    )
+  )
+  app.post("/jira/connections/:id/test", (c) =>
+    respond(
+      c,
+      TaskSync.use((t) => t.test(id(c)))
+    )
+  )
 
   // ---- workflows ---------------------------------------------------------------------
-  app.get("/workflows", (c) => respond(c, Workflows.use((w) => w.definitions)))
-  app.post("/workflows", (c) => respond(c, body(c, SaveWorkflowBody).pipe(Effect.flatMap((b) => Workflows.use((w) => w.save(b.yaml)))), 201))
+  app.get("/workflows", (c) =>
+    respond(
+      c,
+      Workflows.use((w) => w.definitions)
+    )
+  )
+  app.post("/workflows", (c) =>
+    respond(c, body(c, SaveWorkflowBody).pipe(Effect.flatMap((b) => Workflows.use((w) => w.save(b.yaml)))), 201)
+  )
   app.post("/workflows/validate", (c) =>
     respond(c, body(c, SaveWorkflowBody).pipe(Effect.flatMap((b) => Workflows.use((w) => w.validate(b.yaml)))))
   )
-  app.get("/workflows/:id", (c) => respond(c, Workflows.use((w) => w.definition(id(c)))))
+  app.get("/workflows/:id", (c) =>
+    respond(
+      c,
+      Workflows.use((w) => w.definition(id(c)))
+    )
+  )
   app.post("/tickets/:id/start-run", (c) =>
     respond(c, body(c, StartRunBody).pipe(Effect.flatMap((b) => Workflows.use((w) => w.start(id(c), b)))), 201)
   )
-  app.get("/tickets/:id/runs", (c) => respond(c, Workflows.use((w) => w.list({ ticketId: id(c) }))))
-  app.get("/runs", (c) => respond(c, Workflows.use((w) => w.list({ status: c.req.query("status") || undefined }))))
-  app.get("/runs/:id", (c) => respond(c, Workflows.use((w) => w.get(id(c)))))
-  app.post("/runs/:id/cancel", (c) => respond(c, Workflows.use((w) => w.cancel(id(c)))))
-  app.post("/runs/:id/resume", (c) => respond(c, Workflows.use((w) => w.resume(id(c)))))
-  app.post("/runs/:id/retry", (c) => respond(c, Workflows.use((w) => w.retry(id(c)))))
-  app.get("/artifacts/:id", (c) => respond(c, Workflows.use((w) => w.artifact(id(c)))))
+  app.get("/tickets/:id/runs", (c) =>
+    respond(
+      c,
+      Workflows.use((w) => w.list({ ticketId: id(c) }))
+    )
+  )
+  app.get("/runs", (c) =>
+    respond(
+      c,
+      Workflows.use((w) => w.list({ status: c.req.query("status") || undefined }))
+    )
+  )
+  app.get("/runs/:id", (c) =>
+    respond(
+      c,
+      Workflows.use((w) => w.get(id(c)))
+    )
+  )
+  app.post("/runs/:id/cancel", (c) =>
+    respond(
+      c,
+      Workflows.use((w) => w.cancel(id(c)))
+    )
+  )
+  app.post("/runs/:id/resume", (c) =>
+    respond(
+      c,
+      Workflows.use((w) => w.resume(id(c)))
+    )
+  )
+  app.post("/runs/:id/retry", (c) =>
+    respond(
+      c,
+      Workflows.use((w) => w.retry(id(c)))
+    )
+  )
+  app.get("/artifacts/:id", (c) =>
+    respond(
+      c,
+      Workflows.use((w) => w.artifact(id(c)))
+    )
+  )
 
   // ---- misc ------------------------------------------------------------------------
-  app.get("/harnesses/detect", (c) => respond(c, Harnesses.use((h) => h.detect(c.req.query("refresh") === "1"))))
-  app.get("/activity", (c) => respond(c, Activity.use((a) => a.list({ limit: Number(c.req.query("limit") ?? 100) }))))
+  app.get("/harnesses/detect", (c) =>
+    respond(
+      c,
+      Harnesses.use((h) => h.detect(c.req.query("refresh") === "1"))
+    )
+  )
+  app.get("/activity", (c) =>
+    respond(
+      c,
+      Activity.use((a) => a.list({ limit: Number(c.req.query("limit") ?? 100) }))
+    )
+  )
 
   app.notFound((c) => c.json({ error: "NotFound", message: `No route for ${c.req.method} ${c.req.path}` }, 404))
   app.onError((err, c) => c.json({ error: "InternalError", message: err.message }, 500))

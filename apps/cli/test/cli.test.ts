@@ -30,7 +30,11 @@ const cli = (url: string, env: NodeJS.ProcessEnv = {}, cwd = process.cwd()) => {
 }
 
 describe("target resolution", () => {
-  const items = [{ id: "abcd1234", key: "AD" }, { id: "abcd5678", key: "WEB" }, { id: "ffff0000", key: "OPS" }]
+  const items = [
+    { id: "abcd1234", key: "AD" },
+    { id: "abcd5678", key: "WEB" },
+    { id: "ffff0000", key: "OPS" }
+  ]
   it("prefers exact ids, then keys, then unique prefixes of 4+ characters", () => {
     expect(resolveOne("project", "ffff0000", items, (i) => i.key).id).toBe("ffff0000")
     expect(resolveOne("project", "web", items, (i) => i.key).id).toBe("abcd5678")
@@ -118,7 +122,9 @@ describe("agentdesk CLI", () => {
     expect(session.statusDetail).toBe("Asks: Which database should I use?")
     const [question] = (await run("approvals", "--json")).json()
     expect((await run("approve", question.id)).code).toBe(Exit.usage)
-    expect((await run("answer", question.id, "a", "b")).stderr).toMatch(/Give 1 answer\(s\).*\n  1\. Which database should I use\? \[SQLite \| Postgres\]/s)
+    expect((await run("answer", question.id, "a", "b")).stderr).toMatch(
+      /Give 1 answer\(s\).*\n  1\. Which database should I use\? \[SQLite \| Postgres\]/s
+    )
     expect((await cli(daemon.url, { AGENTDESK_SESSION_ID: session.id })("answer", question.id, "x")).code).toBe(Exit.failed)
     expect((await run("answer", question.id.slice(0, 8), "postgres")).code).toBe(Exit.ok)
 

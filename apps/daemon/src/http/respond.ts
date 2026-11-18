@@ -70,7 +70,8 @@ export class RawBody {
  *  - interruption when the client disconnects (AbortSignal).
  * Defects and interruptions become 500s and are logged with the full Cause.
  */
-export const makeResponder = (runtime: AppRuntime) =>
+export const makeResponder =
+  (runtime: AppRuntime) =>
   async <A, E extends AppError>(c: Context, effect: Effect.Effect<A, E, AppServices>, status: ContentfulStatusCode = 200) => {
     const route = c.req.routePath
     const exit = await runtime.runPromiseExit(
@@ -98,7 +99,10 @@ export const makeResponder = (runtime: AppRuntime) =>
       const { status: code, ...body } = toHttpError(failure.value)
       return c.json(body, code)
     }
-    return c.json({ error: "InternalError", message: Cause.hasInterruptsOnly(exit.cause) ? "Request interrupted" : "Unexpected error" }, 500)
+    return c.json(
+      { error: "InternalError", message: Cause.hasInterruptsOnly(exit.cause) ? "Request interrupted" : "Unexpected error" },
+      500
+    )
   }
 
 /** Read and validate a JSON body inside Effect; malformed JSON decodes as `{}` and fails validation. */

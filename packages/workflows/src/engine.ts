@@ -13,8 +13,7 @@ export type NextAction =
   | { readonly type: "complete" }
   | { readonly type: "fail"; readonly reason: string }
 
-const attemptsOf = (attempts: ReadonlyArray<StepAttempt>, stepIndex: number) =>
-  attempts.filter((a) => a.stepIndex === stepIndex).length
+const attemptsOf = (attempts: ReadonlyArray<StepAttempt>, stepIndex: number) => attempts.filter((a) => a.stepIndex === stepIndex).length
 
 /**
  * Pure workflow state transition: given the plan and the ordered history of
@@ -54,10 +53,7 @@ export const nextAction = (plan: ExecutionPlan, attempts: ReadonlyArray<StepAtte
       }
       return {
         type: "fail",
-        reason:
-          step.retryStepIndex !== undefined
-            ? `Step "${step.id}" failed after ${failures} attempt(s)`
-            : `Step "${step.id}" failed`
+        reason: step.retryStepIndex !== undefined ? `Step "${step.id}" failed after ${failures} attempt(s)` : `Step "${step.id}" failed`
       }
     }
   }

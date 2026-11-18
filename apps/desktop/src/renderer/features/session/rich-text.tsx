@@ -9,17 +9,19 @@ export const RichText = ({ text }: { text: string }) => {
   return (
     <div className="prose-agent whitespace-pre-wrap break-words leading-relaxed">
       {parts.map((part, i) =>
-        i % 2 === 1 ? (
-          <pre key={i}>{part.replace(/\n$/, "")}</pre>
-        ) : (
-          <Fragment key={i}>{renderInline(part)}</Fragment>
-        )
+        i % 2 === 1 ? <pre key={i}>{part.replace(/\n$/, "")}</pre> : <Fragment key={i}>{renderInline(part)}</Fragment>
       )}
     </div>
   )
 }
 
 const renderInline = (text: string) =>
-  text.split(/(`[^`\n]+`)/).map((seg, i) =>
-    seg.startsWith("`") && seg.endsWith("`") && seg.length > 2 ? <code key={i}>{seg.slice(1, -1)}</code> : <Fragment key={i}>{seg}</Fragment>
-  )
+  text
+    .split(/(`[^`\n]+`)/)
+    .map((seg, i) =>
+      seg.startsWith("`") && seg.endsWith("`") && seg.length > 2 ? (
+        <code key={i}>{seg.slice(1, -1)}</code>
+      ) : (
+        <Fragment key={i}>{seg}</Fragment>
+      )
+    )
